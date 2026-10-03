@@ -1,0 +1,17 @@
+{
+  "name": "@fjsp/fjsp-tools",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": "./index.mjs",
+  "agnes": {
+    "plugins": [
+      {
+        "export": "fjspTools",
+        "id": "ext:fjsp/fjsp-tools",
+        "inject": ["extension"]
+      }
+    ]
+  }
+}

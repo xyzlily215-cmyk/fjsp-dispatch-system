@@ -1,0 +1,54 @@
+<mxfile host="app.diagrams.net" modified="2026-09-20T17:15:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="fjsp-top-use-case" name="顶层用例模型">
+    <mxGraphModel dx="1200" dy="1800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="boundary" value="动态柔性车间生产调度与仿真决策系统" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=top;spacingTop=12;strokeWidth=2;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="300" y="30" width="600" height="1640" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc1" value="工作台与调度看板" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="100" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc2" value="设备与设备日历管理" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="230" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc3" value="工艺模板管理" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="360" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc4" value="订单与工序管理" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="490" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc5" value="批量导入与校验" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="620" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc6" value="基线排程与调度任务管理" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="750" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc7" value="插单与设备故障事件管理" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="880" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc8" value="局部/完全重调度" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="1010" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc9" value="甘特图、KPI与方案对比" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="1140" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc10" value="审核、发布与回滚" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="1270" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc11" value="实际执行反馈" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="1400" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="uc12" value="用户、权限、字典与审计" style="ellipse;whiteSpace=wrap;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="450" y="1530" width="300" height="70" as="geometry"/></mxCell>
+        <mxCell id="a1" value="系统管理员" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="70" y="230" width="120" height="150" as="geometry"/></mxCell>
+        <mxCell id="a2" value="生产计划员" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="70" y="540" width="120" height="150" as="geometry"/></mxCell>
+        <mxCell id="a3" value="调度审核员" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="960" y="520" width="120" height="150" as="geometry"/></mxCell>
+        <mxCell id="a4" value="现场查看/执行用户" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="960" y="1150" width="120" height="150" as="geometry"/></mxCell>
+        <mxCell id="a5" value="调度算法服务" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="960" y="1420" width="120" height="150" as="geometry"/></mxCell>
+        <mxCell id="e11" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e14" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e15" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e16" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a1" target="uc12"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e21" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e22" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e23" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e24" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e25" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e26" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e27" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e28" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e29" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e30" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a2" target="uc10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e31" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a3" target="uc1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e32" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a3" target="uc9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e33" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a3" target="uc10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e41" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a4" target="uc1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e42" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a4" target="uc9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e43" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a4" target="uc11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e51" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a5" target="uc6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e52" style="edgeStyle=none;rounded=0;html=1;endArrow=classic;endFill=1;strokeWidth=1;" edge="1" parent="1" source="a5" target="uc8"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,26 @@
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Build and test outputs
+target/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Local runtime/evidence scratch files
+agh-integration/.agh-session-id
+agh-integration/evidence/
+agh-integration/agh-trace-*.zip
+
+# Environment leftovers (broken template dirs)
+{{pkgetc}}/
+{{etc}}/

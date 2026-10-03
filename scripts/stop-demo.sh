@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# 停止 start-demo.sh 启动的本地进程，并停止 Compose 容器；不删除数据卷。
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/demo-common.sh"
+load_demo_env
+
+stop_process agh "agnes-harness/packages/cli/dist/local/agnes.mjs serve"
+stop_process web "http.server ${FJSP_WEB_PORT}"
+stop_process business "business-service-1.0.0.jar"
+stop_process algorithm "uvicorn app.api:app"
+
+if command -v docker >/dev/null 2>&1; then
+  docker_compose stop postgres redis >/dev/null
+  printf '[完成] PostgreSQL / Redis 已停止，数据卷保留。\n'
+fi

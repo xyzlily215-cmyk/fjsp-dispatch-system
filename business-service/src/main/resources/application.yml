@@ -1,0 +1,29 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: fjsp-business-service
+  datasource:
+    url: jdbc:postgresql://${FJSP_DB_HOST:localhost}:${FJSP_DB_PORT:5432}/${FJSP_DB_NAME:fjsp}
+    username: ${FJSP_DB_USER:fjsp}
+    password: ${FJSP_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId}] %logger{36} - %msg%n"
+
+fjsp:
+  algorithm:
+    base-url: ${FJSP_ALGORITHM_BASE_URL:http://localhost:8101}
+    timeout-seconds: 620
+  simulation-start-at: "2026-09-16T08:00:00+08:00"
+  freeze-window-minutes: 30
+  idempotency-ttl-hours: 24
