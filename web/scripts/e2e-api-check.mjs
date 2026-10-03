@@ -115,7 +115,7 @@ hasFields(pv.operations[0], ['operationId', 'machineId', 'setupStartAt', 'proces
 
 // 7. 提交审核 -> 审核通过 -> 发布
 console.log('== 审核发布 ==');
-await call(`/plan-versions/${pvId}/submit-review`, { method: 'POST', body: {} });
+await call(`/plan-versions/${pvId}/submit-review`, { method: 'POST', body: { version: pv.version } });
 let v = (await call('/plan-versions/' + pvId));
 assert(v.status === 'REVIEW_PENDING', 'submit-review 后状态 REVIEW_PENDING');
 await call(`/plan-versions/${pvId}/review`, { method: 'POST', body: { decision: 'APPROVE', comment: 'e2e 通过', version: v.version } });
