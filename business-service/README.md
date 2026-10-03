@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- Java 17、Spring Boot 3.3.5、Spring Data JPA（ddl-auto=update）
+- Java 17、Spring Boot 3.3.5、Spring Data JPA + Flyway（dev profile 下 ddl-auto=update，默认 profile 下 validate）
 - PostgreSQL 16（jsonb 快照字段）、RestClient（算法服务通信，超时 620s）
 - 演示规模：20 订单 / 8 设备 / 3 产品族工艺模板
 
@@ -38,8 +38,10 @@ python3 -m uvicorn app.api:app --port 8101
 ```bash
 cd business-service
 set -a; source ../.env; set +a
-mvn spring-boot:run          # 或 mvn -DskipTests package && java -jar target/business-service-1.0.0.jar
+SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run          # 或 mvn -DskipTests package && SPRING_PROFILES_ACTIVE=dev java -jar target/business-service-1.0.0.jar
 ```
+
+> **Profile 与 schema 管理**：本地开发使用 `dev` profile——Flyway 关闭、`ddl-auto=update`，Hibernate 自动同步表结构；不设 `SPRING_PROFILES_ACTIVE` 时为默认（生产姿态）——Flyway 执行 `src/main/resources/db/migration/` 下的迁移脚本（基线 `V1__baseline_schema.sql`），`ddl-auto=validate` 仅做一致性校验。存量库首次以默认 profile 启动会自动 baseline 到版本 1；schema 变更请新增 `V<n>__*.sql` 迁移脚本。`scripts/start-demo.sh` 已默认带上 dev profile。
 
 默认端口 **8081**（本机 8080 被其他应用占用；修改 `src/main/resources/application.yml` 的 `server.port` 可调整）。
 首次启动时若 `machine` 表为空，自动从 `src/main/resources/seed/demo_instance.json` 导入：
@@ -59,6 +61,8 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | `server.port` | 8081 | 服务端口 |
 | `spring.datasource.url` | 由 `FJSP_DB_*` 变量组成 | PostgreSQL 连接地址 |
 | `spring.datasource.password` | `FJSP_DB_PASSWORD` | 数据库密码，不写入仓库 |
+| `spring.jpa.hibernate.ddl-auto` | `validate`（dev profile 为 `update`） | 默认仅校验 schema，开发环境自动同步 |
+| `spring.flyway.enabled` | `true`（dev profile 为 `false`） | 默认由 Flyway 管理 schema，迁移脚本在 `db/migration/` |
 | `fjsp.algorithm.base-url` | `FJSP_ALGORITHM_BASE_URL` 或 http://localhost:8101 | 算法服务地址 |
 | `fjsp.algorithm.timeout-seconds` | 620 | 调用 /solve、/validate 超时 |
 | `fjsp.simulation-start-at` | 2026-09-16T08:00:00+08:00 | 默认仿真起点（以 seed JSON 为准） |

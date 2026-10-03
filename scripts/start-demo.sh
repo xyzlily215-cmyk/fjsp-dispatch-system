@@ -30,7 +30,7 @@ printf '\n== 3. 构建并启动业务服务 ==\n'
 if ! curl -fsS --max-time 3 "$FJSP_API_BASE/machines" >/dev/null 2>&1; then
   (cd "$ROOT_DIR/business-service" && mvn -q -DskipTests package)
   start_process business "business-service-1.0.0.jar" "$ROOT_DIR/business-service" "$(log_file business)" \
-    java -jar target/business-service-1.0.0.jar
+    env SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}" java -jar target/business-service-1.0.0.jar
 fi
 wait_for_url "$FJSP_API_BASE/machines" "业务服务" 120
 

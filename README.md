@@ -63,3 +63,10 @@ AGH 的审核发布流程要求显式审批：计划必须先提交审核，审�
 ## 业务服务单独开发
 
 业务服务的接口、数据模型、状态机和测试说明见 [`business-service/README.md`](business-service/README.md)。
+
+## 数据库 schema 管理（Flyway + ddl-auto 分环境）
+
+- 迁移脚本位于 `business-service/src/main/resources/db/migration/`，基线为 `V1__baseline_schema.sql`（17 张业务表）；schema 变更一律新增 `V<n>__*.sql`，不要改动已应用的脚本。
+- **本地开发（dev profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=dev` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构。
+- **默认 profile（生产姿态）**：Flyway 启用并执行迁移，`ddl-auto=validate` 仅校验实体与库表一致，不再自动改表。存量库首次启动会自动 baseline 到版本 1（`baseline-on-migrate`），全新空库则执行 V1 建表。
+- 手动启动时通过环境变量选择：`SPRING_PROFILES_ACTIVE=dev java -jar ...` 为开发模式；不设该变量即为生产姿态。
