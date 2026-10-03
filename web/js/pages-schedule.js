@@ -34,7 +34,7 @@ registerPage('baseline', ['计划调度', '基线排程'], async (el) => {
         <div class="form-row"><label>随机种子</label><input type="number" class="field" id="blSeed" value="42"></div>
         <div class="form-row"><label>时间上限(秒)</label><input type="number" class="field" id="blLimit" min="1" max="600" value="30"></div>
         <div id="blErr"></div>
-        <button class="btn primary" style="width:100%;height:36px" id="blSubmit">创建基线排程任务</button>
+        <button class="btn primary" style="width:100%;height:36px" id="blSubmit" data-roles="DISPATCHER,ADMIN">创建基线排程任务</button>
         <p class="muted" style="margin-top:10px">提交后 POST /schedule-tasks（mode=BASELINE），自动跳转到调度任务页跟踪求解进度。</p>
       </div></section>
     </div>`;
@@ -187,7 +187,7 @@ function renderTaskDetail(detailEl, t) {
       <div class="buttons" style="margin-top:18px">
         ${t.status === 'SUCCESS' && t.planVersionId ? `
           <button class="btn primary" id="tdGantt">查看甘特</button>
-          <button class="btn" id="tdSubmit">提交审核</button>` : ''}
+          <button class="btn" id="tdSubmit" data-roles="DISPATCHER,ADMIN">提交审核</button>` : ''}
         ${t.status === 'SUCCESS' && t.oldPlanVersionId && t.planVersionId ? '<button class="btn" id="tdCompare">与旧版对比</button>' : ''}
       </div>
     </div>`;

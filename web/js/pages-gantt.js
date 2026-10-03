@@ -105,7 +105,7 @@ registerPage('resource-gantt', ['结果分析', '资源甘特'], async (el) => {
     <div class="page-header">
       <div><h1>资源甘特</h1><p>按设备行渲染计划版本的工序排布，悬停查看工序详情</p></div>
       <div class="buttons">
-        ${plan.status === 'DRAFT' ? '<button class="btn" id="ganttSubmit">提交审核</button>' : ''}
+        ${plan.status === 'DRAFT' ? '<button class="btn" id="ganttSubmit" data-roles="DISPATCHER,ADMIN">提交审核</button>' : ''}
         ${plan.parentId ? '<button class="btn" id="ganttCompare">与父版本对比</button>' : ''}
         <button class="btn" id="ganttRefresh">&#8635; 刷新</button>
       </div>

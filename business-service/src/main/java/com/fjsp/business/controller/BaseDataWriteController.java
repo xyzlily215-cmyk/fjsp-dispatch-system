@@ -12,6 +12,7 @@ import com.fjsp.business.dto.OrderUpsertRequest;
 import com.fjsp.business.dto.TemplateStatusRequest;
 import com.fjsp.business.dto.TemplateUpsertRequest;
 import com.fjsp.business.service.BaseDataWriteService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,6 +32,7 @@ public class BaseDataWriteController {
         this.baseDataWriteService = baseDataWriteService;
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/machines")
     public ApiResponse<Map<String, Object>> createMachine(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -38,6 +40,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.createMachine(idempotencyKey, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/machines/{machineId}")
     public ApiResponse<Map<String, Object>> updateMachine(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -46,6 +49,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.updateMachine(idempotencyKey, machineId, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/machines/{machineId}/status")
     public ApiResponse<Map<String, Object>> changeMachineStatus(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -59,6 +63,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.listCalendarIntervals(calendarId));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/calendars/{calendarId}/intervals")
     public ApiResponse<Map<String, Object>> addCalendarInterval(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -67,6 +72,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.addCalendarInterval(idempotencyKey, calendarId, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/process-templates")
     public ApiResponse<Map<String, Object>> createTemplate(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -74,6 +80,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.createTemplate(idempotencyKey, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/process-templates/{templateId}/status")
     public ApiResponse<Map<String, Object>> changeTemplateStatus(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -82,6 +89,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.changeTemplateStatus(idempotencyKey, templateId, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/process-templates/{templateId}/copy")
     public ApiResponse<Map<String, Object>> copyTemplate(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -89,6 +97,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.copyTemplate(idempotencyKey, templateId));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/orders")
     public ApiResponse<Map<String, Object>> createOrder(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -96,6 +105,7 @@ public class BaseDataWriteController {
         return ApiResponse.ok(baseDataWriteService.createOrder(idempotencyKey, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/orders/{orderId}")
     public ApiResponse<Map<String, Object>> updateOrder(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,

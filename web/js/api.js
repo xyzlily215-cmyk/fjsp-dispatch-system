@@ -10,8 +10,8 @@ class ApiError extends Error {
 async function api(path, options = {}) {
   const opts = { method: options.method || 'GET', headers: {}, ...options };
   opts.headers['X-Source'] = 'web';
-  const operator = localStorage.getItem('fjsp.operator');
-  if (operator) opts.headers['X-Operator-Id'] = operator;
+  const token = Auth.token();
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
   if (opts.body && typeof opts.body !== 'string') {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(opts.body);
@@ -28,6 +28,10 @@ async function api(path, options = {}) {
   let body = null;
   try { body = await resp.json(); } catch (e) { /* 非 JSON */ }
   if (!body) throw new ApiError('E_HTTP_' + resp.status, 'HTTP ' + resp.status);
+  if (resp.status === 401 || body.code === 'E_UNAUTHORIZED') {
+    Auth.handleUnauthorized();
+    throw new ApiError('E_UNAUTHORIZED', body.message || '未认证或凭证已失效');
+  }
   if (body.code !== 'OK') throw new ApiError(body.code, body.message || body.code);
   return body.data;
 }

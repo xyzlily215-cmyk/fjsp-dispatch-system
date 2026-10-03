@@ -6,6 +6,7 @@ import java.util.Map;
 import com.fjsp.business.common.ApiResponse;
 import com.fjsp.business.dto.CreateTaskRequest;
 import com.fjsp.business.service.TaskService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,7 @@ public class ScheduleTaskController {
         this.taskService = taskService;
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping
     public ApiResponse<Map<String, Object>> create(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -36,11 +38,13 @@ public class ScheduleTaskController {
         return ApiResponse.ok(taskService.getTask(taskId));
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/{taskId}/retry")
     public ApiResponse<Map<String, Object>> retry(@PathVariable String taskId) {
         return ApiResponse.ok(taskService.retryTask(taskId));
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/{taskId}/cancel")
     public ApiResponse<Map<String, Object>> cancel(@PathVariable String taskId) {
         return ApiResponse.ok(taskService.cancelTask(taskId));

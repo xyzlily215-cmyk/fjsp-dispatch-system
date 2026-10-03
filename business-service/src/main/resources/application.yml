@@ -33,3 +33,6 @@ fjsp:
   idempotency-ttl-hours: 24
   task:
     scan-interval-ms: ${FJSP_TASK_SCAN_INTERVAL_MS:30000}
+  auth:
+    jwt-secret: ${FJSP_JWT_SECRET:dev-only-insecure-jwt-secret-do-not-use-in-prod}
+    token-ttl-hours: 8

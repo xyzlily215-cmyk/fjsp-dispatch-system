@@ -26,7 +26,7 @@ function renderImpactPanel(container, data, eventDetail) {
           <option value="LOCAL_RESCHEDULE">局部重调度（LOCAL）</option>
           <option value="FULL_RESCHEDULE">完全重调度（FULL）</option>
         </select>
-        <button class="btn primary" id="rsCreate">创建重调度任务</button>
+        <button class="btn primary" id="rsCreate" data-roles="DISPATCHER,ADMIN">创建重调度任务</button>
       </div>
       <div id="rsErr"></div>
     </div>`;
@@ -81,7 +81,7 @@ registerPage('insert', ['事件管理', '订单插单'], async (el) => {
         <div class="form-row"><label class="required">发生时间</label><input type="datetime-local" class="field" id="ioOccurred" value="2026-09-17T08:00"></div>
         <div class="form-row"><label>备注</label><textarea class="field" id="ioNote" placeholder="可选"></textarea></div>
         <div id="ioErr"></div>
-        <button class="btn primary" style="width:100%;height:36px" id="ioSubmit">登记插单事件</button>
+        <button class="btn primary" style="width:100%;height:36px" id="ioSubmit" data-roles="DISPATCHER,ADMIN">登记插单事件</button>
       </div></section>
       <section class="card"><div class="section-pad" id="ioResult">
         <h3 style="margin:0 0 10px;font-size:15px">影响集合</h3>
@@ -140,7 +140,7 @@ registerPage('breakdown', ['事件管理', '设备故障'], async (el) => {
           <select class="field" id="bdSource"><option value="manual">人工登记</option><option value="iot">IoT 采集</option><option value="mes">MES 推送</option></select></div>
         <div class="form-row"><label>备注</label><textarea class="field" id="bdNote" placeholder="可选"></textarea></div>
         <div id="bdErr"></div>
-        <button class="btn primary" style="width:100%;height:36px" id="bdSubmit">登记故障事件</button>
+        <button class="btn primary" style="width:100%;height:36px" id="bdSubmit" data-roles="DISPATCHER,ADMIN">登记故障事件</button>
         <p class="muted" style="margin-top:10px">若事件正在被求解任务使用（E_EVENT_IN_PROCESS），会以红色错误提示返回，请稍后再试。</p>
       </div></section>
       <section class="card"><div class="section-pad" id="bdResult">

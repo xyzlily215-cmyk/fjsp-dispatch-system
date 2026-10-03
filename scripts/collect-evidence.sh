@@ -9,6 +9,9 @@ load_demo_env
 
 require_command curl
 require_command docker
+require_command python3
+wait_for_url "$FJSP_API_BASE/machines" "业务服务" 30
+demo_auth_login
 
 OUT_DIR="${1:-${TMPDIR:-/tmp}/fjsp-evidence-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$OUT_DIR"
@@ -24,8 +27,8 @@ mkdir -p "$OUT_DIR"
 } >"$OUT_DIR/manifest.txt"
 
 curl -fsS "$FJSP_ALGORITHM_BASE_URL/health" >"$OUT_DIR/algorithm-health.json"
-curl -fsS "$FJSP_API_BASE/machines" >"$OUT_DIR/machines.json"
-curl -fsS "$FJSP_API_BASE/dashboard" >"$OUT_DIR/dashboard.json"
+curl -fsS -H "Authorization: Bearer $FJSP_AUTH_TOKEN" "$FJSP_API_BASE/machines" >"$OUT_DIR/machines.json"
+curl -fsS -H "Authorization: Bearer $FJSP_AUTH_TOKEN" "$FJSP_API_BASE/dashboard" >"$OUT_DIR/dashboard.json"
 curl -fsS -I "http://127.0.0.1:${FJSP_WEB_PORT}/index.html" >"$OUT_DIR/web-headers.txt" || true
 if curl -fsS --max-time 3 "http://127.0.0.1:${FJSP_AGH_PORT}/" >/dev/null 2>&1; then
   curl -fsS -I "http://127.0.0.1:${FJSP_AGH_PORT}/" >"$OUT_DIR/agh-headers.txt" || true

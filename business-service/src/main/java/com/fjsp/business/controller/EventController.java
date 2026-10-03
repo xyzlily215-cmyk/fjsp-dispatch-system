@@ -6,6 +6,7 @@ import com.fjsp.business.common.ApiResponse;
 import com.fjsp.business.dto.BreakdownEventRequest;
 import com.fjsp.business.dto.NewOrderEventRequest;
 import com.fjsp.business.service.EventService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,7 @@ public class EventController {
         this.eventService = eventService;
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/new-orders")
     public ApiResponse<Map<String, Object>> newOrder(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -31,6 +33,7 @@ public class EventController {
         return ApiResponse.ok(eventService.createNewOrderEvent(idempotencyKey, request));
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/breakdowns")
     public ApiResponse<Map<String, Object>> breakdown(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,

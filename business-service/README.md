@@ -69,12 +69,40 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | `fjsp.freeze-window-minutes` | 30 | 重调度冻结窗口 |
 | `fjsp.idempotency-ttl-hours` | 24 | 幂等记录有效期 |
 | `fjsp.task.scan-interval-ms` | 30000 | 任务超时/重试扫描间隔（可用 `FJSP_TASK_SCAN_INTERVAL_MS` 覆盖） |
+| `fjsp.auth.jwt-secret` | `FJSP_JWT_SECRET`，缺省为仅开发用默认值 | JWT HS256 签名密钥（≥32 字节，生产必须显式配置） |
+| `fjsp.auth.token-ttl-hours` | 8 | JWT 有效期（小时） |
+
+## 认证与角色
+
+除 `POST /api/v1/auth/login` 外全部接口要求 `Authorization: Bearer <token>`（JWT，HS256，默认 8h）。未认证 401 `E_UNAUTHORIZED`，角色不足 403 `E_FORBIDDEN`。
+
+角色-端点矩阵（GET 查询类端点任何已认证角色均可；ADMIN 拥有全部权限）：
+
+| 端点 | DISPATCHER | REVIEWER | PRODUCTION_MANAGER | ADMIN |
+|---|:-:|:-:|:-:|:-:|
+| 任务创建/retry/cancel、事件登记 | ✓ | | | ✓ |
+| submit-review、revise | ✓ | | | ✓ |
+| review（审核/驳回） | | ✓ | | ✓ |
+| publish（发布） | | | ✓ | ✓ |
+| 执行反馈 execution | | | ✓ | ✓ |
+| 基础数据写端点、demo/reset | | | | ✓ |
+
+种子账号（**仅本地演示**，密码均为 `Fj@123456`，见 `db/migration/V3__auth.sql` 与 `auth/UserSeedRunner`）：
+
+| 用户名 | 角色 | 显示名 |
+|---|---|---|
+| dispatcher | DISPATCHER | 调度员 |
+| reviewer | REVIEWER | 审核员 |
+| manager | PRODUCTION_MANAGER | 生产主管 |
+| admin | ADMIN | 管理员 |
 
 ## 接口一览（前缀 /api/v1）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/schedule-tasks` | 创建排程任务（异步求解），需 `Idempotency-Key` |
+| POST | `/auth/login` | 登录：{username, password} → {token, username, role, displayName, expiresAt}；失败统一 401 `E_UNAUTHORIZED` |
+| GET | `/auth/me` | 当前登录用户信息 |
+| POST | `/schedule-tasks` | 创建排程任务（异步求解），需 `Idempotency-Key`；DISPATCHER/ADMIN |
 | GET | `/schedule-tasks/{taskId}` | 任务状态/进度/结果/冲突/重试信息（retryCount、maxRetries、nextRetryAt、timeoutAt、cancelRequested） |
 | GET | `/schedule-tasks` | 最近 20 条任务 |
 | POST | `/schedule-tasks/{taskId}/retry` | 人工重试：仅 FAILED/CANCELLED 可调用，重置为 PENDING 并重新投递，否则 409 `E_STATE_CONFLICT` |
@@ -96,7 +124,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 ## 关键设计
 
 - **统一响应**：`{requestId, timestamp, code, message, data}`；`requestId` 经 MDC 贯穿日志。
-- **请求头**：写操作可从 `X-Operator-Id`（默认 anonymous）、`X-Source`（默认 api）、`X-AGH-Session-Id` 读取操作者/来源/会话，落入审计。
+- **认证与审计身份**：Spring Security 无状态 JWT（`JwtAuthenticationFilter` 解析 Bearer，签名/过期失败视为未认证）；`RequestContext.operator()` 只从 SecurityContext 取登录用户名（未认证 HTTP 请求记 anonymous，异步/启动恢复等无请求场景记 system），客户端自报的 `X-Operator-Id` 头不再可信、已忽略。`X-Source`（默认 api）、`X-AGH-Session-Id` 仍作为来源/会话标签透传审计。reviewedBy/publishedBy 自动落真实登录用户。`RequestIdFilter` 以最高优先级排在安全过滤器链之前，401/403 响应同样带 requestId 与统一 JSON 包络。
 - **幂等**：写接口校验 `Idempotency-Key`，同键同摘要 24h 内返回原结果，同键不同摘要返回 `E_DUPLICATE`；任务另有输入快照指纹（snapshotHash+mode 的 SHA-256）唯一约束。
 - **异步任务**：任务落库提交事务后才触发异步求解（afterCommit），后台流程：/solve → /validate 复核 → 创建 DRAFT 计划版本 + schedule_operation 行；不可行保存冲突明细，异常标记 `FAILED`（resultStatus=FAILED，errorMessage 记录摘要）。任务状态机（`TaskStatus` 枚举，字符串列存取）：PENDING→RUNNING→SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED；瞬时失败转 RETRY_WAIT 等待重投；PENDING/RETRY_WAIT/RUNNING 可取消转 CANCELLED。终态：SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED/CANCELLED。
 - **任务重试（瞬时失败）**：算法服务调用异常（`RestClientException`：连接拒绝/读超时/5xx）走重试策略——retryCount+1，未超 maxRetries（默认 3）转 RETRY_WAIT，nextRetryAt = now + min(30s×2^(retryCount-1), 600s)（`TaskRetryPolicy`），审计 `TASK_RETRY_SCHEDULED`；超过后转 FAILED 终态（死信），审计 `TASK_FAILED`。INFEASIBLE、validate 复核失败、完整性违规属业务性失败，不重试。FAILED/CANCELLED 任务释放输入指纹（置 null），相同输入可重新创建任务；进行中与成功终态仍按指纹去重（409 `E_DUPLICATE`）。

@@ -54,6 +54,21 @@ FJSP_START_AGH=0 ./scripts/start-demo.sh
 ./scripts/stop-demo.sh
 ```
 
+## 认证与账号
+
+业务服务已启用 Spring Security + JWT 认证：前端打开后先登录（token 存 localStorage，401 自动退回登录页）；脚本（smoke/e2e/reset/collect-evidence）自动以 `FJSP_AUTH_USER`/`FJSP_AUTH_PASSWORD`（默认 admin）先调 `/api/v1/auth/login` 再访问业务接口。
+
+演示种子账号（**仅本地演示**，密码均为 `Fj@123456`）：
+
+| 用户名 | 角色 | 权限要点 |
+|---|---|---|
+| dispatcher | DISPATCHER 调度员 | 创建/重试/取消任务、登记事件、提交审核 |
+| reviewer | REVIEWER 审核员 | 审核/驳回计划版本 |
+| manager | PRODUCTION_MANAGER 生产主管 | 发布计划版本、执行反馈 |
+| admin | ADMIN 管理员 | 全部权限（含基础数据维护、demo/reset） |
+
+JWT 密钥走 `FJSP_JWT_SECRET`（见 `.env.example`，不设置时使用仅开发用默认值，有效期默认 8h）。角色-端点完整矩阵见 [`business-service/README.md`](business-service/README.md)。
+
 ## 配置与安全
 
 不要把 `.env`、数据库密码或 AGH API Key 提交到 Git。复制 `.env.example` 后填写本地值；`scripts/check-env.sh` 会拒绝使用示例密码，并且不会打印密码或 API Key。

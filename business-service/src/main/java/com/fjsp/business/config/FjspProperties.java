@@ -6,12 +6,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class FjspProperties {
 
     private final Algorithm algorithm = new Algorithm();
+    private final Auth auth = new Auth();
     private String simulationStartAt = "2026-09-16T08:00:00+08:00";
     private int freezeWindowMinutes = 30;
     private int idempotencyTtlHours = 24;
 
     public Algorithm getAlgorithm() {
         return algorithm;
+    }
+
+    public Auth getAuth() {
+        return auth;
     }
 
     public String getSimulationStartAt() {
@@ -56,6 +61,27 @@ public class FjspProperties {
 
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
+        }
+    }
+
+    public static class Auth {
+        private String jwtSecret;
+        private int tokenTtlHours = 8;
+
+        public String getJwtSecret() {
+            return jwtSecret;
+        }
+
+        public void setJwtSecret(String jwtSecret) {
+            this.jwtSecret = jwtSecret;
+        }
+
+        public int getTokenTtlHours() {
+            return tokenTtlHours;
+        }
+
+        public void setTokenTtlHours(int tokenTtlHours) {
+            this.tokenTtlHours = tokenTtlHours;
         }
     }
 }

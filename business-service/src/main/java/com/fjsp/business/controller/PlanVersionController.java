@@ -9,6 +9,7 @@ import com.fjsp.business.dto.PublishRequest;
 import com.fjsp.business.dto.ReviewRequest;
 import com.fjsp.business.dto.SubmitReviewRequest;
 import com.fjsp.business.service.PlanVersionService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,18 +44,21 @@ public class PlanVersionController {
         return ApiResponse.ok(planVersionService.diff(id, baselineVersionId));
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/{id}/submit-review")
     public ApiResponse<Map<String, Object>> submitReview(@PathVariable String id,
                                                          @RequestBody SubmitReviewRequest request) {
         return ApiResponse.ok(planVersionService.submitReview(id, request));
     }
 
+    @PreAuthorize("hasAnyRole('DISPATCHER','ADMIN')")
     @PostMapping("/{id}/revise")
     public ApiResponse<Map<String, Object>> revise(@PathVariable String id,
                                                    @RequestBody SubmitReviewRequest request) {
         return ApiResponse.ok(planVersionService.revise(id, request));
     }
 
+    @PreAuthorize("hasAnyRole('REVIEWER','ADMIN')")
     @PostMapping("/{id}/review")
     public ApiResponse<Map<String, Object>> review(@PathVariable String id,
                                                    @RequestBody ReviewRequest request) {
@@ -64,6 +68,7 @@ public class PlanVersionController {
         return ApiResponse.ok(planVersionService.review(id, request));
     }
 
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
     @PostMapping("/{id}/publish")
     public ApiResponse<Map<String, Object>> publish(@PathVariable String id,
                                                     @RequestBody PublishRequest request) {

@@ -4,6 +4,7 @@ import java.util.Map;
 
 import com.fjsp.business.common.ApiResponse;
 import com.fjsp.business.service.DemoService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,6 +19,7 @@ public class DemoController {
         this.demoService = demoService;
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/reset")
     public ApiResponse<Map<String, Object>> reset() {
         return ApiResponse.ok(demoService.reset());

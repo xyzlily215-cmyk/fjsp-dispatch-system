@@ -8,9 +8,13 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+// 保持最前：早于 Spring Security 过滤器链，保证 401/403 响应也带 requestId 与访问日志
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Component
 public class RequestIdFilter extends OncePerRequestFilter {
 
@@ -22,7 +26,6 @@ public class RequestIdFilter extends OncePerRequestFilter {
             requestId = "req-" + UUID.randomUUID();
         }
         MDC.put(RequestContext.MDC_KEY, requestId);
-        putIfPresent(request, "X-Operator-Id", RequestContext.OPERATOR_KEY);
         putIfPresent(request, "X-Source", RequestContext.SOURCE_KEY);
         putIfPresent(request, "X-AGH-Session-Id", RequestContext.SESSION_KEY);
         response.setHeader("X-Request-Id", requestId);

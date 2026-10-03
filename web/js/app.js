@@ -52,13 +52,28 @@ async function refreshShared() {
 }
 
 const App = {
+  listenersBound: false,
+
   async boot() {
-    document.querySelectorAll('.menu-item[data-page]').forEach(item => {
-      item.addEventListener('click', () => goTo(item.dataset.page));
-    });
-    document.querySelectorAll('.menu-parent').forEach(p => {
-      p.addEventListener('click', () => p.classList.toggle('collapsed'));
-    });
+    Auth.bindLoginForm(() => this.start());
+    if (!Auth.token()) {
+      Auth.showLogin();
+      return;
+    }
+    await this.start();
+  },
+
+  async start() {
+    if (!this.listenersBound) {
+      document.querySelectorAll('.menu-item[data-page]').forEach(item => {
+        item.addEventListener('click', () => goTo(item.dataset.page));
+      });
+      document.querySelectorAll('.menu-parent').forEach(p => {
+        p.addEventListener('click', () => p.classList.toggle('collapsed'));
+      });
+      this.listenersBound = true;
+    }
+    Auth.renderUserBadge();
     await refreshShared();
     goTo('board');
   },

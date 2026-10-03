@@ -25,6 +25,8 @@ load_demo_env() {
   export FJSP_WEB_PORT="${FJSP_WEB_PORT:-8082}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
   export FJSP_START_AGH="${FJSP_START_AGH:-1}"
+  export FJSP_AUTH_USER="${FJSP_AUTH_USER:-admin}"
+  export FJSP_AUTH_PASSWORD="${FJSP_AUTH_PASSWORD:-Fj@123456}"
 }
 
 require_command() {
@@ -95,9 +97,11 @@ stop_process() {
 
 wait_for_url() {
   local url="$1" label="$2" timeout="${3:-60}"
-  local end=$((SECONDS + timeout))
+  local end=$((SECONDS + timeout)) code
   while (( SECONDS < end )); do
-    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$url" 2>/dev/null || true)"
+    # 2xx/3xx 就绪；401 同样说明服务已在响应（认证层拦截，属正常就绪信号）
+    if [[ "$code" =~ ^[23][0-9][0-9]$ ]] || [[ "$code" == "401" ]]; then
       printf '[就绪] %s: %s\n' "$label" "$url"
       return 0
     fi
@@ -105,6 +109,19 @@ wait_for_url() {
   done
   printf '[超时] %s 未就绪: %s\n' "$label" "$url" >&2
   return 1
+}
+
+# 登录业务服务并导出 FJSP_AUTH_TOKEN（默认 admin 演示账号，可用 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 覆盖）
+demo_auth_login() {
+  local body
+  body="$(curl -fsS -X POST "$FJSP_API_BASE/auth/login" \
+    -H 'Content-Type: application/json' -H 'X-Source: demo-script' \
+    -d "{\"username\":\"$FJSP_AUTH_USER\",\"password\":\"$FJSP_AUTH_PASSWORD\"}")" || {
+      printf '登录业务服务失败: %s\n' "$FJSP_API_BASE" >&2
+      return 1
+    }
+  FJSP_AUTH_TOKEN="$(printf '%s' "$body" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')"
+  export FJSP_AUTH_TOKEN
 }
 
 # Compose needs the required password variable even for read-only commands such as

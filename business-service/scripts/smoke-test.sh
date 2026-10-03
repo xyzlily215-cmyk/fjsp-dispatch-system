@@ -22,7 +22,18 @@ PG_USER="${PG_USER:-fjsp}"
 PG_DB="${PG_DB:-fjsp}"
 psqlq(){ docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -t -A -c "$1" 2>/dev/null; }
 
-say "0. demo/reset 重置并重新 seed"
+say "0. 登录获取 token（默认 admin，可用 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 覆盖）"
+AUTH_USER="${FJSP_AUTH_USER:-admin}"
+AUTH_PASS="${FJSP_AUTH_PASSWORD:-Fj@123456}"
+LOGIN=$(command curl -s -X POST "$BASE/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$AUTH_USER\",\"password\":\"$AUTH_PASS\"}")
+TOKEN=$(echo "$LOGIN" | jqget "['data']['token']")
+[ -n "$TOKEN" ] && [ "$TOKEN" != "None" ] && ok "登录成功 user=$AUTH_USER" || { bad "登录失败: $LOGIN"; exit 1; }
+# 后续所有 curl 调用统一携带 Bearer token（shell 函数覆盖，保持下面写法不变）
+curl() { command curl -H "Authorization: Bearer $TOKEN" "$@"; }
+
+say "0b. demo/reset 重置并重新 seed"
 RESET=$(curl -s -X POST "$BASE/demo/reset")
 echo "$RESET" | head -c 300; echo
 
@@ -275,10 +286,10 @@ SUBX2=$(submit_review "$PVX")
   && ok "正确 version 再次提交审核成功" || { bad "再次提交审核失败: $SUBX2"; exit 1; }
 
 say "17. 快照之后发生新扰动，发布应返回 E_PLAN_STALE"
-# 顺带验证自定义请求头透传（场景 20 校验落库）
+# 顺带验证 X-Source/X-AGH-Session-Id 透传与 operator 取登录用户（场景 20 校验落库）
 V=$(pv_version "$PVX")
 APP=$(curl -s -X POST "$BASE/plan-versions/$PVX/review" -H 'Content-Type: application/json' \
-  -H 'X-Operator-Id: smoke-tester' -H 'X-Source: smoke' -H 'X-AGH-Session-Id: smoke-session-1' \
+  -H 'X-Source: smoke' -H 'X-AGH-Session-Id: smoke-session-1' \
   -d "{\"decision\":\"APPROVE\",\"comment\":\"smoke approve with headers\",\"version\":$V}")
 [ "$(echo "$APP" | jqget "['data']['status']")" = "REVIEWED" ] \
   && ok "带请求头审核通过 REVIEWED" || { bad "审核通过失败: $APP"; exit 1; }
@@ -317,10 +328,10 @@ P_PUBLISHED_AT=$(echo "$PVR" | cut -d'|' -f4)
   && ok "plan_version reviewed_by/reviewed_at/published_by/published_at 非空" \
   || bad "plan_version 审计字段缺失: $PVR"
 
-say "20. 请求头 X-Operator-Id/X-Source/X-AGH-Session-Id 透传到 audit_log"
+say "20. X-Source/X-AGH-Session-Id 透传到 audit_log，operator 取登录用户"
 HDR=$(psqlq "SELECT COALESCE(operator,'') || '|' || COALESCE(source,'') || '|' || COALESCE(session_id,'') FROM audit_log WHERE action='PLAN_REVIEW_APPROVE' AND object_id='$PVX' ORDER BY created_at DESC LIMIT 1")
-[ "$HDR" = "smoke-tester|smoke|smoke-session-1" ] \
-  && ok "审计行携带自定义请求头" || bad "请求头透传异常: $HDR"
+[ "$HDR" = "$AUTH_USER|smoke|smoke-session-1" ] \
+  && ok "审计行 operator 为登录用户且请求头透传" || bad "请求头透传异常: $HDR"
 
 printf '\n\033[1m结果: PASS=%d FAIL=%d\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]

@@ -1,7 +1,10 @@
 // e2e-api-check.mjs — 模拟前端依赖的完整流程，校验每个接口的字段名与结构
-// 用法: node scripts/e2e-api-check.mjs
+// 用法: node scripts/e2e-api-check.mjs（可用 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 覆盖登录账号）
 const API = process.env.FJSP_API || 'http://localhost:8081/api/v1';
+const AUTH_USER = process.env.FJSP_AUTH_USER || 'admin';
+const AUTH_PASS = process.env.FJSP_AUTH_PASSWORD || 'Fj@123456';
 let failures = 0;
+let TOKEN = null;
 
 function assert(cond, msg) {
   if (cond) { console.log('PASS ' + msg); }
@@ -13,6 +16,7 @@ function hasFields(obj, fields, ctx) {
 
 async function call(path, { method = 'GET', body } = {}) {
   const headers = {};
+  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
   if (body) headers['Content-Type'] = 'application/json';
   if (method !== 'GET') headers['Idempotency-Key'] = crypto.randomUUID();
   const resp = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
@@ -25,6 +29,25 @@ async function call(path, { method = 'GET', body } = {}) {
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// 0. 未认证请求应 401；随后登录拿 token
+console.log('== auth ==');
+{
+  const raw = await fetch(API + '/machines');
+  assert(raw.status === 401, `未认证 GET /machines 返回 401（实际 ${raw.status}）`);
+  const resp = await fetch(API + '/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: AUTH_USER, password: AUTH_PASS }),
+  });
+  const json = await resp.json();
+  assert(json && json.code === 'OK', `登录成功 user=${AUTH_USER}`);
+  hasFields(json.data || {}, ['token', 'username', 'role', 'displayName', 'expiresAt'], 'auth/login');
+  if (!json.data || !json.data.token) throw new Error('登录失败，无法继续: ' + JSON.stringify(json));
+  TOKEN = json.data.token;
+  const me = await call('/auth/me');
+  assert(me.username === AUTH_USER, `auth/me 返回当前用户 ${AUTH_USER}`);
+}
 
 async function waitTask(taskId, label) {
   for (let i = 0; i < 60; i++) {

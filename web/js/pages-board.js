@@ -44,7 +44,7 @@ registerPage('board', ['工作台', '调度看板'], async (el) => {
       <div><h1>调度看板</h1><p>当前发布计划的生产运行概览（数据来自 GET /dashboard）</p></div>
       <div class="buttons">
         <button class="btn" id="boardRefresh">&#8635; 刷新</button>
-        <button class="btn" id="boardReset">重置演示数据</button>
+        <button class="btn" id="boardReset" data-roles="ADMIN">重置演示数据</button>
         <button class="btn primary" onclick="goTo('baseline')">+ 创建基线排程</button>
       </div>
     </div>

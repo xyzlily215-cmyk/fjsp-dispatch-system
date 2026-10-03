@@ -20,7 +20,7 @@ registerPage('machines', ['基础数据', '设备管理'], async (el) => {
   el.innerHTML = `
     <div class="page-header"><div><h1>设备管理</h1><p>车间设备清单与能力（新增 / 编辑 / 启停，停用后不进入新任务候选集）</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
-      <button class="btn primary" id="mcAdd">+ 新增设备</button></div></div>
+      <button class="btn primary" id="mcAdd" data-roles="ADMIN">+ 新增设备</button></div></div>
     <section class="card table-card"><div class="table-wrap"><table class="data-table">
       <thead><tr><th>设备号</th><th>名称</th><th>工作中心</th><th>日历</th><th>可加工产品族</th><th>备注</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${machines.map(m => `<tr>
@@ -138,7 +138,7 @@ registerPage('calendar', ['基础数据', '设备日历'], async (el) => {
   el.innerHTML = `
     <div class="page-header"><div><h1>设备日历</h1><p>班次（WORK）定义可用时间；不可用区间从可用时间中扣除</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
-      <button class="btn primary" id="calAdd">+ 新增不可用区间</button></div></div>
+      <button class="btn primary" id="calAdd" data-roles="ADMIN">+ 新增不可用区间</button></div></div>
     <section class="card section-card"><div class="toolbar"><div class="filters">
       <span class="filter-label">设备 / 日历</span>
       <select class="field wide" id="calMachine">${withCal.map(m =>
@@ -198,7 +198,7 @@ registerPage('templates', ['基础数据', '工艺模板'], async (el) => {
   el.innerHTML = `
     <div class="page-header"><div><h1>工艺模板</h1><p>产品族工艺路线与候选设备；启用前校验工序完整性</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
-      <button class="btn primary" id="tplAdd">+ 新建模板</button></div></div>
+      <button class="btn primary" id="tplAdd" data-roles="ADMIN">+ 新建模板</button></div></div>
     ${templates.map(t => `
     <section class="card table-card section-card">
       <div class="card-title"><span>${esc(t.templateCode)} · ${esc(t.productFamily)} · v${t.templateVersion} ${statusTag(t.status)}</span>
@@ -242,7 +242,7 @@ registerPage('templates', ['基础数据', '工艺模板'], async (el) => {
         <label class="required">工序列表</label><div>
           <div class="op-rows" id="tfOps">${opRowHtml(10)}</div>
           <div class="buttons" style="margin-top:8px">
-            <button class="btn small" id="tfAddOp">+ 添加工序</button>
+            <button class="btn small" id="tfAddOp" data-roles="ADMIN">+ 添加工序</button>
             <span class="muted">每道工序至少一个候选设备，准备/加工时长均需 &gt; 0</span>
           </div>
         </div>
@@ -337,7 +337,7 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
   el.innerHTML = `
     <div class="page-header"><div><h1>订单管理</h1><p>生产订单与工序明细；仅未排程（WAITING）订单可编辑</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
-      <button class="btn primary" id="ordAdd">+ 新增订单</button></div></div>
+      <button class="btn primary" id="ordAdd" data-roles="ADMIN">+ 新增订单</button></div></div>
     <section class="card table-card"><div class="table-wrap"><table class="data-table">
       <thead><tr><th></th><th>订单号</th><th>产品族</th><th>数量</th><th>优先级</th><th>到达时间</th><th>交期</th><th>状态</th><th>工序数</th><th>操作</th></tr></thead>
       <tbody>${orders.map((o, i) => `
@@ -521,8 +521,8 @@ registerPage('execution', ['执行反馈', '实际执行'], async (el) => {
           <td>${fmtDateTime(o.startAt)}</td><td>${fmtDateTime(o.endAt)}</td>
           <td>${o.frozen ? tag('冻结', 'orange') : '-'}</td><td>${statusTag(s)}</td>
           <td class="table-actions">
-            ${s !== 'RUNNING' && s !== 'COMPLETED' ? `<a data-op="${esc(o.operationId)}" data-st="RUNNING">开工</a>` : ''}
-            ${s === 'RUNNING' ? `<a data-op="${esc(o.operationId)}" data-st="COMPLETED">完工</a>` : ''}
+            ${s !== 'RUNNING' && s !== 'COMPLETED' ? `<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="RUNNING">开工</a>` : ''}
+            ${s === 'RUNNING' ? `<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="COMPLETED">完工</a>` : ''}
           </td></tr>`;
       }).join('')}</tbody>
     </table></div></section>`;

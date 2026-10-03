@@ -67,9 +67,9 @@ registerPage('review', ['审核发布', '待审核方案'], async (el) => {
           <input class="field" id="rvComment" placeholder="审核意见（驳回时必填）">
           ${v.parentId ? '<button class="btn" id="rvCompare">查看对比</button>' : ''}
           <button class="btn" id="rvGantt">查看甘特</button>
-          ${v.status === 'REVIEW_PENDING' ? '<button class="btn primary" id="rvApprove">通过</button><button class="btn danger" id="rvReject">驳回</button>' : ''}
-          ${v.status === 'REVIEWED' ? '<button class="btn primary" id="rvPublish">发布</button>' : ''}
-          ${v.status === 'REJECTED' ? '<button class="btn primary" id="rvRevise">修改重提</button>' : ''}
+          ${v.status === 'REVIEW_PENDING' ? '<button class="btn primary" id="rvApprove" data-roles="REVIEWER,ADMIN">通过</button><button class="btn danger" id="rvReject" data-roles="REVIEWER,ADMIN">驳回</button>' : ''}
+          ${v.status === 'REVIEWED' ? '<button class="btn primary" id="rvPublish" data-roles="PRODUCTION_MANAGER,ADMIN">发布</button>' : ''}
+          ${v.status === 'REJECTED' ? '<button class="btn primary" id="rvRevise" data-roles="DISPATCHER,ADMIN">修改重提</button>' : ''}
         </div>
       </div>`;
 
