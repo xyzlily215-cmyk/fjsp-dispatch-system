@@ -129,10 +129,12 @@ dash = await call('/dashboard');
 assert(dash.currentPlan && dash.currentPlan.id === pvId, 'dashboard.currentPlan 指向已发布版本');
 hasFields(dash.currentPlan, ['id', 'versionCode', 'status', 'publishedAt', 'kpi'], 'dashboard.currentPlan');
 
-// 8. 执行反馈
+// 8. 执行反馈（actualStartAt 取计划开始+5min，落在该工序计划窗口内）
 console.log('== 执行反馈 ==');
-const fb = await call(`/operations/${encodeURIComponent(pv.operations[0].operationId)}/execution`, {
-  method: 'POST', body: { status: 'RUNNING', actualStartAt: '2026-09-16T02:10:00Z' },
+const op0 = pv.operations[0];
+const actualStartAt = new Date(new Date(op0.startAt).getTime() + 5 * 60000).toISOString();
+const fb = await call(`/operations/${encodeURIComponent(op0.operationId)}/execution`, {
+  method: 'POST', body: { status: 'RUNNING', actualStartAt },
 });
 hasFields(fb, ['executionRecordId', 'operationId', 'status', 'planVersionId'], 'execution feedback');
 
