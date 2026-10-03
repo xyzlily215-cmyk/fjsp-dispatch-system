@@ -31,3 +31,5 @@ fjsp:
   simulation-start-at: "2026-09-16T08:00:00+08:00"
   freeze-window-minutes: 30
   idempotency-ttl-hours: 24
+  task:
+    scan-interval-ms: ${FJSP_TASK_SCAN_INTERVAL_MS:30000}

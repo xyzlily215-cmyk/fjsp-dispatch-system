@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 
 @Service
 public class TaskRunner {
@@ -35,6 +36,14 @@ public class TaskRunner {
             log.info("calling algorithm service /solve for task {}", taskId);
             JsonNode resp = algorithmClient.solve(snapshot.getSnapshotJson());
             taskService.handleSolveResult(taskId, resp);
+        } catch (RestClientException e) {
+            // 算法服务调用失败（连接拒绝/读超时/5xx 等）视为瞬时故障，走重试策略
+            log.warn("task {} transient algorithm call failure, applying retry policy", taskId, e);
+            try {
+                taskService.scheduleRetryOrFail(taskId, e.getClass().getSimpleName() + ": " + e.getMessage());
+            } catch (Exception inner) {
+                log.error("cannot schedule retry for task {}", taskId, inner);
+            }
         } catch (Exception e) {
             log.error("task {} failed", taskId, e);
             try {

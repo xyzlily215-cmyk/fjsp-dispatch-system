@@ -68,14 +68,17 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | `fjsp.simulation-start-at` | 2026-09-16T08:00:00+08:00 | 默认仿真起点（以 seed JSON 为准） |
 | `fjsp.freeze-window-minutes` | 30 | 重调度冻结窗口 |
 | `fjsp.idempotency-ttl-hours` | 24 | 幂等记录有效期 |
+| `fjsp.task.scan-interval-ms` | 30000 | 任务超时/重试扫描间隔（可用 `FJSP_TASK_SCAN_INTERVAL_MS` 覆盖） |
 
 ## 接口一览（前缀 /api/v1）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/schedule-tasks` | 创建排程任务（异步求解），需 `Idempotency-Key` |
-| GET | `/schedule-tasks/{taskId}` | 任务状态/进度/结果/冲突 |
+| GET | `/schedule-tasks/{taskId}` | 任务状态/进度/结果/冲突/重试信息（retryCount、maxRetries、nextRetryAt、timeoutAt、cancelRequested） |
 | GET | `/schedule-tasks` | 最近 20 条任务 |
+| POST | `/schedule-tasks/{taskId}/retry` | 人工重试：仅 FAILED/CANCELLED 可调用，重置为 PENDING 并重新投递，否则 409 `E_STATE_CONFLICT` |
+| POST | `/schedule-tasks/{taskId}/cancel` | 取消：PENDING/RETRY_WAIT 直接 CANCELLED；RUNNING 置 cancelRequested 协作式取消（求解结果到达后丢弃）；终态 409 |
 | POST | `/events/new-orders` | 插单事件（同事务建单+实例化工序+影响集合） |
 | POST | `/events/breakdowns` | 设备故障事件（执行中工序冲突返回 E_EVENT_IN_PROCESS） |
 | GET | `/events/{eventId}` | 事件详情+影响集合明细 |
@@ -95,7 +98,11 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 - **统一响应**：`{requestId, timestamp, code, message, data}`；`requestId` 经 MDC 贯穿日志。
 - **请求头**：写操作可从 `X-Operator-Id`（默认 anonymous）、`X-Source`（默认 api）、`X-AGH-Session-Id` 读取操作者/来源/会话，落入审计。
 - **幂等**：写接口校验 `Idempotency-Key`，同键同摘要 24h 内返回原结果，同键不同摘要返回 `E_DUPLICATE`；任务另有输入快照指纹（snapshotHash+mode 的 SHA-256）唯一约束。
-- **异步任务**：任务落库提交事务后才触发异步求解（afterCommit），后台流程：/solve → /validate 复核 → 创建 DRAFT 计划版本 + schedule_operation 行；不可行保存冲突明细，异常标记 `FAILED`（resultStatus=FAILED，errorMessage 记录摘要）。
+- **异步任务**：任务落库提交事务后才触发异步求解（afterCommit），后台流程：/solve → /validate 复核 → 创建 DRAFT 计划版本 + schedule_operation 行；不可行保存冲突明细，异常标记 `FAILED`（resultStatus=FAILED，errorMessage 记录摘要）。任务状态机（`TaskStatus` 枚举，字符串列存取）：PENDING→RUNNING→SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED；瞬时失败转 RETRY_WAIT 等待重投；PENDING/RETRY_WAIT/RUNNING 可取消转 CANCELLED。终态：SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED/CANCELLED。
+- **任务重试（瞬时失败）**：算法服务调用异常（`RestClientException`：连接拒绝/读超时/5xx）走重试策略——retryCount+1，未超 maxRetries（默认 3）转 RETRY_WAIT，nextRetryAt = now + min(30s×2^(retryCount-1), 600s)（`TaskRetryPolicy`），审计 `TASK_RETRY_SCHEDULED`；超过后转 FAILED 终态（死信），审计 `TASK_FAILED`。INFEASIBLE、validate 复核失败、完整性违规属业务性失败，不重试。FAILED/CANCELLED 任务释放输入指纹（置 null），相同输入可重新创建任务；进行中与成功终态仍按指纹去重（409 `E_DUPLICATE`）。
+- **任务超时扫描**：`TaskTimeoutScanner` 每 `fjsp.task.scan-interval-ms`（默认 30s）扫描——RUNNING 且超过 timeoutAt（markRunning 时设为 now + 算法读超时 620s + 60s 余量）按同一重试策略处理；到期的 RETRY_WAIT 重新投递 `TaskRunner`。
+- **启动恢复**：`TaskRecoveryRunner`（ApplicationRunner）启动时处理上次进程死亡的残留——RUNNING 任务审计 `TASK_RECOVERED` 并按重试策略转 RETRY_WAIT/FAILED；PENDING 与到期 RETRY_WAIT 重新投递。
+- **协作式取消**：算法 HTTP 调用无法中断，RUNNING 任务取消仅置 cancelRequested；`handleSolveResult` 入口检查到该标记则丢弃求解结果、落 CANCELLED、不建计划版本。人工重试端点重置 retryCount/错误信息/完成时间并恢复指纹，走与创建相同的 afterCommit 投递路径。相关审计：`TASK_CANCEL_REQUESTED`/`TASK_CANCELLED`/`TASK_MANUAL_RETRY`。
 - **状态机**：DRAFT→REVIEW_PENDING→REVIEWED→PUBLISHED；REJECTED 经 `/revise` 回 DRAFT；首个 RUNNING 执行反馈使 PUBLISHED→EXECUTING；发布新版本时旧 PUBLISHED/EXECUTING→SUPERSEDED。非法跃迁（如 DRAFT/REVIEW_PENDING 直接发布）返回 409 `E_STATE_CONFLICT`。
 - **影响集合**：新订单全部工序 / 故障设备未完成工序 / 后继工序 / 维修窗口同机冲突，存 `impactType`/`impactReason`/`lockType`（HARD_LOCKED=已完成+执行中+冻结窗口内，否则 ADJUSTABLE）。
 - **计划硬约束完整性（ScheduleIntegrityGuard）**：在任务结果落库（创建计划版本前，违规则任务 FAILED、resultStatus=INTEGRITY_VIOLATION、审计 TASK_INTEGRITY_VIOLATION、不建版本）与发布时各校验一次。规则（重调度候选 vs 父版本）：已完成工序（execution_record COMPLETED）machineId/startAt/endAt 完全不可变；执行中工序（存在未关闭 RUNNING 记录）machineId+startAt 固定，仅可调整剩余部分（endAt ≥ actualStartAt）；冻结窗口内工序（startAt ∈ [freezeStart, freezeStart+freezeWindowMinutes)，freezeStart 取事件 occurredAt 否则仿真起点，且非事件受影响）machineId/startAt/endAt 不可变。违规返回 409 `E_INTEGRITY_VIOLATION`。
@@ -117,7 +124,7 @@ src/main/java/com/fjsp/business/
 ├── dto/                               # 请求 record
 ├── entity/                            # 17 张表的 JPA 实体
 ├── repository/                        # Spring Data JPA
-└── service/                           # Seed/Snapshot/Task/Event/Impact/PlanVersion/Execution/Dashboard/Demo
+└── service/                           # Seed/Snapshot/Task(+RetryPolicy/TimeoutScanner/RecoveryRunner)/Event/Impact/PlanVersion/Execution/Dashboard/Demo
 scripts/smoke-test.sh                  # 全流程 curl 冒烟
 src/main/resources/seed/demo_instance.json
 ```

@@ -18,6 +18,7 @@ import com.fjsp.business.entity.InputSnapshot;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.ScheduleTask;
+import com.fjsp.business.entity.TaskStatus;
 import com.fjsp.business.repository.EventRepository;
 import com.fjsp.business.repository.InputSnapshotRepository;
 import com.fjsp.business.repository.PlanVersionRepository;
@@ -127,7 +128,7 @@ public class TaskService {
                 simStart, freezeWindow, req.objectiveWeights(), req.algorithm());
         String snapshotHash = HashUtil.sha256OfJson(snapshot);
         String fingerprint = HashUtil.sha256(snapshotHash + "|" + req.mode());
-        var duplicate = taskRepository.findByFingerprint(fingerprint);
+        var duplicate = taskRepository.findByFingerprintAndStatusIn(fingerprint, TaskStatus.blockingStatuses());
         if (duplicate.isPresent()) {
             throw BizException.duplicate("相同输入的任务已存在: " + duplicate.get().getTaskCode());
         }
@@ -136,7 +137,7 @@ public class TaskService {
         task.setId(UUID.randomUUID().toString());
         task.setTaskCode(codeGenerator.next("TSK", taskRepository.findMaxTaskCode()));
         task.setMode(req.mode());
-        task.setStatus("PENDING");
+        task.setStatus(TaskStatus.PENDING.name());
         task.setProgress(0);
         task.setSnapshotHash(snapshotHash);
         task.setFingerprint(fingerprint);
@@ -168,13 +169,17 @@ public class TaskService {
         idempotencyService.store(idempotencyKey, req, data);
 
         String taskId = task.getId();
+        dispatchAfterCommit(taskId);
+        return data;
+    }
+
+    private void dispatchAfterCommit(String taskId) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 taskRunner.run(taskId);
             }
         });
-        return data;
     }
 
     public Map<String, Object> getTask(String taskId) {
@@ -215,6 +220,11 @@ public class TaskService {
         map.put("feasibleSolution", task.getFeasibleSolution());
         map.put("planVersionId", task.getPlanVersionId());
         map.put("candidateGroupId", task.getCandidateGroupId());
+        map.put("retryCount", task.getRetryCount());
+        map.put("maxRetries", task.getMaxRetries());
+        map.put("nextRetryAt", task.getNextRetryAt());
+        map.put("timeoutAt", task.getTimeoutAt());
+        map.put("cancelRequested", task.getCancelRequested());
         map.put("createdAt", task.getCreatedAt());
         return map;
     }
@@ -242,9 +252,12 @@ public class TaskService {
     @Transactional
     public void markRunning(String taskId) {
         ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
-        task.setStatus("RUNNING");
+        task.setStatus(TaskStatus.RUNNING.name());
         task.setProgress(10);
         task.setStartedAt(OffsetDateTime.now());
+        task.setNextRetryAt(null);
+        task.setTimeoutAt(OffsetDateTime.now()
+                .plusSeconds(properties.getAlgorithm().getTimeoutSeconds() + 60));
         taskRepository.save(task);
     }
 
@@ -259,20 +272,179 @@ public class TaskService {
     @Transactional
     public void markFailed(String taskId, String errorMessage) {
         ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
-        task.setStatus("FAILED");
+        applyFailed(task, errorMessage);
+    }
+
+    /**
+     * 瞬时失败（算法服务不可达 / 超时 / 进程中断）的统一入口：
+     * retry_count+1 后未超 max_retries → RETRY_WAIT 等待退避重投；否则 FAILED 终态（死信）。
+     */
+    @Transactional
+    public void scheduleRetryOrFail(String taskId, String reason) {
+        ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
+        if (TaskStatus.CANCELLED.name().equals(task.getStatus())) {
+            return;
+        }
+        if (Boolean.TRUE.equals(task.getCancelRequested())) {
+            applyCancelled(task, "cancel requested, transient failure not retried: " + reason);
+            return;
+        }
+        int retries = task.getRetryCount() + 1;
+        task.setRetryCount(retries);
+        if (retries <= task.getMaxRetries()) {
+            long delaySeconds = TaskRetryPolicy.backoffSeconds(retries);
+            task.setStatus(TaskStatus.RETRY_WAIT.name());
+            task.setTimeoutAt(null);
+            task.setNextRetryAt(OffsetDateTime.now().plusSeconds(delaySeconds));
+            task.setErrorMessage(truncate(reason));
+            taskRepository.save(task);
+            auditService.record("TASK_RETRY_SCHEDULED", "schedule_task", taskId,
+                    "retryCount=" + retries + ", maxRetries=" + task.getMaxRetries()
+                            + ", nextRetryAt=" + task.getNextRetryAt() + ", reason=" + reason);
+        } else {
+            applyFailed(task, reason + "（重试 " + task.getMaxRetries() + " 次后仍失败，转死信）");
+        }
+    }
+
+    private void applyFailed(ScheduleTask task, String errorMessage) {
+        task.setStatus(TaskStatus.FAILED.name());
         task.setResultStatus("FAILED");
         task.setFeasibleSolution(false);
-        task.setErrorMessage(errorMessage != null && errorMessage.length() > 1900
-                ? errorMessage.substring(0, 1900) : errorMessage);
+        task.setErrorMessage(truncate(errorMessage));
         task.setProgress(100);
         task.setFinishedAt(OffsetDateTime.now());
+        task.setTimeoutAt(null);
+        task.setNextRetryAt(null);
+        releaseFingerprint(task);
         taskRepository.save(task);
-        auditService.record("TASK_FAILED", "schedule_task", taskId, errorMessage);
+        auditService.record("TASK_FAILED", "schedule_task", task.getId(), errorMessage);
+    }
+
+    private void applyCancelled(ScheduleTask task, String detail) {
+        task.setStatus(TaskStatus.CANCELLED.name());
+        task.setCancelRequested(false);
+        task.setFinishedAt(OffsetDateTime.now());
+        task.setTimeoutAt(null);
+        task.setNextRetryAt(null);
+        releaseFingerprint(task);
+        taskRepository.save(task);
+        auditService.record("TASK_CANCELLED", "schedule_task", task.getId(), detail);
+    }
+
+    // FAILED/CANCELLED 释放指纹：相同输入可重建任务，且 unique 约束在 dev(update) 下依然成立
+    private void releaseFingerprint(ScheduleTask task) {
+        task.setFingerprint(null);
+    }
+
+    private static String truncate(String message) {
+        return message != null && message.length() > 1900 ? message.substring(0, 1900) : message;
+    }
+
+    // ---- retry / cancel endpoints ----
+
+    @Transactional
+    public Map<String, Object> retryTask(String taskIdOrCode) {
+        ScheduleTask task = findTask(taskIdOrCode);
+        if (!TaskStatus.FAILED.name().equals(task.getStatus())
+                && !TaskStatus.CANCELLED.name().equals(task.getStatus())) {
+            throw BizException.stateConflict("仅 FAILED/CANCELLED 状态的任务可人工重试，当前: " + task.getStatus());
+        }
+        String fingerprint = HashUtil.sha256(task.getSnapshotHash() + "|" + task.getMode());
+        var blocking = taskRepository.findByFingerprintAndStatusIn(fingerprint, TaskStatus.blockingStatuses());
+        if (blocking.isPresent()) {
+            throw BizException.duplicate("相同输入的任务已存在: " + blocking.get().getTaskCode());
+        }
+        task.setStatus(TaskStatus.PENDING.name());
+        task.setProgress(0);
+        task.setRetryCount(0);
+        task.setCancelRequested(false);
+        task.setErrorMessage(null);
+        task.setResultStatus(null);
+        task.setFeasibleSolution(null);
+        task.setConflicts(null);
+        task.setStartedAt(null);
+        task.setFinishedAt(null);
+        task.setNextRetryAt(null);
+        task.setTimeoutAt(null);
+        task.setFingerprint(fingerprint);
+        taskRepository.save(task);
+        auditService.record("TASK_MANUAL_RETRY", "schedule_task", task.getId(),
+                "taskCode=" + task.getTaskCode());
+        dispatchAfterCommit(task.getId());
+        return getTask(task.getId());
+    }
+
+    @Transactional
+    public Map<String, Object> cancelTask(String taskIdOrCode) {
+        ScheduleTask task = findTask(taskIdOrCode);
+        String status = task.getStatus();
+        if (TaskStatus.PENDING.name().equals(status) || TaskStatus.RETRY_WAIT.name().equals(status)) {
+            applyCancelled(task, "cancelled by operator while " + status);
+        } else if (TaskStatus.RUNNING.name().equals(status)) {
+            if (!Boolean.TRUE.equals(task.getCancelRequested())) {
+                task.setCancelRequested(true);
+                taskRepository.save(task);
+                auditService.record("TASK_CANCEL_REQUESTED", "schedule_task", task.getId(),
+                        "cooperative cancel; solve result will be discarded");
+            }
+        } else {
+            throw BizException.stateConflict("终态任务不可取消，当前: " + status);
+        }
+        return getTask(task.getId());
+    }
+
+    // ---- scheduled scan & startup recovery ----
+
+    @Transactional
+    public void processTimeouts() {
+        OffsetDateTime now = OffsetDateTime.now();
+        for (ScheduleTask task : taskRepository.findByStatusAndTimeoutAtBefore(
+                TaskStatus.RUNNING.name(), now)) {
+            scheduleRetryOrFail(task.getId(), "TaskTimeout: 执行超过时限 timeoutAt=" + task.getTimeoutAt());
+        }
+    }
+
+    public int redispatchDueRetries() {
+        OffsetDateTime now = OffsetDateTime.now();
+        List<ScheduleTask> due = taskRepository.findByStatusAndNextRetryAtLessThanEqual(
+                TaskStatus.RETRY_WAIT.name(), now);
+        for (ScheduleTask task : due) {
+            log.info("redispatch retry-wait task {}", task.getTaskCode());
+            taskRunner.run(task.getId());
+        }
+        return due.size();
+    }
+
+    @Transactional
+    public void recoverInterruptedTasks() {
+        for (ScheduleTask task : taskRepository.findByStatus(TaskStatus.RUNNING.name())) {
+            auditService.record("TASK_RECOVERED", "schedule_task", task.getId(),
+                    "process restarted while task was RUNNING; applying retry policy");
+            scheduleRetryOrFail(task.getId(), "进程重启时任务仍处于 RUNNING，按中断恢复处理");
+        }
+    }
+
+    public int redispatchPendingTasks() {
+        OffsetDateTime now = OffsetDateTime.now();
+        List<ScheduleTask> toDispatch = new ArrayList<>(
+                taskRepository.findByStatus(TaskStatus.PENDING.name()));
+        toDispatch.addAll(taskRepository.findByStatusAndNextRetryAtLessThanEqual(
+                TaskStatus.RETRY_WAIT.name(), now));
+        for (ScheduleTask task : toDispatch) {
+            log.info("redispatch task {} on startup", task.getTaskCode());
+            taskRunner.run(task.getId());
+        }
+        return toDispatch.size();
     }
 
     @Transactional
     public void handleSolveResult(String taskId, JsonNode resp) {
         ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
+        if (Boolean.TRUE.equals(task.getCancelRequested())) {
+            // 协作式取消：算法 HTTP 调用无法中断，求解结果到达后直接丢弃，不建计划版本
+            applyCancelled(task, "cancel requested while RUNNING; solve result discarded");
+            return;
+        }
         String solverStatus = resp.path("status").asText("SUCCESS");
         boolean feasible = resp.path("feasibleSolution").asBoolean(false);
         task.setFeasibleSolution(feasible);
@@ -347,7 +519,7 @@ public class TaskService {
             if (!BizException.CODE_INTEGRITY_VIOLATION.equals(e.getCode())) {
                 throw e;
             }
-            task.setStatus("FAILED");
+            task.setStatus(TaskStatus.FAILED.name());
             task.setResultStatus("INTEGRITY_VIOLATION");
             task.setFeasibleSolution(false);
             task.setConflicts(writeConflicts(e.getMessage()));

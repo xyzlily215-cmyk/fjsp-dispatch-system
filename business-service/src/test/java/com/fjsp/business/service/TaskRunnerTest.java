@@ -62,10 +62,11 @@ class TaskRunnerTest {
         order.verify(algorithmClient).solve(any());
         order.verify(taskService).handleSolveResult("t1", resp);
         verify(taskService, never()).markFailed(anyString(), any());
+        verify(taskService, never()).scheduleRetryOrFail(anyString(), any());
     }
 
     @Test
-    void run_solveTimeout_marksFailed() {
+    void run_solveTimeout_schedulesRetry() {
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new ResourceAccessException("I/O error on POST request: Read timed out"));
@@ -73,26 +74,42 @@ class TaskRunnerTest {
         taskRunner.run("t1");
 
         verify(taskService).markRunning("t1");
-        verify(taskService).markFailed(eq("t1"), argThat(msg ->
+        verify(taskService).scheduleRetryOrFail(eq("t1"), argThat(msg ->
                 msg.contains("ResourceAccessException") && msg.contains("Read timed out")));
         verify(taskService, never()).handleSolveResult(anyString(), any());
+        verify(taskService, never()).markFailed(anyString(), any());
     }
 
     @Test
-    void run_serviceUnavailable_marksFailed() {
+    void run_serviceUnavailable_schedulesRetry() {
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new ResourceAccessException("I/O error on POST request: Connection refused"));
 
         taskRunner.run("t1");
 
-        verify(taskService).markFailed(eq("t1"), argThat(msg ->
+        verify(taskService).scheduleRetryOrFail(eq("t1"), argThat(msg ->
                 msg.contains("ResourceAccessException") && msg.contains("Connection refused")));
         verify(taskService, never()).handleSolveResult(anyString(), any());
+        verify(taskService, never()).markFailed(anyString(), any());
     }
 
     @Test
-    void run_serverError_marksFailed() {
+    void run_handleResultTransient_schedulesRetry() throws Exception {
+        when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
+        JsonNode resp = JSON.readTree("{\"status\": \"SUCCESS\", \"feasibleSolution\": true}");
+        when(algorithmClient.solve(any())).thenReturn(resp);
+        org.mockito.Mockito.doThrow(new ResourceAccessException("Connection refused"))
+                .when(taskService).handleSolveResult("t1", resp);
+
+        taskRunner.run("t1");
+
+        verify(taskService).scheduleRetryOrFail(eq("t1"), argThat(msg -> msg.contains("Connection refused")));
+        verify(taskService, never()).markFailed(anyString(), any());
+    }
+
+    @Test
+    void run_nonTransientError_marksFailed() {
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new NestedRuntimeException("500 Internal Server Error") {
@@ -101,6 +118,7 @@ class TaskRunnerTest {
         taskRunner.run("t1");
 
         verify(taskService).markFailed(eq("t1"), argThat(msg -> msg.contains("500")));
+        verify(taskService, never()).scheduleRetryOrFail(anyString(), any());
     }
 
     @Test
@@ -112,5 +130,6 @@ class TaskRunnerTest {
         verify(taskService).markRunning("t1");
         verify(taskService).markFailed(eq("t1"), argThat(msg -> msg.contains("IllegalStateException")));
         verify(algorithmClient, never()).solve(any());
+        verify(taskService, never()).scheduleRetryOrFail(anyString(), any());
     }
 }

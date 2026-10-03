@@ -36,6 +36,16 @@ public class ScheduleTaskController {
         return ApiResponse.ok(taskService.getTask(taskId));
     }
 
+    @PostMapping("/{taskId}/retry")
+    public ApiResponse<Map<String, Object>> retry(@PathVariable String taskId) {
+        return ApiResponse.ok(taskService.retryTask(taskId));
+    }
+
+    @PostMapping("/{taskId}/cancel")
+    public ApiResponse<Map<String, Object>> cancel(@PathVariable String taskId) {
+        return ApiResponse.ok(taskService.cancelTask(taskId));
+    }
+
     @GetMapping
     public ApiResponse<List<Map<String, Object>>> list() {
         return ApiResponse.ok(taskService.listTasks());

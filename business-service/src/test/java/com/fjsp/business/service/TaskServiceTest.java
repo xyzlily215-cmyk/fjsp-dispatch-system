@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -120,7 +121,7 @@ class TaskServiceTest {
         when(seedService.defaultSimulationStartAt()).thenReturn(SIM_START);
         when(snapshotBuilder.buildSolveRequest(eq("BASELINE"), any(), any(), any(), eq(SIM_START),
                 eq(30), any(), any())).thenReturn(snapshotMap());
-        when(taskRepository.findByFingerprint(anyString())).thenReturn(Optional.empty());
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
         when(codeGenerator.next(eq("TSK"), any())).thenReturn("TSK-001");
     }
 
@@ -185,16 +186,37 @@ class TaskServiceTest {
         CreateTaskRequest req = baselineRequest();
         ScheduleTask existing = new ScheduleTask();
         existing.setTaskCode("TSK-009");
+        existing.setStatus("RUNNING");
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
         when(properties.getFreezeWindowMinutes()).thenReturn(30);
         when(seedService.defaultSimulationStartAt()).thenReturn(SIM_START);
         when(snapshotBuilder.buildSolveRequest(any(), any(), any(), any(), eq(SIM_START), eq(30),
                 any(), any())).thenReturn(snapshotMap());
-        when(taskRepository.findByFingerprint(anyString())).thenReturn(Optional.of(existing));
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.of(existing));
 
         BizException e = assertThrows(BizException.class, () -> taskService.createTask("key-1", req));
         assertEquals("E_DUPLICATE", e.getCode());
         verify(taskRepository, never()).save(any());
+    }
+
+    @Test
+    void createTask_dedupUsesBlockingStatuses_failedAndCancelledAllowed() {
+        CreateTaskRequest req = baselineRequest();
+        stubCreateHappyPath(req);
+
+        taskService.createTask("key-1", req);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Collection<String>> statusCaptor =
+                ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(taskRepository).findByFingerprintAndStatusIn(anyString(), statusCaptor.capture());
+        java.util.Collection<String> blocking = statusCaptor.getValue();
+        assertTrue(blocking.contains("PENDING"));
+        assertTrue(blocking.contains("RUNNING"));
+        assertTrue(blocking.contains("RETRY_WAIT"));
+        assertTrue(blocking.contains("SUCCESS"));
+        assertFalse(blocking.contains("FAILED"));
+        assertFalse(blocking.contains("CANCELLED"));
     }
 
     @Test
@@ -255,12 +277,17 @@ class TaskServiceTest {
         task.setStatus("PENDING");
         task.setProgress(0);
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(properties.getAlgorithm()).thenReturn(new FjspProperties.Algorithm());
 
         taskService.markRunning("t1");
 
         assertEquals("RUNNING", task.getStatus());
         assertEquals(10, task.getProgress());
         assertNotNull(task.getStartedAt());
+        assertNotNull(task.getTimeoutAt());
+        long timeoutSeconds = java.time.Duration.between(OffsetDateTime.now(), task.getTimeoutAt()).getSeconds();
+        assertTrue(timeoutSeconds > 670 && timeoutSeconds <= 680,
+                "timeoutAt 应为 now + 620s 算法超时 + 60s 余量，实际差值: " + timeoutSeconds);
         verify(taskRepository).save(task);
     }
 
@@ -423,5 +450,256 @@ class TaskServiceTest {
 
         assertEquals("FAILED", task.getStatus());
         assertNull(task.getErrorMessage());
+    }
+
+    // ---- resilience: retry policy / timeout scan / startup recovery / retry & cancel ----
+
+    @Test
+    void scheduleRetryOrFail_firstFailure_schedulesRetryWait() {
+        ScheduleTask task = runningTask();
+        task.setTimeoutAt(OffsetDateTime.now().plusMinutes(5));
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.scheduleRetryOrFail("t1", "ResourceAccessException: Connection refused");
+
+        assertEquals("RETRY_WAIT", task.getStatus());
+        assertEquals(1, task.getRetryCount());
+        assertNull(task.getTimeoutAt());
+        assertNotNull(task.getNextRetryAt());
+        long delay = java.time.Duration.between(OffsetDateTime.now(), task.getNextRetryAt()).getSeconds();
+        assertTrue(delay > 25 && delay <= 30, "首次重试退避应约 30s，实际: " + delay);
+        assertNotNull(task.getErrorMessage());
+        verify(auditService).record(eq("TASK_RETRY_SCHEDULED"), eq("schedule_task"), eq("t1"),
+                argThat(d -> d.contains("retryCount=1") && d.contains("Connection refused")));
+    }
+
+    @Test
+    void scheduleRetryOrFail_exceedsMaxRetries_marksFailedDeadLetter() {
+        ScheduleTask task = runningTask();
+        task.setRetryCount(3);
+        task.setMaxRetries(3);
+        task.setFingerprint("fp-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.scheduleRetryOrFail("t1", "ResourceAccessException: Read timed out");
+
+        assertEquals("FAILED", task.getStatus());
+        assertEquals("FAILED", task.getResultStatus());
+        assertEquals(4, task.getRetryCount());
+        assertTrue(task.getErrorMessage().contains("重试 3 次后仍失败"));
+        assertNull(task.getFingerprint(), "FAILED 终态应释放指纹允许重建");
+        assertNull(task.getNextRetryAt());
+        assertEquals(100, task.getProgress());
+        assertNotNull(task.getFinishedAt());
+        verify(auditService).record(eq("TASK_FAILED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void scheduleRetryOrFail_cancelRequested_cancelsInsteadOfRetry() {
+        ScheduleTask task = runningTask();
+        task.setCancelRequested(true);
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.scheduleRetryOrFail("t1", "ResourceAccessException: Connection refused");
+
+        assertEquals("CANCELLED", task.getStatus());
+        assertEquals(0, task.getRetryCount());
+        verify(auditService).record(eq("TASK_CANCELLED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void processTimeouts_timedOutRunningTask_schedulesRetry() {
+        ScheduleTask task = runningTask();
+        task.setTimeoutAt(OffsetDateTime.now().minusMinutes(1));
+        when(taskRepository.findByStatusAndTimeoutAtBefore(eq("RUNNING"), any()))
+                .thenReturn(List.of(task));
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.processTimeouts();
+
+        assertEquals("RETRY_WAIT", task.getStatus());
+        assertTrue(task.getErrorMessage().contains("TaskTimeout"));
+        verify(auditService).record(eq("TASK_RETRY_SCHEDULED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void redispatchDueRetries_dispatchesRunner() {
+        ScheduleTask due = new ScheduleTask();
+        due.setId("t1");
+        due.setTaskCode("TSK-001");
+        due.setStatus("RETRY_WAIT");
+        when(taskRepository.findByStatusAndNextRetryAtLessThanEqual(eq("RETRY_WAIT"), any()))
+                .thenReturn(List.of(due));
+
+        int dispatched = taskService.redispatchDueRetries();
+
+        assertEquals(1, dispatched);
+        verify(taskRunner).run("t1");
+    }
+
+    @Test
+    void recoverInterruptedTasks_runningTaskRecoveredToRetryWait() {
+        ScheduleTask task = runningTask();
+        when(taskRepository.findByStatus("RUNNING")).thenReturn(List.of(task));
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.recoverInterruptedTasks();
+
+        assertEquals("RETRY_WAIT", task.getStatus());
+        assertEquals(1, task.getRetryCount());
+        verify(auditService).record(eq("TASK_RECOVERED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void redispatchPendingTasks_dispatchesPendingAndDueRetryWait() {
+        ScheduleTask pending = new ScheduleTask();
+        pending.setId("t1");
+        pending.setTaskCode("TSK-001");
+        pending.setStatus("PENDING");
+        ScheduleTask dueRetry = new ScheduleTask();
+        dueRetry.setId("t2");
+        dueRetry.setTaskCode("TSK-002");
+        dueRetry.setStatus("RETRY_WAIT");
+        when(taskRepository.findByStatus("PENDING")).thenReturn(List.of(pending));
+        when(taskRepository.findByStatusAndNextRetryAtLessThanEqual(eq("RETRY_WAIT"), any()))
+                .thenReturn(List.of(dueRetry));
+
+        int dispatched = taskService.redispatchPendingTasks();
+
+        assertEquals(2, dispatched);
+        verify(taskRunner).run("t1");
+        verify(taskRunner).run("t2");
+    }
+
+    @Test
+    void cancelTask_pending_becomesCancelled() {
+        ScheduleTask task = new ScheduleTask();
+        task.setId("t1");
+        task.setTaskCode("TSK-001");
+        task.setStatus("PENDING");
+        task.setFingerprint("fp-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        Map<String, Object> data = taskService.cancelTask("t1");
+
+        assertEquals("CANCELLED", task.getStatus());
+        assertNull(task.getFingerprint());
+        assertNotNull(task.getFinishedAt());
+        assertEquals("CANCELLED", data.get("status"));
+        verify(auditService).record(eq("TASK_CANCELLED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void cancelTask_retryWait_becomesCancelled() {
+        ScheduleTask task = runningTask();
+        task.setStatus("RETRY_WAIT");
+        task.setNextRetryAt(OffsetDateTime.now().plusSeconds(30));
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.cancelTask("t1");
+
+        assertEquals("CANCELLED", task.getStatus());
+        assertNull(task.getNextRetryAt());
+        verify(auditService).record(eq("TASK_CANCELLED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void cancelTask_running_setsCancelRequestedOnly() {
+        ScheduleTask task = runningTask();
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        Map<String, Object> data = taskService.cancelTask("t1");
+
+        assertEquals("RUNNING", task.getStatus());
+        assertTrue(task.getCancelRequested());
+        assertEquals(Boolean.TRUE, data.get("cancelRequested"));
+        verify(auditService).record(eq("TASK_CANCEL_REQUESTED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void cancelTask_terminal_rejected() {
+        ScheduleTask task = runningTask();
+        task.setStatus("SUCCESS");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        BizException e = assertThrows(BizException.class, () -> taskService.cancelTask("t1"));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+    }
+
+    @Test
+    void retryTask_failed_resetsAndRedispatches() {
+        ScheduleTask task = runningTask();
+        task.setStatus("FAILED");
+        task.setResultStatus("FAILED");
+        task.setRetryCount(4);
+        task.setErrorMessage("boom");
+        task.setFinishedAt(OffsetDateTime.now());
+        task.setFingerprint(null);
+        task.setSnapshotHash("snapshot-hash-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
+
+        Map<String, Object> data = taskService.retryTask("t1");
+
+        assertEquals("PENDING", task.getStatus());
+        assertEquals(0, task.getRetryCount());
+        assertFalse(task.getCancelRequested());
+        assertNull(task.getErrorMessage());
+        assertNull(task.getResultStatus());
+        assertNull(task.getFinishedAt());
+        assertNull(task.getNextRetryAt());
+        assertNull(task.getTimeoutAt());
+        assertNotNull(task.getFingerprint(), "人工重试应恢复指纹以继续去重保护");
+        assertEquals("PENDING", data.get("status"));
+        verify(auditService).record(eq("TASK_MANUAL_RETRY"), eq("schedule_task"), eq("t1"), any());
+
+        List<TransactionSynchronization> synchronizations =
+                TransactionSynchronizationManager.getSynchronizations();
+        assertEquals(1, synchronizations.size());
+        synchronizations.get(0).afterCommit();
+        verify(taskRunner).run("t1");
+    }
+
+    @Test
+    void retryTask_nonTerminal_rejected() {
+        ScheduleTask task = runningTask();
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        BizException e = assertThrows(BizException.class, () -> taskService.retryTask("t1"));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
+    void retryTask_blockingDuplicate_rejected() {
+        ScheduleTask task = runningTask();
+        task.setStatus("FAILED");
+        task.setSnapshotHash("snapshot-hash-1");
+        ScheduleTask other = new ScheduleTask();
+        other.setTaskCode("TSK-777");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any()))
+                .thenReturn(Optional.of(other));
+
+        BizException e = assertThrows(BizException.class, () -> taskService.retryTask("t1"));
+        assertEquals("E_DUPLICATE", e.getCode());
+    }
+
+    @Test
+    void handleSolveResult_cancelRequested_discardsResult() throws Exception {
+        ScheduleTask task = runningTask();
+        task.setCancelRequested(true);
+        task.setFingerprint("fp-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        taskService.handleSolveResult("t1", feasibleResponse("SUCCESS"));
+
+        assertEquals("CANCELLED", task.getStatus());
+        assertFalse(task.getCancelRequested());
+        assertNull(task.getFingerprint());
+        assertNotNull(task.getFinishedAt());
+        verify(planVersionRepository, never()).save(any());
+        verify(scheduleOperationRepository, never()).save(any());
+        verify(auditService).record(eq("TASK_CANCELLED"), eq("schedule_task"), eq("t1"), any());
     }
 }

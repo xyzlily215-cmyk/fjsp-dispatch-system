@@ -24,7 +24,7 @@ public class ScheduleTask {
     private String mode;
 
     @Column(nullable = false)
-    private String status = "PENDING";
+    private String status = TaskStatus.PENDING.name();
 
     @Column(nullable = false)
     private Integer progress = 0;
@@ -69,6 +69,16 @@ public class ScheduleTask {
     private OffsetDateTime startedAt;
 
     private OffsetDateTime finishedAt;
+
+    private Integer retryCount = 0;
+
+    private Integer maxRetries = 3;
+
+    private OffsetDateTime nextRetryAt;
+
+    private OffsetDateTime timeoutAt;
+
+    private Boolean cancelRequested = false;
 
     public String getId() {
         return id;
@@ -244,5 +254,46 @@ public class ScheduleTask {
 
     public void setFinishedAt(OffsetDateTime finishedAt) {
         this.finishedAt = finishedAt;
+    }
+
+    // 历史行在 dev(update) 环境下新增列时可能为 NULL，getter 统一按默认值归一
+    public Integer getRetryCount() {
+        return retryCount != null ? retryCount : 0;
+    }
+
+    public void setRetryCount(Integer retryCount) {
+        this.retryCount = retryCount;
+    }
+
+    public Integer getMaxRetries() {
+        return maxRetries != null ? maxRetries : 3;
+    }
+
+    public void setMaxRetries(Integer maxRetries) {
+        this.maxRetries = maxRetries;
+    }
+
+    public OffsetDateTime getNextRetryAt() {
+        return nextRetryAt;
+    }
+
+    public void setNextRetryAt(OffsetDateTime nextRetryAt) {
+        this.nextRetryAt = nextRetryAt;
+    }
+
+    public OffsetDateTime getTimeoutAt() {
+        return timeoutAt;
+    }
+
+    public void setTimeoutAt(OffsetDateTime timeoutAt) {
+        this.timeoutAt = timeoutAt;
+    }
+
+    public Boolean getCancelRequested() {
+        return Boolean.TRUE.equals(cancelRequested);
+    }
+
+    public void setCancelRequested(Boolean cancelRequested) {
+        this.cancelRequested = cancelRequested;
     }
 }
