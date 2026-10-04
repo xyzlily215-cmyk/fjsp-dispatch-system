@@ -29,6 +29,8 @@ async function call(path, { method = 'GET', body } = {}) {
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+/* 相对当前时间的 ISO 时间（分钟偏移）——仿真起点为 RELATIVE 模式（seed 基准=当前时间） */
+const relIso = (minutesFromNow) => new Date(Date.now() + minutesFromNow * 60000).toISOString();
 
 // 0. 未认证请求应 401；随后登录拿 token
 console.log('== auth ==');
@@ -88,7 +90,6 @@ const created = await call('/schedule-tasks', {
   body: {
     mode: 'BASELINE',
     orderIds: orders.map(o => o.orderId),
-    simulationStartAt: '2026-09-16T00:00:00Z',
     objectiveWeights: { makespan: 0.4, weightedTardiness: 0.4, loadImbalance: 0.2 },
     algorithm: { populationSize: 40, generations: 60, randomSeed: 42, timeLimitSeconds: 30 },
   },
@@ -142,7 +143,7 @@ hasFields(fb, ['executionRecordId', 'operationId', 'status', 'planVersionId'], '
 console.log('== 故障事件 ==');
 const bd = await call('/events/breakdowns', {
   method: 'POST',
-  body: { machineId: 'M-03', occurredAt: '2026-09-17T02:00:00Z', repairDurationMinutes: 120, source: 'e2e', note: 'e2e 故障' },
+  body: { machineId: 'M-03', occurredAt: relIso(24 * 60), repairDurationMinutes: 120, source: 'e2e', note: 'e2e 故障' },
 });
 hasFields(bd, ['eventId', 'eventCode', 'machineId', 'occurredAt', 'repairEndAt', 'impactSummary'], 'breakdown resp');
 hasFields(bd.impactSummary, ['total', 'byType'], 'breakdown impactSummary');
@@ -172,8 +173,8 @@ const io = await call('/events/new-orders', {
   method: 'POST',
   body: {
     subType: 'URGENT_INSERT', orderCode: 'ORD-E2E-001', productFamily: '壳体C', quantity: 10,
-    arrivalAt: '2026-09-17T00:00:00Z', dueAt: '2026-09-18T12:00:00Z', priority: 1,
-    occurredAt: '2026-09-17T01:00:00Z', note: 'e2e 插单',
+    arrivalAt: relIso(24 * 60), dueAt: relIso(60 * 60), priority: 1,
+    occurredAt: relIso(25 * 60), note: 'e2e 插单',
   },
 });
 hasFields(io, ['eventId', 'eventCode', 'orderId', 'orderCode', 'operationIds', 'impactSummary'], 'new-order resp');

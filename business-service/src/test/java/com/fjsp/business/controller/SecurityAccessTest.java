@@ -28,7 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 角色-端点访问矩阵：401（未认证）/403（角色不足）/放行（角色匹配） */
-@WebMvcTest(controllers = {PlanVersionController.class, DemoController.class})
+@WebMvcTest(controllers = {PlanVersionController.class, DemoController.class},
+        properties = "fjsp.auth.jwt-secret=test-jwt-secret-test-jwt-secret-123456")
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtService.class,
         SecurityAccessTest.TestBeans.class})
 class SecurityAccessTest {
@@ -39,7 +40,7 @@ class SecurityAccessTest {
         FjspProperties fjspProperties() {
             FjspProperties properties = new FjspProperties();
             properties.getAuth().setJwtSecret("test-jwt-secret-test-jwt-secret-123456");
-            properties.getAuth().setTokenTtlHours(8);
+            properties.getAuth().setTokenTtl(java.time.Duration.ofHours(8));
             return properties;
         }
     }
@@ -84,7 +85,7 @@ class SecurityAccessTest {
     void expiredToken_401() throws Exception {
         FjspProperties expired = new FjspProperties();
         expired.getAuth().setJwtSecret("test-jwt-secret-test-jwt-secret-123456");
-        expired.getAuth().setTokenTtlHours(-1);
+        expired.getAuth().setTokenTtl(java.time.Duration.ofHours(-1));
         AppUser user = new AppUser();
         user.setUsername("admin");
         user.setRole("ADMIN");

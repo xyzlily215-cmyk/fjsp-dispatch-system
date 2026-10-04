@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- Java 17、Spring Boot 3.3.5、Spring Data JPA + Flyway（dev profile 下 ddl-auto=update，默认 profile 下 validate）
+- Java 17、Spring Boot 3.3.5、Spring Data JPA + Flyway（local profile 下 ddl-auto=update，默认 profile 下 validate）
 - PostgreSQL 16（jsonb 快照字段）、RestClient（算法服务通信，超时 620s）
 - 演示规模：20 订单 / 8 设备 / 3 产品族工艺模板
 
@@ -38,10 +38,12 @@ python3 -m uvicorn app.api:app --port 8101
 ```bash
 cd business-service
 set -a; source ../.env; set +a
-SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run          # 或 mvn -DskipTests package && SPRING_PROFILES_ACTIVE=dev java -jar target/business-service-1.0.0.jar
+SPRING_PROFILES_ACTIVE=local mvn spring-boot:run          # 或 mvn -DskipTests package && SPRING_PROFILES_ACTIVE=local java -jar target/business-service-1.0.0.jar
 ```
 
-> **Profile 与 schema 管理**：本地开发使用 `dev` profile——Flyway 关闭、`ddl-auto=update`，Hibernate 自动同步表结构；不设 `SPRING_PROFILES_ACTIVE` 时为默认（生产姿态）——Flyway 执行 `src/main/resources/db/migration/` 下的迁移脚本（基线 `V1__baseline_schema.sql`），`ddl-auto=validate` 仅做一致性校验。存量库首次以默认 profile 启动会自动 baseline 到版本 1；schema 变更请新增 `V<n>__*.sql` 迁移脚本。`scripts/start-demo.sh` 已默认带上 dev profile。
+> **Profile 与 schema 管理**：本地开发使用 `local` profile——Flyway 关闭、`ddl-auto=update`，Hibernate 自动同步表结构；不设 `SPRING_PROFILES_ACTIVE` 时为默认（生产姿态）——Flyway 执行 `src/main/resources/db/migration/` 下的迁移脚本（基线 `V1__baseline_schema.sql`），`ddl-auto=validate` 仅做一致性校验。存量库首次以默认 profile 启动会自动 baseline 到版本 1；schema 变更请新增 `V<n>__*.sql` 迁移脚本。`scripts/start-demo.sh` 已默认带上 local profile。
+>
+> **三个命名 profile**：`local`（本地开发，含 dev-only 密钥与 CORS localhost 白名单）、`test`（集成测试，datasource 由 Testcontainers 注入）、`prod`（所有连接与密钥强制环境变量，无默认值，缺失即启动失败）。默认（不带 profile）即生产姿态。
 
 默认端口 **8081**（本机 8080 被其他应用占用；修改 `src/main/resources/application.yml` 的 `server.port` 可调整）。
 首次启动时若 `machine` 表为空，自动从 `src/main/resources/seed/demo_instance.json` 导入：
@@ -54,23 +56,29 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 ./scripts/smoke-test.sh                            # 全流程冒烟测试
 ```
 
-## 配置项（application.yml）
+## 配置项（FjspProperties，@Validated 启动校验）
 
-| 配置 | 默认 | 说明 |
-|---|---|---|
-| `server.port` | 8081 | 服务端口 |
-| `spring.datasource.url` | 由 `FJSP_DB_*` 变量组成 | PostgreSQL 连接地址 |
-| `spring.datasource.password` | `FJSP_DB_PASSWORD` | 数据库密码，不写入仓库 |
-| `spring.jpa.hibernate.ddl-auto` | `validate`（dev profile 为 `update`） | 默认仅校验 schema，开发环境自动同步 |
-| `spring.flyway.enabled` | `true`（dev profile 为 `false`） | 默认由 Flyway 管理 schema，迁移脚本在 `db/migration/` |
-| `fjsp.algorithm.base-url` | `FJSP_ALGORITHM_BASE_URL` 或 http://localhost:8101 | 算法服务地址 |
-| `fjsp.algorithm.timeout-seconds` | 620 | 调用 /solve、/validate 超时 |
-| `fjsp.simulation-start-at` | 2026-09-16T08:00:00+08:00 | 默认仿真起点（以 seed JSON 为准） |
-| `fjsp.freeze-window-minutes` | 30 | 重调度冻结窗口 |
-| `fjsp.idempotency-ttl-hours` | 24 | 幂等记录有效期 |
-| `fjsp.task.scan-interval-ms` | 30000 | 任务超时/重试扫描间隔（可用 `FJSP_TASK_SCAN_INTERVAL_MS` 覆盖） |
-| `fjsp.auth.jwt-secret` | `FJSP_JWT_SECRET`，缺省为仅开发用默认值 | JWT HS256 签名密钥（≥32 字节，生产必须显式配置） |
-| `fjsp.auth.token-ttl-hours` | 8 | JWT 有效期（小时） |
+默认值的唯一来源是 `config/FjspProperties.java` 的字段初始值；YAML 只做覆盖。Duration 类型支持 `30s`/`15m`/`8h` 写法。
+
+| 配置 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `server.port` | int | 8081 | 服务端口 |
+| `spring.datasource.url/username/password` | string | `${FJSP_DB_HOST:localhost}` 等；密码无默认 | prod profile 下全部无默认值，缺失即失败 |
+| `spring.jpa.hibernate.ddl-auto` | enum | `validate`（local 为 `update`） | 默认仅校验 schema，本地开发自动同步 |
+| `spring.flyway.enabled` | bool | `true`（local 为 `false`） | 默认由 Flyway 管理 schema，迁移脚本在 `db/migration/` |
+| `fjsp.simulation.mode` | `RELATIVE`/`FIXED` | `RELATIVE` | RELATIVE：seed 基准=当前时间，任务默认起点=种子订单最小到达时间；FIXED：seed json `simulationStartAt` 优先，其次 `fjsp.simulation.start-at` |
+| `fjsp.simulation.start-at` | ISO datetime | 空 | 仅 FIXED 模式兜底；缺失时报明确错误 |
+| `fjsp.algorithm.base-url` | string | `${FJSP_ALGORITHM_BASE_URL:http://localhost:8101}` | 算法服务地址 |
+| `fjsp.algorithm.timeout` | Duration | 620s | /solve、/validate 读超时 |
+| `fjsp.algorithm.connect-timeout` | Duration | 10s | 连接超时 |
+| `fjsp.task.scan-interval` | Duration | 30s | 任务超时/重试扫描间隔 |
+| `fjsp.task.timeout-buffer` | Duration | 60s | RUNNING 任务 timeoutAt = now + algorithm.timeout + 该缓冲 |
+| `fjsp.task.executor.core-size/max-size/queue-capacity` | int | 2/4/20 | 排程任务线程池 |
+| `fjsp.auth.jwt-secret` | string ≥32 字节 | 无（`@NotNull`+`@Size(min=32)` 强制） | 默认/prod：必须设 `FJSP_JWT_SECRET`；local：dev-only 演示值；test：固定测试值 |
+| `fjsp.auth.token-ttl` | Duration | 8h | JWT 有效期 |
+| `fjsp.cors.allowed-origins` | list | 空（不允许跨域） | local：`http://localhost:8082`、`http://127.0.0.1:8082` |
+| `fjsp.freeze-window` | Duration | 30m | 重调度冻结窗口（API 入参 `freezeWindowMinutes` 仍为分钟，可覆盖） |
+| `fjsp.idempotency-ttl` | Duration | 24h | 幂等记录有效期 |
 
 ## 认证与角色
 
@@ -128,7 +136,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 - **幂等**：写接口校验 `Idempotency-Key`，同键同摘要 24h 内返回原结果，同键不同摘要返回 `E_DUPLICATE`；任务另有输入快照指纹（snapshotHash+mode 的 SHA-256）唯一约束。
 - **异步任务**：任务落库提交事务后才触发异步求解（afterCommit），后台流程：/solve → /validate 复核 → 创建 DRAFT 计划版本 + schedule_operation 行；不可行保存冲突明细，异常标记 `FAILED`（resultStatus=FAILED，errorMessage 记录摘要）。任务状态机（`TaskStatus` 枚举，字符串列存取）：PENDING→RUNNING→SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED；瞬时失败转 RETRY_WAIT 等待重投；PENDING/RETRY_WAIT/RUNNING 可取消转 CANCELLED。终态：SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED/CANCELLED。
 - **任务重试（瞬时失败）**：算法服务调用异常（`RestClientException`：连接拒绝/读超时/5xx）走重试策略——retryCount+1，未超 maxRetries（默认 3）转 RETRY_WAIT，nextRetryAt = now + min(30s×2^(retryCount-1), 600s)（`TaskRetryPolicy`），审计 `TASK_RETRY_SCHEDULED`；超过后转 FAILED 终态（死信），审计 `TASK_FAILED`。INFEASIBLE、validate 复核失败、完整性违规属业务性失败，不重试。FAILED/CANCELLED 任务释放输入指纹（置 null），相同输入可重新创建任务；进行中与成功终态仍按指纹去重（409 `E_DUPLICATE`）。
-- **任务超时扫描**：`TaskTimeoutScanner` 每 `fjsp.task.scan-interval-ms`（默认 30s）扫描——RUNNING 且超过 timeoutAt（markRunning 时设为 now + 算法读超时 620s + 60s 余量）按同一重试策略处理；到期的 RETRY_WAIT 重新投递 `TaskRunner`。
+- **任务超时扫描**：`TaskTimeoutScanner` 每 `fjsp.task.scan-interval`（默认 30s）扫描——RUNNING 且超过 timeoutAt（markRunning 时设为 now + `fjsp.algorithm.timeout`（默认 620s）+ `fjsp.task.timeout-buffer`（默认 60s））按同一重试策略处理；到期的 RETRY_WAIT 重新投递 `TaskRunner`。
 - **启动恢复**：`TaskRecoveryRunner`（ApplicationRunner）启动时处理上次进程死亡的残留——RUNNING 任务审计 `TASK_RECOVERED` 并按重试策略转 RETRY_WAIT/FAILED；PENDING 与到期 RETRY_WAIT 重新投递。
 - **协作式取消**：算法 HTTP 调用无法中断，RUNNING 任务取消仅置 cancelRequested；`handleSolveResult` 入口检查到该标记则丢弃求解结果、落 CANCELLED、不建计划版本。人工重试端点重置 retryCount/错误信息/完成时间并恢复指纹，走与创建相同的 afterCommit 投递路径。相关审计：`TASK_CANCEL_REQUESTED`/`TASK_CANCELLED`/`TASK_MANUAL_RETRY`。
 - **状态机**：DRAFT→REVIEW_PENDING→REVIEWED→PUBLISHED；REJECTED 经 `/revise` 回 DRAFT；首个 RUNNING 执行反馈使 PUBLISHED→EXECUTING；发布新版本时旧 PUBLISHED/EXECUTING→SUPERSEDED。非法跃迁（如 DRAFT/REVIEW_PENDING 直接发布）返回 409 `E_STATE_CONFLICT`。

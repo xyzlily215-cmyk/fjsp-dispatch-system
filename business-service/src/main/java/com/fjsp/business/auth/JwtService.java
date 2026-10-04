@@ -1,6 +1,7 @@
 package com.fjsp.business.auth;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Date;
@@ -18,13 +19,13 @@ import org.springframework.stereotype.Service;
 
 /**
  * HS256 JWT 签发与校验。密钥来自 fjsp.auth.jwt-secret（环境变量 FJSP_JWT_SECRET），
- * 有效期 fjsp.auth.token-ttl-hours（默认 8h）。
+ * 有效期 fjsp.auth.token-ttl（默认 8h）。
  */
 @Service
 public class JwtService {
 
     private final SecretKey key;
-    private final int tokenTtlHours;
+    private final Duration tokenTtl;
 
     public JwtService(FjspProperties properties) {
         String secret = properties.getAuth().getJwtSecret();
@@ -32,7 +33,7 @@ public class JwtService {
             throw new IllegalStateException("fjsp.auth.jwt-secret 至少需要 32 字节（HS256）");
         }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.tokenTtlHours = properties.getAuth().getTokenTtlHours();
+        this.tokenTtl = properties.getAuth().getTokenTtl();
     }
 
     public String generateToken(AppUser user) {
@@ -42,7 +43,7 @@ public class JwtService {
                 .claim("role", user.getRole())
                 .claim("displayName", user.getDisplayName() != null ? user.getDisplayName() : "")
                 .issuedAt(Date.from(now.toInstant()))
-                .expiration(Date.from(now.plusHours(tokenTtlHours).toInstant()))
+                .expiration(Date.from(now.plus(tokenTtl).toInstant()))
                 .signWith(key)
                 .compact();
     }
@@ -56,7 +57,7 @@ public class JwtService {
         return OffsetDateTime.ofInstant(jws.getPayload().getExpiration().toInstant(), ZoneOffset.UTC);
     }
 
-    public int getTokenTtlHours() {
-        return tokenTtlHours;
+    public Duration getTokenTtl() {
+        return tokenTtl;
     }
 }

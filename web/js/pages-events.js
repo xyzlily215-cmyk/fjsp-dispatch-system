@@ -76,9 +76,9 @@ registerPage('insert', ['事件管理', '订单插单'], async (el) => {
           <select class="field" id="ioFamily">${families.map(f => `<option>${esc(f)}</option>`).join('')}</select></div>
         <div class="form-row"><label class="required">数量</label><input type="number" class="field" id="ioQty" min="1" value="20"></div>
         <div class="form-row"><label class="required">优先级</label><input type="number" class="field" id="ioPriority" min="1" max="5" value="1"></div>
-        <div class="form-row"><label class="required">到达时间</label><input type="datetime-local" class="field" id="ioArrival" value="2026-09-17T08:00"></div>
-        <div class="form-row"><label class="required">交期</label><input type="datetime-local" class="field" id="ioDue" value="2026-09-18T18:00"></div>
-        <div class="form-row"><label class="required">发生时间</label><input type="datetime-local" class="field" id="ioOccurred" value="2026-09-17T08:00"></div>
+        <div class="form-row"><label class="required">到达时间</label><input type="datetime-local" class="field" id="ioArrival" value="${isoToLocalInput(new Date(Date.now() + 24 * 3600e3).toISOString())}"></div>
+        <div class="form-row"><label class="required">交期</label><input type="datetime-local" class="field" id="ioDue" value="${isoToLocalInput(new Date(Date.now() + 48 * 3600e3).toISOString())}"></div>
+        <div class="form-row"><label class="required">发生时间</label><input type="datetime-local" class="field" id="ioOccurred" value="${isoToLocalInput(new Date(Date.now() + 24 * 3600e3).toISOString())}"></div>
         <div class="form-row"><label>备注</label><textarea class="field" id="ioNote" placeholder="可选"></textarea></div>
         <div id="ioErr"></div>
         <button class="btn primary" style="width:100%;height:36px" id="ioSubmit" data-roles="DISPATCHER,ADMIN">登记插单事件</button>
@@ -134,7 +134,7 @@ registerPage('breakdown', ['事件管理', '设备故障'], async (el) => {
         <h3 style="margin:0 0 14px;font-size:15px">故障事件</h3>
         <div class="form-row"><label class="required">设备</label>
           <select class="field" id="bdMachine">${machines.map(m => `<option value="${esc(m.machineId)}">${esc(m.machineId)} · ${esc(m.workCenterId)}（${esc(m.status)}）</option>`).join('')}</select></div>
-        <div class="form-row"><label class="required">发生时间</label><input type="datetime-local" class="field" id="bdOccurred" value="2026-09-17T10:00"></div>
+        <div class="form-row"><label class="required">发生时间</label><input type="datetime-local" class="field" id="bdOccurred" value="${isoToLocalInput(new Date(Date.now() + 24 * 3600e3).toISOString())}"></div>
         <div class="form-row"><label class="required">维修时长(分)</label><input type="number" class="field" id="bdRepair" min="1" value="120"></div>
         <div class="form-row"><label>来源</label>
           <select class="field" id="bdSource"><option value="manual">人工登记</option><option value="iot">IoT 采集</option><option value="mes">MES 推送</option></select></div>

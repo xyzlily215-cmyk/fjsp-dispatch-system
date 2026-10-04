@@ -75,7 +75,7 @@ public class ImpactCalculator {
         }
         OffsetDateTime occurredAt = event.getOccurredAt();
         OffsetDateTime repairEnd = event.getRepairEndAt();
-        OffsetDateTime freezeEnd = occurredAt.plusMinutes(properties.getFreezeWindowMinutes());
+        OffsetDateTime freezeEnd = occurredAt.plus(properties.getFreezeWindow());
 
         List<ScheduleOperation> planOps = scheduleOperationRepository.findByPlanVersionId(published.getId());
         Map<String, ScheduleOperation> byOpId = new LinkedHashMap<>();

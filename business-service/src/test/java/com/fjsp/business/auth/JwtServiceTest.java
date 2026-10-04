@@ -17,10 +17,10 @@ class JwtServiceTest {
 
     private static final String SECRET = "test-jwt-secret-test-jwt-secret-123456";
 
-    private JwtService jwtService(int ttlHours) {
+    private JwtService jwtService(java.time.Duration tokenTtl) {
         FjspProperties properties = new FjspProperties();
         properties.getAuth().setJwtSecret(SECRET);
-        properties.getAuth().setTokenTtlHours(ttlHours);
+        properties.getAuth().setTokenTtl(tokenTtl);
         return new JwtService(properties);
     }
 
@@ -34,7 +34,7 @@ class JwtServiceTest {
 
     @Test
     void generateAndParse_roundTrip() {
-        JwtService service = jwtService(8);
+        JwtService service = jwtService(java.time.Duration.ofHours(8));
 
         String token = service.generateToken(user());
         Jws<Claims> jws = service.parse(token);
@@ -47,7 +47,7 @@ class JwtServiceTest {
 
     @Test
     void parse_expiredToken_rejected() {
-        JwtService service = jwtService(-1);
+        JwtService service = jwtService(java.time.Duration.ofHours(-1));
         String token = service.generateToken(user());
 
         assertThrows(ExpiredJwtException.class, () -> service.parse(token));
@@ -55,7 +55,7 @@ class JwtServiceTest {
 
     @Test
     void parse_tamperedSignature_rejected() {
-        JwtService service = jwtService(8);
+        JwtService service = jwtService(java.time.Duration.ofHours(8));
         String token = service.generateToken(user());
         String tampered = token.substring(0, token.length() - 2)
                 + (token.endsWith("aa") ? "bb" : "aa");
@@ -65,7 +65,7 @@ class JwtServiceTest {
 
     @Test
     void parse_wrongKey_rejected() {
-        String token = jwtService(8).generateToken(user());
+        String token = jwtService(java.time.Duration.ofHours(8)).generateToken(user());
         FjspProperties other = new FjspProperties();
         other.getAuth().setJwtSecret("another-secret-another-secret-12345678");
         JwtService otherService = new JwtService(other);

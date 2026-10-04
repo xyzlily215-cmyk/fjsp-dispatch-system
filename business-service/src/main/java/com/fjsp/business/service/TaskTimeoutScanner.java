@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 周期扫描：超时 RUNNING 任务按重试策略处理；到期的 RETRY_WAIT 任务重新投递。
- * 间隔由 fjsp.task.scan-interval-ms 控制（默认 30000）。
+ * 间隔取 fjsp.task.scan-interval（Duration，默认 30s；SpEL 直接引用属性 bean，不经过 Environment 占位符）。
  */
 @Component
 public class TaskTimeoutScanner {
@@ -20,7 +20,8 @@ public class TaskTimeoutScanner {
         this.taskService = taskService;
     }
 
-    @Scheduled(fixedDelayString = "${fjsp.task.scan-interval-ms:30000}")
+    @Scheduled(fixedDelayString =
+            "#{@'fjsp-com.fjsp.business.config.FjspProperties'.task.scanInterval.toMillis()}")
     public void scan() {
         try {
             taskService.processTimeouts();

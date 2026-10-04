@@ -117,7 +117,7 @@ class TaskServiceTest {
 
     private void stubCreateHappyPath(CreateTaskRequest req) {
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
-        when(properties.getFreezeWindowMinutes()).thenReturn(30);
+        when(properties.getFreezeWindow()).thenReturn(java.time.Duration.ofMinutes(30));
         when(seedService.defaultSimulationStartAt()).thenReturn(SIM_START);
         when(snapshotBuilder.buildSolveRequest(eq("BASELINE"), any(), any(), any(), eq(SIM_START),
                 eq(30), any(), any())).thenReturn(snapshotMap());
@@ -188,7 +188,7 @@ class TaskServiceTest {
         existing.setTaskCode("TSK-009");
         existing.setStatus("RUNNING");
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
-        when(properties.getFreezeWindowMinutes()).thenReturn(30);
+        when(properties.getFreezeWindow()).thenReturn(java.time.Duration.ofMinutes(30));
         when(seedService.defaultSimulationStartAt()).thenReturn(SIM_START);
         when(snapshotBuilder.buildSolveRequest(any(), any(), any(), any(), eq(SIM_START), eq(30),
                 any(), any())).thenReturn(snapshotMap());
@@ -242,7 +242,7 @@ class TaskServiceTest {
         CreateTaskRequest req = new CreateTaskRequest("BASELINE", null, null, null, null, null, null,
                 Map.of("timeLimitSeconds", 601));
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
-        when(properties.getFreezeWindowMinutes()).thenReturn(30);
+        when(properties.getFreezeWindow()).thenReturn(java.time.Duration.ofMinutes(30));
 
         BizException e = assertThrows(BizException.class, () -> taskService.createTask("key-1", req));
         assertEquals("E_VALIDATION", e.getCode());
@@ -253,7 +253,7 @@ class TaskServiceTest {
         CreateTaskRequest req = new CreateTaskRequest("BASELINE", null, null, "EVT-001", null, null,
                 null, null);
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
-        when(properties.getFreezeWindowMinutes()).thenReturn(30);
+        when(properties.getFreezeWindow()).thenReturn(java.time.Duration.ofMinutes(30));
 
         BizException e = assertThrows(BizException.class, () -> taskService.createTask("key-1", req));
         assertEquals("E_VALIDATION", e.getCode());
@@ -264,7 +264,7 @@ class TaskServiceTest {
         CreateTaskRequest req = new CreateTaskRequest("LOCAL_RESCHEDULE", null, null, null, null, null,
                 null, null);
         when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
-        when(properties.getFreezeWindowMinutes()).thenReturn(30);
+        when(properties.getFreezeWindow()).thenReturn(java.time.Duration.ofMinutes(30));
 
         BizException e = assertThrows(BizException.class, () -> taskService.createTask("key-1", req));
         assertEquals("E_VALIDATION", e.getCode());
@@ -278,6 +278,7 @@ class TaskServiceTest {
         task.setProgress(0);
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
         when(properties.getAlgorithm()).thenReturn(new FjspProperties.Algorithm());
+        when(properties.getTask()).thenReturn(new FjspProperties.Task());
 
         taskService.markRunning("t1");
 

@@ -38,7 +38,7 @@ class IdempotencyServiceTest {
     @BeforeEach
     void setUp() {
         FjspProperties properties = new FjspProperties();
-        properties.setIdempotencyTtlHours(24);
+        properties.setIdempotencyTtl(java.time.Duration.ofHours(24));
         idempotencyService = new IdempotencyService(repository, properties, new ObjectMapper());
     }
 

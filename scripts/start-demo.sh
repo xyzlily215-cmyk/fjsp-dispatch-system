@@ -14,10 +14,9 @@ require_command python3
 require_command mvn
 require_command java
 
-printf '\n== 1. 启动 PostgreSQL / Redis ==\n'
-docker_compose up -d postgres redis
+printf '\n== 1. 启动 PostgreSQL ==\n'
+docker_compose up -d postgres
 wait_for_container_health fjsp-postgres
-wait_for_container_health fjsp-redis
 
 printf '\n== 2. 启动算法服务 ==\n'
 if ! curl -fsS --max-time 3 "$FJSP_ALGORITHM_BASE_URL/health" >/dev/null 2>&1; then
@@ -30,7 +29,7 @@ printf '\n== 3. 构建并启动业务服务 ==\n'
 if ! curl -fsS --max-time 3 "$FJSP_API_BASE/machines" >/dev/null 2>&1; then
   (cd "$ROOT_DIR/business-service" && mvn -q -DskipTests package)
   start_process business "business-service-1.0.0.jar" "$ROOT_DIR/business-service" "$(log_file business)" \
-    env SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-dev}" java -jar target/business-service-1.0.0.jar
+    env SPRING_PROFILES_ACTIVE="${SPRING_PROFILES_ACTIVE:-local}" java -jar target/business-service-1.0.0.jar
 fi
 wait_for_url "$FJSP_API_BASE/machines" "业务服务" 120
 

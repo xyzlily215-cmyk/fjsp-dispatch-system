@@ -37,6 +37,10 @@ say "0b. demo/reset 重置并重新 seed"
 RESET=$(curl -s -X POST "$BASE/demo/reset")
 echo "$RESET" | head -c 300; echo
 
+# 相对时间基准：seed（RELATIVE 模式）以当前时间为仿真起点，本脚本所有事件时间按 T0 偏移计算
+T0_EPOCH=$(date -u +%s)
+iso_offset(){ python3 -c "import datetime;print(datetime.datetime.fromtimestamp($T0_EPOCH + $1*60, datetime.timezone.utc).isoformat())"; }
+
 say "1. GET /machines 应返回 8 台设备"
 MACHINES=$(curl -s "$BASE/machines")
 COUNT=$(echo "$MACHINES" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['data']))")
@@ -104,10 +108,10 @@ EX2=$(curl -s -X POST "$BASE/operations/$FIRST_OP/execution" -H 'Content-Type: a
   -d '{"status":"COMPLETED"}')
 [ "$(echo "$EX2" | jqget "['data']['status']")" = "COMPLETED" ] && ok "COMPLETED 反馈" || bad "COMPLETED 失败: $EX2"
 
-say "6. 创建故障事件（M-03，仿真时间 2026-09-17 08:00 +08:00 修 120 分钟）"
+say "6. 创建故障事件（M-03，仿真起点+24h，修 120 分钟）"
 BD=$(curl -s -X POST "$BASE/events/breakdowns" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: smoke-breakdown-001' \
-  -d '{"machineId":"M-03","occurredAt":"2026-09-17T08:00:00+08:00","repairDurationMinutes":120,"source":"smoke","note":"冒烟测试故障"}')
+  -d "{\"machineId\":\"M-03\",\"occurredAt\":\"$(iso_offset 1440)\",\"repairDurationMinutes\":120,\"source\":\"smoke\",\"note\":\"冒烟测试故障\"}")
 echo "$BD" | head -c 400; echo
 EVENT_ID=$(echo "$BD" | jqget "['data']['eventId']")
 [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "None" ] && ok "故障事件创建 eventId=$EVENT_ID" || bad "故障事件失败: $BD"
@@ -193,10 +197,11 @@ TARGET=$(curl -s "$BASE/plan-versions" | python3 -c "
 import sys,json
 vs=[v for v in json.load(sys.stdin)['data'] if v['status'] in ('PUBLISHED','EXECUTING')]
 print(vs[0]['id'])")
-INP_OP=$(curl -s "$BASE/plan-versions/$TARGET" | python3 -c "
-import sys,json,datetime
+INP_OP=$(curl -s "$BASE/plan-versions/$TARGET" | THRESH_EPOCH=$((T0_EPOCH+300)) python3 -c "
+import sys,json,os,datetime
+thresh=datetime.datetime.fromtimestamp(int(os.environ['THRESH_EPOCH']), datetime.timezone.utc)
 ops=json.load(sys.stdin)['data']['operations']
-future=[o for o in ops if o['startAt'] > '2026-09-16T08:05']
+future=[o for o in ops if datetime.datetime.fromisoformat(o['startAt'].replace('Z','+00:00')) > thresh]
 future.sort(key=lambda o:o['startAt'])
 print(future[0]['operationId']+'|'+future[0]['machineId']+'|'+future[0]['startAt'] if future else '')")
 OP_ID=$(echo "$INP_OP" | cut -d'|' -f1)
@@ -217,12 +222,13 @@ EIP=$(curl -s -X POST "$BASE/events/breakdowns" \
 say "11. 插单事件"
 NO=$(curl -s -X POST "$BASE/events/new-orders" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: smoke-neworder-001' \
-  -d '{"subType":"URGENT_INSERT","productFamily":"轴类A","quantity":10,"occurredAt":"2026-09-17T08:00:00+08:00","arrivalAt":"2026-09-17T08:00:00+08:00","dueAt":"2026-09-19T20:00:00+08:00","priority":5,"note":"冒烟插单"}')
+  -d "{\"subType\":\"URGENT_INSERT\",\"productFamily\":\"轴类A\",\"quantity\":10,\"occurredAt\":\"$(iso_offset 1440)\",\"arrivalAt\":\"$(iso_offset 1440)\",\"dueAt\":\"$(iso_offset 5040)\",\"priority\":5,\"note\":\"冒烟插单\"}")
 echo "$NO" | head -c 400; echo
 [ "$(echo "$NO" | jqget "['code']")" = "OK" ] && ok "插单成功" || bad "插单失败: $NO"
+SEED_ORDER_CODE=$(curl -s "$BASE/orders" | python3 -c "import sys,json;print(json.load(sys.stdin)['data'][0]['orderCode'])")
 NO2=$(curl -s -X POST "$BASE/events/new-orders" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: smoke-neworder-002' \
-  -d '{"subType":"NORMAL_APPEND","orderCode":"ORD-20260916-001","productFamily":"轴类A","quantity":5,"dueAt":"2026-09-19T20:00:00+08:00","priority":3}')
+  -d "{\"subType\":\"NORMAL_APPEND\",\"orderCode\":\"$SEED_ORDER_CODE\",\"productFamily\":\"轴类A\",\"quantity\":5,\"dueAt\":\"$(iso_offset 5040)\",\"priority\":3}")
 [ "$(echo "$NO2" | jqget "['code']")" = "E_DUPLICATE" ] && ok "重复订单号返回 E_DUPLICATE" || bad "重复订单号未拦截: $NO2"
 
 say "12. dashboard 聚合"
@@ -295,7 +301,7 @@ APP=$(curl -s -X POST "$BASE/plan-versions/$PVX/review" -H 'Content-Type: applic
   && ok "带请求头审核通过 REVIEWED" || { bad "审核通过失败: $APP"; exit 1; }
 NE=$(curl -s -X POST "$BASE/events/new-orders" \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: smoke-neworder-stale-001' \
-  -d '{"subType":"URGENT_INSERT","productFamily":"轴类A","quantity":3,"occurredAt":"2026-09-18T08:00:00+08:00","arrivalAt":"2026-09-18T08:00:00+08:00","dueAt":"2026-09-20T20:00:00+08:00","priority":4,"note":"快照后新扰动"}')
+  -d "{\"subType\":\"URGENT_INSERT\",\"productFamily\":\"轴类A\",\"quantity\":3,\"occurredAt\":\"$(iso_offset 2880)\",\"arrivalAt\":\"$(iso_offset 2880)\",\"dueAt\":\"$(iso_offset 6480)\",\"priority\":4,\"note\":\"快照后新扰动\"}")
 [ "$(echo "$NE" | jqget "['code']")" = "OK" ] && ok "快照后新事件已登记" || bad "新事件登记失败: $NE"
 PUB_STALE=$(curl -s -X POST "$BASE/plan-versions/$PVX/publish" -H 'Content-Type: application/json' \
   -d "{\"version\":$(pv_version "$PVX")}")

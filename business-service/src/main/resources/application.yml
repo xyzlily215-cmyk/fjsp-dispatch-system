@@ -27,12 +27,6 @@ logging:
 fjsp:
   algorithm:
     base-url: ${FJSP_ALGORITHM_BASE_URL:http://localhost:8101}
-    timeout-seconds: 620
-  simulation-start-at: "2026-09-16T08:00:00+08:00"
-  freeze-window-minutes: 30
-  idempotency-ttl-hours: 24
-  task:
-    scan-interval-ms: ${FJSP_TASK_SCAN_INTERVAL_MS:30000}
   auth:
-    jwt-secret: ${FJSP_JWT_SECRET:dev-only-insecure-jwt-secret-do-not-use-in-prod}
-    token-ttl-hours: 8
+    # 无默认值：缺失即启动失败（local/test profile 各自覆盖为演示/测试值）
+    jwt-secret: ${FJSP_JWT_SECRET}

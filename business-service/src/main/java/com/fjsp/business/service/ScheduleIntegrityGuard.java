@@ -152,6 +152,6 @@ public class ScheduleIntegrityGuard {
                 return ((Number) value).intValue();
             }
         }
-        return properties.getFreezeWindowMinutes();
+        return (int) properties.getFreezeWindow().toMinutes();
     }
 }

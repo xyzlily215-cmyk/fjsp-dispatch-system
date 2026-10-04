@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 启动时补齐 4 个种子账号（按 username 幂等）。
- * 生产路径由 Flyway V3 建表+插入；dev profile（Flyway 关闭）由本 runner 保证账号存在。
+ * 生产路径由 Flyway V3 建表+插入；local profile（Flyway 关闭）由本 runner 保证账号存在。
  * 密码仅用于本地演示，见 README。
  */
 @Component

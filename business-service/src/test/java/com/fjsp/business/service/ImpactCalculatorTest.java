@@ -53,7 +53,7 @@ class ImpactCalculatorTest {
     @BeforeEach
     void setUp() {
         FjspProperties properties = new FjspProperties();
-        properties.setFreezeWindowMinutes(30);
+        properties.setFreezeWindow(java.time.Duration.ofMinutes(30));
         impactCalculator = new ImpactCalculator(scheduleOperationRepository, orderOperationRepository,
                 executionRecordRepository, planVersionRepository, eventImpactRepository, properties);
     }

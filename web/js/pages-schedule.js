@@ -25,7 +25,7 @@ registerPage('baseline', ['计划调度', '基线排程'], async (el) => {
       </section>
       <section class="card"><div class="section-pad">
         <h3 style="margin:0 0 14px;font-size:15px">排程参数</h3>
-        <div class="form-row"><label>仿真起点</label><input type="datetime-local" class="field" id="blSimStart" value="2026-09-16T08:00"></div>
+        <div class="form-row"><label>仿真起点</label><input type="datetime-local" class="field" id="blSimStart"><span class="muted" style="font-size:12px">留空 = 默认（seed 基准，RELATIVE 模式为当前时间）</span></div>
         <div class="form-row"><label>C_max 权重</label><input type="number" class="field" id="blWm" step="0.1" min="0" value="0.4"></div>
         <div class="form-row"><label>拖期权重</label><input type="number" class="field" id="blWt" step="0.1" min="0" value="0.4"></div>
         <div class="form-row"><label>均衡权重</label><input type="number" class="field" id="blWl" step="0.1" min="0" value="0.2"></div>

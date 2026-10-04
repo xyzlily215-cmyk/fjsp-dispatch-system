@@ -42,6 +42,8 @@ public class SeedService implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(SeedService.class);
     private static final String SEED_RESOURCE = "seed/demo_instance.json";
+    private static final java.time.format.DateTimeFormatter ORDER_CODE_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final ObjectMapper objectMapper;
     private final FjspProperties properties;
@@ -89,7 +91,7 @@ public class SeedService implements ApplicationRunner {
     @Transactional
     public Map<String, Object> seed() {
         JsonNode root = demoInstance();
-        OffsetDateTime simStart = OffsetDateTime.parse(root.get("simulationStartAt").asText());
+        OffsetDateTime simStart = seedSimulationStartAt(root);
 
         int machineCount = 0;
         for (JsonNode m : root.get("machines")) {
@@ -189,7 +191,8 @@ public class SeedService implements ApplicationRunner {
             String numeric = orderId.replaceAll("\\D", "");
             ProductionOrder order = new ProductionOrder();
             order.setId(orderId);
-            order.setOrderCode("ORD-20260916-" + String.format("%03d", Integer.parseInt(numeric)));
+            order.setOrderCode("ORD-" + simStart.format(ORDER_CODE_DATE)
+                    + "-" + String.format("%03d", Integer.parseInt(numeric)));
             order.setProductFamily(o.get("productFamily").asText());
             order.setQuantity(o.get("quantity").asInt());
             order.setArrivalAt(simStart.plusMinutes(o.get("arrivalMinutes").asLong()));
@@ -245,12 +248,43 @@ public class SeedService implements ApplicationRunner {
         return demoInstance;
     }
 
+    /**
+     * 任务默认仿真起点（与 seed 共用同一解析入口，避免两处漂移）：
+     * FIXED —— 优先 seed json 的 simulationStartAt，其次 fjsp.simulation.start-at，都没有则明确报错；
+     * RELATIVE —— 取种子订单的最小到达时间（即 seed 时的基准 now），库为空时回退 now（截断到分钟）。
+     */
     public OffsetDateTime defaultSimulationStartAt() {
-        JsonNode node = demoInstance().get("simulationStartAt");
-        if (node != null) {
-            return OffsetDateTime.parse(node.asText());
+        if (properties.getSimulation().getMode() == FjspProperties.SimulationMode.FIXED) {
+            JsonNode node = demoInstance().get("simulationStartAt");
+            if (node != null && !node.isNull()) {
+                return OffsetDateTime.parse(node.asText());
+            }
+            if (properties.getSimulation().getStartAt() != null) {
+                return properties.getSimulation().getStartAt();
+            }
+            throw new IllegalStateException(
+                    "fjsp.simulation.mode=FIXED 但未提供起点：seed json 无 simulationStartAt 且 fjsp.simulation.start-at 未配置");
         }
-        return OffsetDateTime.parse(properties.getSimulationStartAt());
+        OffsetDateTime seededBase = productionOrderRepository.findMinArrivalAt();
+        return seededBase != null
+                ? seededBase
+                : OffsetDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+    }
+
+    /** seed/reset 时的基准：RELATIVE = 当前时间（截断到分钟）；FIXED = 与 defaultSimulationStartAt 同一优先级。 */
+    private OffsetDateTime seedSimulationStartAt(JsonNode root) {
+        if (properties.getSimulation().getMode() == FjspProperties.SimulationMode.FIXED) {
+            JsonNode node = root.get("simulationStartAt");
+            if (node != null && !node.isNull()) {
+                return OffsetDateTime.parse(node.asText());
+            }
+            if (properties.getSimulation().getStartAt() != null) {
+                return properties.getSimulation().getStartAt();
+            }
+            throw new IllegalStateException(
+                    "fjsp.simulation.mode=FIXED 但未提供起点：seed json 无 simulationStartAt 且 fjsp.simulation.start-at 未配置");
+        }
+        return OffsetDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
     }
 
     public int changeoverDefault() {

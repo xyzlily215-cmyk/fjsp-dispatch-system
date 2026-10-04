@@ -165,8 +165,8 @@ registerPage('calendar', ['基础数据', '设备日历'], async (el) => {
           <option value="HOLIDAY">节假日（HOLIDAY）</option>
           <option value="REPAIR">维修（REPAIR）</option>
         </select>
-        <label class="required">开始时间</label><input type="datetime-local" class="field" id="ciStart" value="2026-09-17T12:00">
-        <label class="required">结束时间</label><input type="datetime-local" class="field" id="ciEnd" value="2026-09-17T13:00">
+        <label class="required">开始时间</label><input type="datetime-local" class="field" id="ciStart" value="${isoToLocalInput(new Date(Date.now() + 24 * 3600e3).toISOString())}">
+        <label class="required">结束时间</label><input type="datetime-local" class="field" id="ciEnd" value="${isoToLocalInput(new Date(Date.now() + 25 * 3600e3).toISOString())}">
         <label>备注</label><textarea class="field" id="ciNote" placeholder="可选"></textarea>
       </div>
       <p class="hint">区间不可与已有不可用区间重叠；结束时间必须晚于开始时间。保存后对之后创建的排程任务生效。</p>`,
@@ -373,8 +373,8 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
         <label class="required">工艺模板</label><select class="field" id="ofTpl">${tplOptions(families[0])}</select>
         <label class="required">数量</label><input type="number" class="field" id="ofQty" min="1" value="20">
         <label class="required">优先级</label><input type="number" class="field" id="ofPriority" min="1" max="5" value="3">
-        <label class="required">到达时间</label><input type="datetime-local" class="field" id="ofArrival" value="2026-09-16T08:00">
-        <label class="required">交期</label><input type="datetime-local" class="field" id="ofDue" value="2026-09-18T18:00">
+        <label class="required">到达时间</label><input type="datetime-local" class="field" id="ofArrival" value="${isoToLocalInput(new Date().toISOString())}">
+        <label class="required">交期</label><input type="datetime-local" class="field" id="ofDue" value="${isoToLocalInput(new Date(Date.now() + 48 * 3600e3).toISOString())}">
       </div>
       <p class="hint">创建后按所选模板实例化工序，订单进入待排程（WAITING）状态，可在基线排程中勾选参与。</p>`,
       onOk: async () => {

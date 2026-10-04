@@ -23,11 +23,12 @@ public class AppConfig {
     }
 
     @Bean(name = "scheduleTaskExecutor")
-    public ThreadPoolTaskExecutor scheduleTaskExecutor() {
+    public ThreadPoolTaskExecutor scheduleTaskExecutor(FjspProperties properties) {
+        FjspProperties.Task.Executor executorConfig = properties.getTask().getExecutor();
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(20);
+        executor.setCorePoolSize(executorConfig.getCoreSize());
+        executor.setMaxPoolSize(executorConfig.getMaxSize());
+        executor.setQueueCapacity(executorConfig.getQueueCapacity());
         executor.setThreadNamePrefix("schedule-task-");
         executor.initialize();
         return executor;

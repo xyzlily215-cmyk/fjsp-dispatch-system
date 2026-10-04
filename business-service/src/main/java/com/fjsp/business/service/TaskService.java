@@ -96,7 +96,7 @@ public class TaskService {
         }
         boolean reschedule = !"BASELINE".equals(req.mode());
         int freezeWindow = req.freezeWindowMinutes() != null
-                ? req.freezeWindowMinutes() : properties.getFreezeWindowMinutes();
+                ? req.freezeWindowMinutes() : (int) properties.getFreezeWindow().toMinutes();
         if (freezeWindow < 0 || freezeWindow > 1440) {
             throw BizException.validation("freezeWindowMinutes 必须在 0-1440 之间");
         }
@@ -257,7 +257,8 @@ public class TaskService {
         task.setStartedAt(OffsetDateTime.now());
         task.setNextRetryAt(null);
         task.setTimeoutAt(OffsetDateTime.now()
-                .plusSeconds(properties.getAlgorithm().getTimeoutSeconds() + 60));
+                .plus(properties.getAlgorithm().getTimeout())
+                .plus(properties.getTask().getTimeoutBuffer()));
         taskRepository.save(task);
     }
 

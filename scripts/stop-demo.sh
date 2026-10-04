@@ -13,6 +13,6 @@ stop_process business "business-service-1.0.0.jar"
 stop_process algorithm "uvicorn app.api:app"
 
 if command -v docker >/dev/null 2>&1; then
-  docker_compose stop postgres redis >/dev/null
-  printf '[完成] PostgreSQL / Redis 已停止，数据卷保留。\n'
+  docker_compose stop postgres >/dev/null
+  printf '[完成] PostgreSQL 已停止，数据卷保留。\n'
 fi

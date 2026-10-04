@@ -67,7 +67,7 @@ public class IdempotencyService {
         record.setId(UUID.randomUUID().toString());
         record.setIdempotencyKey(idempotencyKey);
         record.setRequestHash(HashUtil.sha256OfJson(requestBody));
-        record.setExpiresAt(OffsetDateTime.now().plusHours(properties.getIdempotencyTtlHours()));
+        record.setExpiresAt(OffsetDateTime.now().plus(properties.getIdempotencyTtl()));
         try {
             record.setResponseJson(objectMapper.writeValueAsString(responseData));
         } catch (Exception e) {

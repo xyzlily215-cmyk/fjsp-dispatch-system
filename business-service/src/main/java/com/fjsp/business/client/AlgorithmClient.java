@@ -1,6 +1,5 @@
 package com.fjsp.business.client;
 
-import java.time.Duration;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -17,10 +16,9 @@ public class AlgorithmClient {
     private final RestClient restClient;
 
     public AlgorithmClient(FjspProperties properties, RestClient.Builder builder) {
-        Duration timeout = Duration.ofSeconds(properties.getAlgorithm().getTimeoutSeconds());
         ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
-                .withConnectTimeout(Duration.ofSeconds(10))
-                .withReadTimeout(timeout);
+                .withConnectTimeout(properties.getAlgorithm().getConnectTimeout())
+                .withReadTimeout(properties.getAlgorithm().getTimeout());
         this.restClient = builder
                 .baseUrl(properties.getAlgorithm().getBaseUrl())
                 .requestFactory(ClientHttpRequestFactories.get(settings))
