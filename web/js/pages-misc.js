@@ -590,7 +590,7 @@ registerPage('versions', ['计划调度', '计划版本'], async (el) => {
   const currentId = dash.currentPlan && dash.currentPlan.id;
   const byId = Object.fromEntries(versions.map(v => [v.id, v]));
   el.innerHTML = `
-    <div class="page-header"><div><h1>计划版本</h1><p>不可变版本账本（GET /plan-versions）</p></div>
+    <div class="page-header"><div><h1>计划版本</h1><p>不可变版本账本</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button></div></div>
     <section class="card table-card"><div class="table-wrap"><table class="data-table">
       <thead><tr><th>版本</th><th>类型</th><th>父版本</th><th>状态</th><th>C_max</th><th>加权拖期</th><th>延期单数</th><th>发布时间</th><th>创建时间</th><th>操作</th></tr></thead>
@@ -696,7 +696,7 @@ registerPage('execution', ['执行反馈', '实际执行'], async (el) => {
   };
 
   el.innerHTML = `
-    <div class="page-header"><div><h1>实际执行反馈</h1><p>当前执行计划 ${esc(plan.versionCode)} 的工序执行状态反馈（POST /operations/{id}/execution）</p></div>
+    <div class="page-header"><div><h1>实际执行反馈</h1><p>当前执行计划 ${esc(plan.versionCode)} 的工序执行状态反馈</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button></div></div>
     <div class="stat-cards">
       <div class="card stat-card"><span>当前版本</span><b>${esc(plan.versionCode)}</b></div>

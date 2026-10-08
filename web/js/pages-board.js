@@ -139,7 +139,7 @@ registerPage('board', ['工作台', '调度看板'], async (el) => {
 
   el.innerHTML = `
     <div class="page-header">
-      <div><h1>调度看板</h1><p>生产运行概览（GET /dashboard · 时间窗口：${esc(windowLabel)}${win.from ? ' ' + fmtTime(win.from) + ' ~ ' + fmtTime(win.to) : ''}）</p></div>
+      <div><h1>调度看板</h1><p>生产运行概览（时间窗口：${esc(windowLabel)}${win.from ? ' ' + fmtTime(win.from) + ' ~ ' + fmtTime(win.to) : ''}）</p></div>
       <div class="buttons">
         <select class="field" id="boardVersion" style="width:auto" title="计划版本">${versionOptions.join('')}</select>
         <select class="field" id="boardWindow" style="width:auto" title="时间窗口">

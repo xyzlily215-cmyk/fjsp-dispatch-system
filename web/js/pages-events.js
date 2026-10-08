@@ -45,7 +45,7 @@ registerPage('insert', ['事件管理', '订单插单'], async (el, params) => {
 
   el.innerHTML = `
     <div class="page-header"><div><h1>${reviseFrom ? '修订插单事件' : '订单插单'}</h1>
-      <p>${reviseFrom ? `更正事件 ${esc(reviseFrom.eventCode)}：创建携带 revisionOf 的新事件，原事件自动关闭` : '登记新订单事件（POST /events/new-orders），并触发重调度'}</p></div></div>
+      <p>${reviseFrom ? `更正事件 ${esc(reviseFrom.eventCode)}：创建携带 revisionOf 的新事件，原事件自动关闭` : '登记新订单事件，并触发重调度'}</p></div></div>
     ${reviseFrom ? `<div class="success-box" style="margin-bottom:12px"><b>修订模式</b>原事件 ${esc(reviseFrom.eventCode)}（${esc(reviseFrom.orderId || '-')}）；订单号、产品族、数量等订单字段不可随事件修订更改。</div>` : ''}
     <div class="grid-2" style="grid-template-columns:1fr 1fr;align-items:start">
       <section class="card"><div class="section-pad">
@@ -141,7 +141,7 @@ registerPage('breakdown', ['事件管理', '设备故障'], async (el, params) =
 
   el.innerHTML = `
     <div class="page-header"><div><h1>${reviseFrom ? '修订故障事件' : '设备故障'}</h1>
-      <p>${reviseFrom ? `更正事件 ${esc(reviseFrom.eventCode)}：创建携带 revisionOf 的新事件，原事件自动关闭` : '登记设备故障事件（POST /events/breakdowns），并触发重调度'}</p></div></div>
+      <p>${reviseFrom ? `更正事件 ${esc(reviseFrom.eventCode)}：创建携带 revisionOf 的新事件，原事件自动关闭` : '登记设备故障事件，并触发重调度'}</p></div></div>
     ${reviseFrom ? `<div class="success-box" style="margin-bottom:12px"><b>修订模式</b>原事件 ${esc(reviseFrom.eventCode)}（设备 ${esc(reviseFrom.machineId || '-')}）；维修结束时间与影响集合将按修订后字段重算。</div>` : ''}
     <div class="grid-2" style="grid-template-columns:1fr 1fr;align-items:start">
       <section class="card"><div class="section-pad">
@@ -491,7 +491,7 @@ registerPage('reschedule', ['计划调度', '重调度向导'], async (el, param
         <dt>时间上限</dt><dd>${Wizard.timeLimitSeconds} 秒</dd>
         ${Wizard.preview ? `<dt>预计求解规模</dt><dd>局部 ${local ?? '-'} 道 / 完全 ${full ?? '-'} 道工序</dd>` : ''}
       </dl>
-      <p class="muted" style="margin:10px 0">提交后 POST /schedule-tasks（携带幂等键），自动跳转调度任务页跟踪求解进度；求解成功后可在「方案对比」并列查看局部与完全方案。</p>
+      <p class="muted" style="margin:10px 0">提交后将创建重调度任务，自动跳转调度任务页跟踪求解进度；求解成功后可在「方案对比」并列查看局部与完全方案。</p>
       <div id="wzErr"></div>
       <button class="btn primary" id="wzSubmit" data-roles="DISPATCHER,ADMIN" style="height:36px">创建重调度任务</button>`;
 

@@ -35,7 +35,7 @@ registerPage('baseline', ['计划调度', '基线排程'], async (el) => {
         <div class="form-row"><label>时间上限(秒)</label><input type="number" class="field" id="blLimit" min="1" max="600" value="30"></div>
         <div id="blErr"></div>
         <button class="btn primary" style="width:100%;height:36px" id="blSubmit" data-roles="DISPATCHER,ADMIN">创建基线排程任务</button>
-        <p class="muted" style="margin-top:10px">提交后 POST /schedule-tasks（mode=BASELINE），自动跳转到调度任务页跟踪求解进度。</p>
+        <p class="muted" style="margin-top:10px">提交后将创建基线排程任务，自动跳转到调度任务页跟踪求解进度。</p>
       </div></section>
     </div>`;
 

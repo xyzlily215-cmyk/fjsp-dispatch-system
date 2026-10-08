@@ -25,7 +25,7 @@ registerPage('compare', ['结果分析', '方案对比'], async (el) => {
     `<option value="${esc(v.id)}" ${v.id === cur ? 'selected' : ''}>${esc(v.versionCode)} · ${esc(v.status)} · ${fmtDateTime(v.createdAt)}</option>`).join('')}</select>`;
 
   const headHtml = `
-    <div class="page-header"><div><h1>方案对比</h1><p>基准版本与候选版本的 KPI 与逐工序差异（GET /plan-versions/{id}/diff）</p></div>
+    <div class="page-header"><div><h1>方案对比</h1><p>基准版本与候选版本的 KPI 与逐工序差异</p></div>
       <div class="buttons"><button class="btn" id="cmpRun">开始对比</button><button class="btn" id="cmpExport">导出候选版本 CSV</button></div></div>
     <section class="card section-card"><div class="toolbar"><div class="filters">
       <span class="filter-label">基准版本</span>${sel('cmpBaseline', versions, baselineId)}
