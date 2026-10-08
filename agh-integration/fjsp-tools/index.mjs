@@ -81,12 +81,51 @@ function aghSessionId() {
   }
 }
 
+// ---- 认证：业务服务要求 JWT（P0 改造后所有接口需登录） ----
+// 优先级：FJSP_AUTH_TOKEN 直连 > FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 登录。
+// 未配置时用演示账号（admin/Fj@123456，与 scripts/demo-common.sh 一致）。
+let cachedToken = process.env.FJSP_AUTH_TOKEN || null
+let loginInFlight = null
+
+async function login() {
+  const username = process.env.FJSP_AUTH_USER || 'admin'
+  const password = process.env.FJSP_AUTH_PASSWORD || 'Fj@123456'
+  try {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+    const env = await res.json()
+    if (!res.ok || !env || env.code !== 'OK' || !env.data || !env.data.token) {
+      return null
+    }
+    cachedToken = env.data.token
+    return cachedToken
+  } catch {
+    return null
+  }
+}
+
+async function ensureToken() {
+  if (cachedToken) return cachedToken
+  if (!loginInFlight) {
+    loginInFlight = login().finally(() => { loginInFlight = null })
+  }
+  return loginInFlight
+}
+
 async function api(method, path, body) {
+  return apiWithRetry(method, path, body, true)
+}
+
+async function apiWithRetry(method, path, body, allowReauth) {
   const headers = {
     Accept: 'application/json',
     'X-Source': 'agh',
-    'X-Operator-Id': process.env.FJSP_OPERATOR || 'agh-agent',
   }
+  const token = await ensureToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
   const sessionId = aghSessionId()
   if (sessionId) headers['X-AGH-Session-Id'] = sessionId
   if (body !== undefined) {
@@ -106,11 +145,23 @@ async function api(method, path, body) {
       error: { code: 'FJSP_UNREACHABLE', message: `无法连接 FJSP 业务服务 ${BASE}，请确认业务服务已启动` },
     }
   }
+  // token 过期/失效：重新登录后重试一次
+  if (res.status === 401 && allowReauth && !process.env.FJSP_AUTH_TOKEN) {
+    cachedToken = null
+    const renewed = await ensureToken()
+    if (renewed) return apiWithRetry(method, path, body, false)
+  }
   let env
   try {
     env = await res.json()
   } catch {
     return { ok: false, error: { code: 'FJSP_BAD_RESPONSE', httpStatus: res.status } }
+  }
+  if (res.status === 401) {
+    return {
+      ok: false,
+      error: { code: 'FJSP_UNAUTHORIZED', message: '业务服务认证失败，请检查 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 或 FJSP_AUTH_TOKEN', httpStatus: 401 },
+    }
   }
   if (!res.ok || (env && typeof env.code === 'string' && env.code !== 'OK')) {
     return {

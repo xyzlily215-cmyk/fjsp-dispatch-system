@@ -43,7 +43,11 @@ printf 'Agnes\n12\n\n%s\n1\n' "$AGNES_API_KEY" | node agnes-harness/packages/cli
 
 ## fjsp-tools 插件
 
-无依赖单文件 ESM（`fjsp-tools/index.mjs`），`package.json` 的 `agnes.plugins` 声明 `export: fjspTools`、`inject: ['extension']`。所有写操作自动生成 `Idempotency-Key`；返回裁剪后的结构化 JSON（`{ok, ...}` / `{ok:false, error:{code,message}}`，业务错误码如 `E_EVENT_IN_PROCESS` 原样透传给 Agent）。每个请求自动带审计头 `X-Source: agh`、`X-Operator-Id`（环境变量 `FJSP_OPERATOR`，默认 `agh-agent`）与 `X-AGH-Session-Id`（优先取 daemon 环境变量 `AGH_SESSION_ID`；插件运行在 daemon 进程内看不到驱动进程的 env，因此驱动 `driver/fjsp-agent.mts` 建会话后会把会话 ID 写入 `agh-integration/.agh-session-id` 作为兜底，已被 gitignore）。
+无依赖单文件 ESM（`fjsp-tools/index.mjs`），`package.json` 的 `agnes.plugins` 声明 `export: fjspTools`、`inject: ['extension']`。所有写操作自动生成 `Idempotency-Key`；返回裁剪后的结构化 JSON（`{ok, ...}` / `{ok:false, error:{code,message}}`，业务错误码如 `E_EVENT_IN_PROCESS` 原样透传给 Agent）。
+
+**认证**：业务服务自 P0 改造后所有接口需要 JWT。插件按优先级取凭据——`FJSP_AUTH_TOKEN` 直连；否则用 `FJSP_AUTH_USER`/`FJSP_AUTH_PASSWORD` 调 `/auth/login`（默认演示账号 admin/Fj@123456，与 `scripts/demo-common.sh` 一致），token 进程内缓存，401 时自动重登并重试一次。审计身份取登录用户（`X-Operator-Id` 头已不再被服务端信任，插件不再发送）。
+
+每个请求自动带审计头 `X-Source: agh` 与 `X-AGH-Session-Id`（优先取 daemon 环境变量 `AGH_SESSION_ID`；插件运行在 daemon 进程内看不到驱动进程的 env，因此驱动 `driver/fjsp-agent.mts` 建会话后会把会话 ID 写入 `agh-integration/.agh-session-id` 作为兜底，已被 gitignore）。
 
 ### 审批策略（三级）
 
