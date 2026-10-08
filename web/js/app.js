@@ -35,6 +35,10 @@ const Shared = {
   compareBaselineId: null,  // 方案对比预选
   compareCandidateId: null,
   selectedTaskId: null,     // 任务详情预选
+  tasksPageNo: 0,           // 任务队列页码
+  reviewPageNo: 0,          // 审核队列页码
+  eventsPageNo: 0,          // 事件记录页码
+  eventsType: '',           // 事件记录类型过滤
 };
 
 async function refreshShared() {

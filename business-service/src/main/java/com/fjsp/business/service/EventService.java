@@ -10,6 +10,8 @@ import java.util.UUID;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.common.HashUtil;
+import com.fjsp.business.common.PageResponse;
+import com.fjsp.business.common.PageSupport;
 import com.fjsp.business.dto.BreakdownEventRequest;
 import com.fjsp.business.dto.NewOrderEventRequest;
 import com.fjsp.business.entity.Event;
@@ -29,6 +31,10 @@ import com.fjsp.business.repository.ProcessTemplateRepository;
 import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import com.fjsp.business.repository.ScheduleTaskRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -240,22 +246,7 @@ public class EventService {
         Event event = eventRepository.findById(eventIdOrCode)
                 .or(() -> eventRepository.findByEventCode(eventIdOrCode))
                 .orElseThrow(() -> BizException.notFound("事件不存在: " + eventIdOrCode));
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("eventId", event.getId());
-        data.put("eventCode", event.getEventCode());
-        data.put("eventType", event.getEventType());
-        data.put("subType", event.getSubType());
-        data.put("machineId", event.getMachineId());
-        data.put("orderId", event.getOrderId());
-        data.put("occurredAt", event.getOccurredAt());
-        data.put("recordedAt", event.getRecordedAt());
-        data.put("repairDurationMinutes", event.getRepairDurationMinutes());
-        data.put("repairEndAt", event.getRepairEndAt());
-        data.put("source", event.getSource());
-        data.put("note", event.getNote());
-        data.put("status", event.getStatus());
-        data.put("revisionOf", event.getRevisionOf());
-
+        Map<String, Object> data = toEventMap(event);
         List<Map<String, Object>> impacts = new ArrayList<>();
         for (EventImpact impact : eventImpactRepository.findByEventId(event.getId())) {
             Map<String, Object> entry = new LinkedHashMap<>();
@@ -280,5 +271,49 @@ public class EventService {
         }
         data.put("relatedTasks", tasks);
         return data;
+    }
+
+    private Map<String, Object> toEventMap(Event event) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("eventId", event.getId());
+        data.put("eventCode", event.getEventCode());
+        data.put("eventType", event.getEventType());
+        data.put("subType", event.getSubType());
+        data.put("machineId", event.getMachineId());
+        data.put("orderId", event.getOrderId());
+        data.put("occurredAt", event.getOccurredAt());
+        data.put("recordedAt", event.getRecordedAt());
+        data.put("repairDurationMinutes", event.getRepairDurationMinutes());
+        data.put("repairEndAt", event.getRepairEndAt());
+        data.put("source", event.getSource());
+        data.put("note", event.getNote());
+        data.put("status", event.getStatus());
+        data.put("revisionOf", event.getRevisionOf());
+        return data;
+    }
+
+    /** 事件列表：分页 + 可选过滤（status / eventType / occurredAt 时间范围 from-to）。 */
+    public PageResponse<Map<String, Object>> listEvents(String status, String eventType,
+                                                        String from, String to,
+                                                        Integer page, Integer size) {
+        PageRequest pageable = PageSupport.of(page, size, PageSupport.DEFAULT_MAX_SIZE,
+                Sort.by(Sort.Direction.DESC, "occurredAt"));
+        Specification<Event> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (eventType != null && !eventType.isBlank()) {
+                predicates.add(cb.equal(root.get("eventType"), eventType));
+            }
+            if (from != null && !from.isBlank()) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("occurredAt"), OffsetDateTime.parse(from)));
+            }
+            if (to != null && !to.isBlank()) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("occurredAt"), OffsetDateTime.parse(to)));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return PageResponse.of(eventRepository.findAll(spec, pageable), this::toEventMap);
     }
 }

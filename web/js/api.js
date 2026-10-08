@@ -41,14 +41,25 @@ const Api = {
   machines: () => api('/machines'),
   orders: () => api('/orders'),
   templates: () => api('/process-templates'),
-  tasks: () => api('/schedule-tasks'),
+  /* 列表端点统一 Page 包络 {items,page,size,total,totalPages}；xxx() 取 items 数组，xxxPage() 取完整分页包络 */
+  tasks: async () => (await api('/schedule-tasks')).items,
+  tasksPage: (page = 0, size = 20) => api(`/schedule-tasks?page=${page}&size=${size}`),
   task: (id) => api('/schedule-tasks/' + id),
   createTask: (payload) => api('/schedule-tasks', { method: 'POST', body: payload }),
   event: (id) => api('/events/' + id),
+  eventsPage: ({ page = 0, size = 10, status, eventType } = {}) => {
+    const q = new URLSearchParams({ page, size });
+    if (status) q.set('status', status);
+    if (eventType) q.set('eventType', eventType);
+    return api('/events?' + q);
+  },
   newOrderEvent: (payload) => api('/events/new-orders', { method: 'POST', body: payload }),
   breakdownEvent: (payload) => api('/events/breakdowns', { method: 'POST', body: payload }),
-  planVersions: () => api('/plan-versions'),
+  planVersions: async () => (await api('/plan-versions')).items,
+  planVersionsPage: (page = 0, size = 20) => api(`/plan-versions?page=${page}&size=${size}`),
   planVersion: (id) => api('/plan-versions/' + id),
+  planVersionOperations: (id, page = 0, size = 5000) =>
+    api(`/plan-versions/${encodeURIComponent(id)}/operations?page=${page}&size=${size}`),
   diff: (id, baselineId) => api('/plan-versions/' + id + '/diff?baselineVersionId=' + encodeURIComponent(baselineId)),
   submitReview: (id, version) => api('/plan-versions/' + id + '/submit-review', { method: 'POST', body: { version } }),
   revise: (id, version) => api('/plan-versions/' + id + '/revise', { method: 'POST', body: { version } }),

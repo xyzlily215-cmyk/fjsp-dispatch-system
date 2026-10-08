@@ -104,15 +104,23 @@ hasFields(task, ['taskId', 'taskCode', 'mode', 'status', 'progress', 'resultStat
 assert(task.status === 'SUCCESS', `基线任务成功（实际 ${task.status}）`);
 hasFields(task.kpi, ['cMaxMinutes', 'weightedTardinessMinutes', 'nTardy', 'loadImbalance', 'utilizationByMachine'], 'task.kpi');
 
-// 6. 版本列表 + 详情
+// 6. 版本列表（分页包络）+ 详情（摘要）+ 工序（独立分页端点）
 console.log('== 计划版本 ==');
-const versions = await call('/plan-versions');
-hasFields(versions[0], ['id', 'versionCode', 'parentId', 'candidateGroupId', 'candidateType', 'status', 'kpi', 'version', 'publishedAt', 'createdAt'], 'planVersions[0]');
+const versionsPage = await call('/plan-versions?page=0&size=20');
+hasFields(versionsPage, ['items', 'page', 'size', 'total', 'totalPages'], 'planVersions 分页包络');
+const versions = versionsPage.items;
+hasFields(versions[0], ['id', 'versionCode', 'parentId', 'candidateGroupId', 'candidateType', 'status', 'kpi', 'version', 'publishedAt', 'createdAt'], 'planVersions.items[0]');
 const pvId = task.planVersionId;
 const pv = await call('/plan-versions/' + pvId);
-hasFields(pv, ['id', 'versionCode', 'status', 'version', 'reviewComment', 'operations', 'kpi'], 'planVersion detail');
-hasFields(pv.operations[0], ['operationId', 'machineId', 'setupStartAt', 'processStartAt', 'startAt', 'endAt',
-  'changeoverMinutes', 'frozen', 'affected', 'reasonCode'], 'planVersion.operations[0]');
+hasFields(pv, ['id', 'versionCode', 'status', 'version', 'reviewComment', 'operationCount', 'kpi'], 'planVersion detail');
+assert(!('operations' in pv), 'planVersion detail 不再内嵌全量 operations');
+assert(pv.operationCount > 0, 'planVersion detail 含工序计数 operationCount');
+const pvOpsPage = await call(`/plan-versions/${pvId}/operations?size=5000`);
+hasFields(pvOpsPage, ['items', 'page', 'size', 'total', 'totalPages'], 'operations 分页包络');
+const pvOps = pvOpsPage.items;
+assert(pvOps.length === pv.operationCount, 'operations 端点一次取回全部工序');
+hasFields(pvOps[0], ['operationId', 'machineId', 'setupStartAt', 'processStartAt', 'startAt', 'endAt',
+  'changeoverMinutes', 'frozen', 'affected', 'reasonCode'], 'operations.items[0]');
 
 // 7. 提交审核 -> 审核通过 -> 发布
 console.log('== 审核发布 ==');
@@ -132,7 +140,7 @@ hasFields(dash.currentPlan, ['id', 'versionCode', 'status', 'publishedAt', 'kpi'
 
 // 8. 执行反馈（actualStartAt 取计划开始+5min，落在该工序计划窗口内）
 console.log('== 执行反馈 ==');
-const op0 = pv.operations[0];
+const op0 = pvOps[0];
 const actualStartAt = new Date(new Date(op0.startAt).getTime() + 5 * 60000).toISOString();
 const fb = await call(`/operations/${encodeURIComponent(op0.operationId)}/execution`, {
   method: 'POST', body: { status: 'RUNNING', actualStartAt },
@@ -149,6 +157,9 @@ hasFields(bd, ['eventId', 'eventCode', 'machineId', 'occurredAt', 'repairEndAt',
 hasFields(bd.impactSummary, ['total', 'byType'], 'breakdown impactSummary');
 const ev = await call('/events/' + bd.eventId);
 hasFields(ev, ['eventId', 'eventCode', 'eventType', 'machineId', 'occurredAt', 'repairEndAt', 'status', 'impacts'], 'event detail');
+const evPage = await call('/events?eventType=BREAKDOWN&page=0&size=10');
+hasFields(evPage, ['items', 'page', 'size', 'total', 'totalPages'], 'events 分页包络');
+assert(evPage.items.some(e => e.eventId === bd.eventId), 'events 过滤 BREAKDOWN 含新事件');
 if (ev.impacts.length) hasFields(ev.impacts[0], ['operationId', 'impactType', 'impactReason', 'lockType', 'reasonCode'], 'event.impacts[0]');
 
 // 10. 局部重调度 -> 轮询 -> diff

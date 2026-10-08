@@ -124,8 +124,12 @@ registerPage('insert', ['事件管理', '订单插单'], async (el) => {
 /* ---------------- 设备故障 ---------------- */
 registerPage('breakdown', ['事件管理', '设备故障'], async (el) => {
   el.innerHTML = loadingHtml('正在加载设备…');
-  let machines;
-  try { machines = await Api.machines(); } catch (e) { el.innerHTML = errorBoxHtml(e, '设备加载失败'); return; }
+  let machines, eventsPage;
+  try {
+    [machines, eventsPage] = await Promise.all([
+      Api.machines(),
+      Api.eventsPage({ page: Shared.eventsPageNo || 0, size: 10, eventType: Shared.eventsType || undefined })]);
+  } catch (e) { el.innerHTML = errorBoxHtml(e, '设备加载失败'); return; }
 
   el.innerHTML = `
     <div class="page-header"><div><h1>设备故障</h1><p>登记设备故障事件（POST /events/breakdowns），并触发重调度</p></div></div>
@@ -147,7 +151,31 @@ registerPage('breakdown', ['事件管理', '设备故障'], async (el) => {
         <h3 style="margin:0 0 10px;font-size:15px">影响集合</h3>
         <p class="muted">提交事件后在此展示影响集合摘要与重调度入口。</p>
       </div></section>
-    </div>`;
+    </div>
+    <section class="card table-card" style="margin-top:14px">
+      <div class="section-pad" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px">
+        <h3 style="margin:0;font-size:15px">事件记录</h3>
+        <select class="field" id="evTypeFilter" style="width:auto">
+          <option value="">全部类型</option>
+          <option value="NEW_ORDER" ${Shared.eventsType === 'NEW_ORDER' ? 'selected' : ''}>新订单</option>
+          <option value="BREAKDOWN" ${Shared.eventsType === 'BREAKDOWN' ? 'selected' : ''}>设备故障</option>
+        </select>
+      </div>
+      <div class="table-wrap" style="max-height:360px"><table class="data-table">
+        <thead><tr><th>事件号</th><th>类型</th><th>对象</th><th>发生时间</th><th>状态</th><th>来源</th></tr></thead>
+        <tbody>${eventsPage.items.map(ev => `<tr>
+          <td>${esc(ev.eventCode)}</td><td>${statusTag(ev.subType || ev.eventType)}</td>
+          <td>${esc(ev.machineId || ev.orderId || '-')}</td><td>${fmtDateTime(ev.occurredAt)}</td>
+          <td>${statusTag(ev.status)}</td><td>${esc(ev.source || '-')}</td></tr>`).join('')
+          || '<tr><td colspan="6" style="text-align:center;color:#909399">暂无事件</td></tr>'}</tbody>
+      </table></div>
+      ${pagerHtml(eventsPage)}
+    </section>`;
+
+  document.getElementById('evTypeFilter').onchange = (ev) => {
+    Shared.eventsType = ev.target.value; Shared.eventsPageNo = 0; renderCurrent();
+  };
+  bindPager(el, (delta) => { Shared.eventsPageNo = (Shared.eventsPageNo || 0) + delta; renderCurrent(); });
 
   document.getElementById('bdSubmit').onclick = async () => {
     const errEl = document.getElementById('bdErr');

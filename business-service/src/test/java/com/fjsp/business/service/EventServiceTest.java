@@ -385,4 +385,66 @@ class EventServiceTest {
         assertEquals("e-old", data.get("eventId"));
         verify(eventRepository, never()).save(any());
     }
+
+    // ---- 事件列表分页 + 过滤 ----
+
+    private Event sampleEvent(String id, String status, String type) {
+        Event event = new Event();
+        event.setId(id);
+        event.setEventCode("EVT-" + id);
+        event.setEventType(type);
+        event.setStatus(status);
+        event.setOccurredAt(OffsetDateTime.parse("2026-10-04T08:00:00+08:00"));
+        return event;
+    }
+
+    @Test
+    void listEvents_pagedEnvelopeWithFilters() {
+        Event event = sampleEvent("e1", "CONFIRMED", "BREAKDOWN");
+        var pageable = com.fjsp.business.common.PageSupport.of(0, 10,
+                com.fjsp.business.common.PageSupport.DEFAULT_MAX_SIZE,
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC,
+                        "occurredAt"));
+        when(eventRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(event), pageable, 1));
+
+        var resp = eventService.listEvents("CONFIRMED", "BREAKDOWN",
+                "2026-10-04T00:00:00+08:00", "2026-10-05T00:00:00+08:00", 0, 10);
+
+        assertEquals(1, resp.getTotal());
+        assertEquals(1, resp.getTotalPages());
+        assertEquals(0, resp.getPage());
+        assertEquals(10, resp.getSize());
+        assertEquals(1, resp.getItems().size());
+        Map<String, Object> item = resp.getItems().get(0);
+        assertEquals("e1", item.get("eventId"));
+        assertEquals("EVT-e1", item.get("eventCode"));
+        assertEquals("BREAKDOWN", item.get("eventType"));
+        assertEquals("CONFIRMED", item.get("status"));
+    }
+
+    @Test
+    void listEvents_noFilters_usesDefaults() {
+        var pageable = com.fjsp.business.common.PageSupport.of(null, null,
+                com.fjsp.business.common.PageSupport.DEFAULT_MAX_SIZE,
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC,
+                        "occurredAt"));
+        when(eventRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(), pageable, 0));
+
+        var resp = eventService.listEvents(null, null, null, null, null, null);
+
+        assertEquals(0, resp.getTotal());
+        assertEquals(com.fjsp.business.common.PageSupport.DEFAULT_SIZE, resp.getSize());
+        assertTrue(resp.getItems().isEmpty());
+    }
+
+    @Test
+    void listEvents_invalidPageParams_rejected() {
+        assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, -1, 10));
+        assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, 0, 0));
+        assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, 0, 201));
+    }
 }

@@ -83,11 +83,13 @@ let taskPollTimer = null;
 registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
   if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null; }
   el.innerHTML = loadingHtml('正在加载任务列表…');
-  let tasks;
-  try { tasks = await Api.tasks(); }
+  const pageNo = Shared.tasksPageNo || 0;
+  let page;
+  try { page = await Api.tasksPage(pageNo, 10); }
   catch (e) { el.innerHTML = errorBoxHtml(e, '任务列表加载失败'); return; }
+  const tasks = page.items;
 
-  if (!tasks.length) {
+  if (!tasks.length && pageNo === 0) {
     el.innerHTML = `<div class="page-header"><div><h1>调度任务</h1><p>算法求解任务的进度与结果</p></div></div>
       <section class="card"><div class="empty-screen"><div class="empty-symbol">&#9634;</div>
       <h3>暂无调度任务</h3><p>从基线排程或事件重调度创建任务。</p>
@@ -96,7 +98,7 @@ registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
   }
 
   let selectedId = Shared.selectedTaskId && tasks.some(t => t.taskId === Shared.selectedTaskId)
-    ? Shared.selectedTaskId : tasks[0].taskId;
+    ? Shared.selectedTaskId : (tasks.length ? tasks[0].taskId : null);
 
   el.innerHTML = `
     <div class="page-header"><div><h1>调度任务</h1><p>算法求解任务的进度与结果，进行中的任务每 3 秒自动刷新</p></div>
@@ -104,23 +106,26 @@ registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
       <button class="btn primary" onclick="goTo('baseline')">+ 基线排程</button></div></div>
     <div class="task-center">
       <section class="card task-queue">
-        <div class="task-queue-head"><h2>任务队列</h2><p>${tasks.length} 个任务</p></div>
+        <div class="task-queue-head"><h2>任务队列</h2><p>共 ${page.total} 个任务</p></div>
         <div class="task-queue-list">${tasks.map(t => `
           <button class="task-queue-item ${t.taskId === selectedId ? 'active' : ''}" data-task="${esc(t.taskId)}">
             <b>${esc(t.taskCode)}</b>${statusTag(t.status)}
             <span>${esc(t.mode)} · ${fmtDateTime(t.createdAt)}</span>
-          </button>`).join('')}</div>
+          </button>`).join('') || '<div class="empty-screen" style="padding:30px">本页暂无任务</div>'}</div>
+        ${pagerHtml(page)}
       </section>
-      <section class="card task-detail" id="taskDetail">${loadingHtml('加载任务详情…')}</section>
+      <section class="card task-detail" id="taskDetail">${selectedId ? loadingHtml('加载任务详情…') : '<div class="empty-screen">暂无任务</div>'}</section>
     </div>`;
 
   document.getElementById('taskRefresh').onclick = () => renderCurrent();
   el.querySelectorAll('.task-queue-item').forEach(b => {
     b.onclick = () => { Shared.selectedTaskId = b.dataset.task; renderCurrent(); };
   });
+  bindPager(el, (delta) => { Shared.tasksPageNo = pageNo + delta; renderCurrent(); });
 
   const detailEl = document.getElementById('taskDetail');
   const loadDetail = async () => {
+    if (!selectedId) return null;
     let t;
     try { t = await Api.task(selectedId); }
     catch (e) { detailEl.innerHTML = errorBoxHtml(e, '任务详情加载失败'); return null; }

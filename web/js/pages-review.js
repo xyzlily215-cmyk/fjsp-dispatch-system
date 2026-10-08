@@ -1,9 +1,11 @@
 /* 审核发布：REVIEW_PENDING 列表 -> 对比 / 通过 / 驳回 / 发布 */
 registerPage('review', ['审核发布', '待审核方案'], async (el) => {
   el.innerHTML = loadingHtml('正在加载审核队列…');
-  let versions;
-  try { versions = await Api.planVersions(); }
+  const pageNo = Shared.reviewPageNo || 0;
+  let page;
+  try { page = await Api.planVersionsPage(pageNo, 10); }
   catch (e) { el.innerHTML = errorBoxHtml(e, '版本列表加载失败'); return; }
+  const versions = page.items;
 
   const queue = versions.filter(v => v.status === 'REVIEW_PENDING' || v.status === 'REVIEWED' || v.status === 'REJECTED');
   const byId = Object.fromEntries(versions.map(v => [v.id, v]));
@@ -13,17 +15,19 @@ registerPage('review', ['审核发布', '待审核方案'], async (el) => {
       <div class="buttons"><button class="btn" id="rvRefresh">&#8635; 刷新队列</button></div></div>
     <div class="task-center">
       <section class="card task-queue">
-        <div class="task-queue-head"><h2>审批队列</h2><p>${queue.length} 项待处理</p></div>
+        <div class="task-queue-head"><h2>审批队列</h2><p>本页 ${queue.length} 项待处理 · 共 ${page.total} 个版本</p></div>
         <div class="task-queue-list" id="rvList">${queue.length ? queue.map((v, i) => `
           <button class="task-queue-item ${i === 0 ? 'active' : ''}" data-v="${esc(v.id)}">
             <b>${esc(v.versionCode)}</b>${statusTag(v.status)}
             <span>${statusTag(v.candidateType)} ${fmtDateTime(v.createdAt)}</span>
           </button>`).join('') : '<div class="empty-screen" style="padding:30px">暂无待审核方案</div>'}</div>
+        ${pagerHtml(page)}
       </section>
       <section class="card task-detail" id="rvDetail">${queue.length ? loadingHtml('加载版本详情…') : '<div class="empty-screen">没有需要处理的方案</div>'}</section>
     </div>`;
 
   document.getElementById('rvRefresh').onclick = () => renderCurrent();
+  bindPager(el, (delta) => { Shared.reviewPageNo = pageNo + delta; renderCurrent(); });
   el.querySelectorAll('#rvList .task-queue-item').forEach(b => {
     b.onclick = () => {
       el.querySelectorAll('#rvList .task-queue-item').forEach(x => x.classList.remove('active'));
@@ -59,7 +63,7 @@ registerPage('review', ['审核发布', '待审核方案'], async (el) => {
           <div class="task-overview-block"><span>延期订单数</span><b>${kpi.nTardy ?? '-'}</b></div>
           <div class="task-overview-block"><span>计划扰动 Δ_plan</span><b>${kpi.deltaPlan ? kpi.deltaPlan.deltaPlan.toFixed(3) : '-'}</b></div>
           <div class="task-overview-block"><span>乐观锁版本号</span><b>${v.version}</b></div>
-          <div class="task-overview-block"><span>工序数</span><b>${(v.operations || []).length}</b></div>
+          <div class="task-overview-block"><span>工序数</span><b>${v.operationCount ?? '-'}</b></div>
         </div>
         ${v.reviewComment ? `<div class="info-box"><b>审核意见</b>${esc(v.reviewComment)}</div>` : ''}
         <div id="rvMsg"></div>

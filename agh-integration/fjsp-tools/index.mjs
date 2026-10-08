@@ -418,7 +418,9 @@ const tools = [
       const r = await api('GET', `/plan-versions/${encodeURIComponent(id)}`)
       if (!r.ok) return result(r)
       const v = r.data || {}
-      const ops = v.operations || []
+      // 工序明细已移到独立分页端点（P1-6 索引与分页改造），大 size 一次取回
+      const opsResp = await api('GET', `/plan-versions/${encodeURIComponent(id)}/operations?size=5000`)
+      const ops = (opsResp.ok && opsResp.data && opsResp.data.items) || []
       const byMachine = {}
       for (const op of ops) byMachine[op.machineId] = (byMachine[op.machineId] || 0) + 1
       return result({

@@ -158,3 +158,22 @@ function modalError(msg) {
   const errEl = document.getElementById('modalErr');
   if (errEl) errEl.innerHTML = `<div class="error-box">${esc(msg)}</div>`;
 }
+
+/* ---------------- 分页组件（Page 包络 {items,page,size,total,totalPages}） ----------------
+ * pagerHtml(pageObj) 渲染上一页/下一页 + 页码/总数；
+ * bindPager(container, onPageDelta) 绑定翻页回调（delta = -1/+1）。
+ */
+function pagerHtml(p) {
+  const totalPages = p.totalPages || 0;
+  return `<div class="pager">
+    <button class="btn small" data-pager="prev" ${p.page <= 0 ? 'disabled' : ''}>上一页</button>
+    <span class="muted">第 ${totalPages === 0 ? 0 : p.page + 1} / ${totalPages} 页 · 共 ${p.total} 条</span>
+    <button class="btn small" data-pager="next" ${p.page >= totalPages - 1 ? 'disabled' : ''}>下一页</button>
+  </div>`;
+}
+
+function bindPager(container, onPageDelta) {
+  container.querySelectorAll('[data-pager]').forEach(b => {
+    if (!b.disabled) b.onclick = () => onPageDelta(b.dataset.pager === 'prev' ? -1 : 1);
+  });
+}

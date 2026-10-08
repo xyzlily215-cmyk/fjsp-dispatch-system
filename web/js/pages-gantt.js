@@ -23,8 +23,11 @@ registerPage('resource-gantt', ['结果分析', '资源甘特'], async (el) => {
     || versions[0].id;
   if (!versions.some(v => v.id === selectedId)) selectedId = versions[0].id;
 
-  let plan;
-  try { plan = await Api.planVersion(selectedId); }
+  let plan, opsPage;
+  try {
+    [plan, opsPage] = await Promise.all([
+      Api.planVersion(selectedId), Api.planVersionOperations(selectedId)]);
+  }
   catch (e) { el.innerHTML = errorBoxHtml(e, '版本详情加载失败'); return; }
 
   const familyOf = {};
@@ -35,7 +38,7 @@ registerPage('resource-gantt', ['结果分析', '资源甘特'], async (el) => {
     return FAMILY_COLOR[fam] || 'purple';
   };
 
-  const ops = (plan.operations || []).slice().sort((a, b) => a.startAt < b.startAt ? -1 : 1);
+  const ops = (opsPage.items || []).slice().sort((a, b) => a.startAt < b.startAt ? -1 : 1);
   const winStart = Math.min(...ops.map(o => Date.parse(o.startAt)));
   const winEnd = Math.max(...ops.map(o => Date.parse(o.endAt)));
   const span = Math.max(winEnd - winStart, 1);

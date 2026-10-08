@@ -3,6 +3,7 @@ package com.fjsp.business.controller;
 import java.util.Map;
 
 import com.fjsp.business.common.ApiResponse;
+import com.fjsp.business.common.PageResponse;
 import com.fjsp.business.dto.BreakdownEventRequest;
 import com.fjsp.business.dto.NewOrderEventRequest;
 import com.fjsp.business.service.EventService;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -44,5 +46,16 @@ public class EventController {
     @GetMapping("/{eventId}")
     public ApiResponse<Map<String, Object>> get(@PathVariable String eventId) {
         return ApiResponse.ok(eventService.getEvent(eventId));
+    }
+
+    @GetMapping
+    public ApiResponse<PageResponse<Map<String, Object>>> list(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String eventType,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return ApiResponse.ok(eventService.listEvents(status, eventType, from, to, page, size));
     }
 }

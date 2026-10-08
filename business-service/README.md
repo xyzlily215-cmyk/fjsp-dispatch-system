@@ -80,6 +80,24 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | `fjsp.freeze-window` | Duration | 30m | 重调度冻结窗口（API 入参 `freezeWindowMinutes` 仍为分钟，可覆盖） |
 | `fjsp.idempotency-ttl` | Duration | 24h | 幂等记录有效期 |
 
+## 性能基线（V4 索引）
+
+`db/migration/V4__indexes.sql` 为列表/看板/检索热点建了 18 个二级索引（event/schedule_task/plan_version/execution_record/schedule_operation/audit_log）。基线测量：`./scripts/perf-baseline.sh [标签]`（EXPLAIN ANALYZE；`PG_FORCE_INDEX=1` 可禁用顺序扫描验证索引可用性）。
+
+演示数据量：schedule_task=4、plan_version=4、schedule_operation=233、event=3、audit_log=28。
+
+| 查询 | V4 前 | V4 后 | V4 后（强制索引） |
+|---|---|---|---|
+| 看板最近事件 | Seq Scan 0.237ms | Seq Scan 0.021ms | Index Scan (idx_event_occurred_at) 0.059ms |
+| 看板最近任务 | Seq Scan 0.065ms | Seq Scan 0.057ms | Index Scan (idx_schedule_task_created_at) 0.048ms |
+| 任务列表分页 | Seq Scan 0.040ms | Seq Scan 0.031ms | Index Scan (idx_schedule_task_created_at) 0.023ms |
+| 计划版本列表分页 | Seq Scan 0.024ms | Seq Scan 0.023ms | Index Scan (idx_plan_version_created_at) 0.022ms |
+| 计划详情工序 | Seq Scan 0.046ms | Seq Scan 0.034ms | Bitmap Heap Scan 0.050ms |
+| 事件列表过滤 | Seq Scan 0.028ms | Seq Scan 0.021ms | Index Scan (idx_event_occurred_at) 0.014ms |
+| 审计查询 | Seq Scan 0.035ms | Seq Scan 0.025ms | Bitmap Heap Scan 0.079ms |
+
+结论：演示规模（百行级）下规划器选择 Seq Scan 是最优决策，索引不改变计划节点属预期；强制禁用顺序扫描后全部命中新索引，证明索引定义正确，数据量增长到万行级时自动生效。本步骤的主要收益在查询形态（分页/派生查询替代全表拉取）而非当下耗时。
+
 ## 认证与角色
 
 除 `POST /api/v1/auth/login` 外全部接口要求 `Authorization: Bearer <token>`（JWT，HS256，默认 8h）。未认证 401 `E_UNAUTHORIZED`，角色不足 403 `E_FORBIDDEN`。
@@ -94,6 +112,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | publish（发布） | | | ✓ | ✓ |
 | 执行反馈 execution | | | ✓ | ✓ |
 | 基础数据写端点、demo/reset | | | | ✓ |
+| 审计检索 audit-logs | | | | ✓ |
 
 种子账号（**仅本地演示**，密码均为 `Fj@123456`，见 `db/migration/V3__auth.sql` 与 `auth/UserSeedRunner`）：
 
@@ -106,20 +125,24 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 
 ## 接口一览（前缀 /api/v1）
 
+> **分页契约**：列表端点统一返回 `data: {items, page, size, total, totalPages}`（page 从 0 起，size 默认 20、上限 200；工序端点放宽到 5000）。参数非法返回 400 `E_VALIDATION`。裸数组仅保留在 machines/orders/process-templates/dashboard 等小规模基础数据端点。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/auth/login` | 登录：{username, password} → {token, username, role, displayName, expiresAt}；失败统一 401 `E_UNAUTHORIZED` |
 | GET | `/auth/me` | 当前登录用户信息 |
 | POST | `/schedule-tasks` | 创建排程任务（异步求解），需 `Idempotency-Key`；DISPATCHER/ADMIN |
 | GET | `/schedule-tasks/{taskId}` | 任务状态/进度/结果/冲突/重试信息（retryCount、maxRetries、nextRetryAt、timeoutAt、cancelRequested） |
-| GET | `/schedule-tasks` | 最近 20 条任务 |
+| GET | `/schedule-tasks?page=&size=` | 分页任务列表（按创建时间倒序，含 total/totalPages） |
 | POST | `/schedule-tasks/{taskId}/retry` | 人工重试：仅 FAILED/CANCELLED 可调用，重置为 PENDING 并重新投递，否则 409 `E_STATE_CONFLICT` |
 | POST | `/schedule-tasks/{taskId}/cancel` | 取消：PENDING/RETRY_WAIT 直接 CANCELLED；RUNNING 置 cancelRequested 协作式取消（求解结果到达后丢弃）；终态 409 |
 | POST | `/events/new-orders` | 插单事件（同事务建单+实例化工序+影响集合） |
 | POST | `/events/breakdowns` | 设备故障事件（执行中工序冲突返回 E_EVENT_IN_PROCESS） |
 | GET | `/events/{eventId}` | 事件详情+影响集合明细 |
-| GET | `/plan-versions` | 计划版本列表 |
-| GET | `/plan-versions/{id}` | 版本详情（含全部 schedule_operation 与 KPI） |
+| GET | `/events?page=&size=&status=&eventType=&from=&to=` | 事件列表（分页+过滤，from/to 为 occurredAt ISO 范围） |
+| GET | `/plan-versions?page=&size=` | 计划版本分页列表 |
+| GET | `/plan-versions/{id}` | 版本摘要（含 operationCount；不再内嵌全量工序） |
+| GET | `/plan-versions/{id}/operations?page=&size=` | 版本工序分页（size 上限 5000，甘特图大 size 一次取回） |
 | GET | `/plan-versions/{id}/diff?baselineVersionId=` | 逐工序差异 + KPI 差异 |
 | POST | `/plan-versions/{id}/submit-review` | DRAFT→REVIEW_PENDING，需 `{"version": n}`（提交前重新 /validate） |
 | POST | `/plan-versions/{id}/review` | {decision, comment, version}；REJECT 必须填 comment |
@@ -128,6 +151,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | POST | `/operations/{operationId}/execution` | 执行反馈 RUNNING/COMPLETED |
 | GET | `/machines` `/orders` `/process-templates` `/dashboard` | 基础数据与聚合看板 |
 | POST | `/demo/reset` | 清空业务数据并重新 seed |
+| GET | `/audit-logs?page=&size=&objectType=&objectId=&operator=&requestId=` | 审计检索（分页+过滤），**仅 ADMIN** |
 
 ## 关键设计
 

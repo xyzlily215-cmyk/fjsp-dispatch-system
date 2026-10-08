@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fjsp.business.client.AlgorithmClient;
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.common.HashUtil;
+import com.fjsp.business.common.PageResponse;
+import com.fjsp.business.common.PageSupport;
 import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.dto.CreateTaskRequest;
 import com.fjsp.business.entity.Event;
@@ -27,6 +29,7 @@ import com.fjsp.business.repository.ScheduleTaskRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -201,12 +204,10 @@ public class TaskService {
         return data;
     }
 
-    public List<Map<String, Object>> listTasks() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (ScheduleTask task : taskRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 20))) {
-            result.add(toSummary(task));
-        }
-        return result;
+    public PageResponse<Map<String, Object>> listTasks(Integer page, Integer size) {
+        PageRequest pageable = PageSupport.of(page, size, PageSupport.DEFAULT_MAX_SIZE,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        return PageResponse.of(taskRepository.findAllBy(pageable), this::toSummary);
     }
 
     private Map<String, Object> toSummary(ScheduleTask task) {

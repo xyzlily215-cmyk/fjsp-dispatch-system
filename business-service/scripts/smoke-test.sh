@@ -96,9 +96,9 @@ PUB=$(curl -s -X POST "$BASE/plan-versions/$PV1/publish" -H 'Content-Type: appli
 [ "$(echo "$PUB" | jqget "['data']['status']")" = "PUBLISHED" ] && ok "发布成功" || bad "发布失败: $PUB"
 
 say "5. 执行反馈：首个 RUNNING 使计划转 EXECUTING"
-FIRST_OP=$(curl -s "$BASE/plan-versions/$PV1" | python3 -c "
+FIRST_OP=$(curl -s "$BASE/plan-versions/$PV1/operations?size=5000" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)['data']['operations']
+d=json.load(sys.stdin)['data']['items']
 d.sort(key=lambda o:o['startAt'])
 print(d[0]['operationId'])")
 EX=$(curl -s -X POST "$BASE/operations/$FIRST_OP/execution" -H 'Content-Type: application/json' \
@@ -195,12 +195,12 @@ say "10. E_EVENT_IN_PROCESS：执行中工序区间内登记故障"
 # 找一个当前发布计划中未来开始的工序，反馈 RUNNING，再在其计划区间内登记故障
 TARGET=$(curl -s "$BASE/plan-versions" | python3 -c "
 import sys,json
-vs=[v for v in json.load(sys.stdin)['data'] if v['status'] in ('PUBLISHED','EXECUTING')]
+vs=[v for v in json.load(sys.stdin)['data']['items'] if v['status'] in ('PUBLISHED','EXECUTING')]
 print(vs[0]['id'])")
-INP_OP=$(curl -s "$BASE/plan-versions/$TARGET" | THRESH_EPOCH=$((T0_EPOCH+300)) python3 -c "
+INP_OP=$(curl -s "$BASE/plan-versions/$TARGET/operations?size=5000" | THRESH_EPOCH=$((T0_EPOCH+300)) python3 -c "
 import sys,json,os,datetime
 thresh=datetime.datetime.fromtimestamp(int(os.environ['THRESH_EPOCH']), datetime.timezone.utc)
-ops=json.load(sys.stdin)['data']['operations']
+ops=json.load(sys.stdin)['data']['items']
 future=[o for o in ops if datetime.datetime.fromisoformat(o['startAt'].replace('Z','+00:00')) > thresh]
 future.sort(key=lambda o:o['startAt'])
 print(future[0]['operationId']+'|'+future[0]['machineId']+'|'+future[0]['startAt'] if future else '')")

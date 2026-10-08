@@ -13,6 +13,8 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fjsp.business.client.AlgorithmClient;
 import com.fjsp.business.common.BizException;
+import com.fjsp.business.common.PageResponse;
+import com.fjsp.business.common.PageSupport;
 import com.fjsp.business.common.RequestContext;
 import com.fjsp.business.dto.PublishRequest;
 import com.fjsp.business.dto.ReviewRequest;
@@ -32,6 +34,8 @@ import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -82,25 +86,26 @@ public class PlanVersionService {
                 .orElseThrow(() -> BizException.notFound("计划版本不存在: " + idOrCode));
     }
 
-    public List<Map<String, Object>> list() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (PlanVersion pv : planVersionRepository.findAllByOrderByCreatedAtDesc()) {
-            result.add(toSummary(pv));
-        }
-        return result;
+    public PageResponse<Map<String, Object>> list(Integer page, Integer size) {
+        PageRequest pageable = PageSupport.of(page, size, PageSupport.DEFAULT_MAX_SIZE,
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        return PageResponse.of(planVersionRepository.findAllBy(pageable), this::toSummary);
     }
 
     public Map<String, Object> detail(String idOrCode) {
         PlanVersion pv = find(idOrCode);
         Map<String, Object> data = toSummary(pv);
-        data.put("reviewComment", pv.getReviewComment());
-        List<Map<String, Object>> ops = new ArrayList<>();
-        for (ScheduleOperation op : scheduleOperationRepository.findByPlanVersionId(pv.getId())) {
-            ops.add(toOperationMap(op));
-        }
-        ops.sort(Comparator.comparing(o -> (String) o.get("operationId")));
-        data.put("operations", ops);
+        // 工序明细不再内嵌（可能上千行），由 GET /plan-versions/{id}/operations 分页获取
+        data.put("operationCount", scheduleOperationRepository.countByPlanVersionId(pv.getId()));
         return data;
+    }
+
+    public PageResponse<Map<String, Object>> operations(String idOrCode, Integer page, Integer size) {
+        PlanVersion pv = find(idOrCode);
+        PageRequest pageable = PageSupport.of(page, size, PageSupport.BULK_MAX_SIZE,
+                Sort.by(Sort.Direction.ASC, "startAt").and(Sort.by("operationId")));
+        return PageResponse.of(scheduleOperationRepository.findByPlanVersionId(pv.getId(), pageable),
+                this::toOperationMap);
     }
 
     private Map<String, Object> toSummary(PlanVersion pv) {

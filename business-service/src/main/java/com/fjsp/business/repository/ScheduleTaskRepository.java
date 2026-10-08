@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.fjsp.business.entity.ScheduleTask;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -26,6 +27,8 @@ public interface ScheduleTaskRepository extends JpaRepository<ScheduleTask, Stri
     List<ScheduleTask> findByEventId(String eventId);
 
     List<ScheduleTask> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    Page<ScheduleTask> findAllBy(Pageable pageable);
 
     @Query("select max(t.taskCode) from ScheduleTask t")
     String findMaxTaskCode();

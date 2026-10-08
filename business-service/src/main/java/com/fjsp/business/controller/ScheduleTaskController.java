@@ -1,9 +1,9 @@
 package com.fjsp.business.controller;
 
-import java.util.List;
 import java.util.Map;
 
 import com.fjsp.business.common.ApiResponse;
+import com.fjsp.business.common.PageResponse;
 import com.fjsp.business.dto.CreateTaskRequest;
 import com.fjsp.business.service.TaskService;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -51,7 +52,9 @@ public class ScheduleTaskController {
     }
 
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> list() {
-        return ApiResponse.ok(taskService.listTasks());
+    public ApiResponse<PageResponse<Map<String, Object>>> list(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return ApiResponse.ok(taskService.listTasks(page, size));
     }
 }

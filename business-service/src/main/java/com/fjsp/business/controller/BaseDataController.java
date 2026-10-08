@@ -69,8 +69,17 @@ public class BaseDataController {
 
     @GetMapping("/orders")
     public ApiResponse<List<Map<String, Object>>> orders() {
+        List<ProductionOrder> orders = productionOrderRepository.findAll();
+        // 批量取回全部工序后按订单分组，避免每单一次查询（N+1）
+        List<String> orderIds = orders.stream().map(ProductionOrder::getId).toList();
+        Map<String, List<OrderOperation>> opsByOrder = new LinkedHashMap<>();
+        for (OrderOperation op : orderOperationRepository.findByOrderIdIn(orderIds)) {
+            opsByOrder.computeIfAbsent(op.getOrderId(), k -> new ArrayList<>()).add(op);
+        }
+        opsByOrder.values().forEach(list -> list.sort(Comparator.comparing(OrderOperation::getSequenceNo)));
+
         List<Map<String, Object>> result = new ArrayList<>();
-        for (ProductionOrder order : productionOrderRepository.findAll()) {
+        for (ProductionOrder order : orders) {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("orderId", order.getId());
             entry.put("orderCode", order.getOrderCode());
@@ -82,7 +91,7 @@ public class BaseDataController {
             entry.put("status", order.getStatus());
             entry.put("templateId", order.getTemplateId());
             List<Map<String, Object>> ops = new ArrayList<>();
-            for (OrderOperation op : orderOperationRepository.findByOrderIdOrderBySequenceNo(order.getId())) {
+            for (OrderOperation op : opsByOrder.getOrDefault(order.getId(), List.of())) {
                 Map<String, Object> opEntry = new LinkedHashMap<>();
                 opEntry.put("operationId", op.getId());
                 opEntry.put("seqNo", op.getSequenceNo());

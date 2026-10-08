@@ -494,13 +494,16 @@ registerPage('execution', ['执行反馈', '实际执行'], async (el) => {
     return;
   }
 
-  let plan;
-  try { plan = await Api.planVersion(dash.currentPlan.id); }
+  let plan, opsPage;
+  try {
+    [plan, opsPage] = await Promise.all([
+      Api.planVersion(dash.currentPlan.id), Api.planVersionOperations(dash.currentPlan.id)]);
+  }
   catch (e) { el.innerHTML = errorBoxHtml(e, '计划详情加载失败'); return; }
 
   const opStatus = {};
   orders.forEach(o => (o.operations || []).forEach(op => { opStatus[op.operationId] = op.status; }));
-  const ops = (plan.operations || []).slice().sort((a, b) => a.startAt < b.startAt ? -1 : 1);
+  const ops = (opsPage.items || []).slice().sort((a, b) => a.startAt < b.startAt ? -1 : 1);
   const counts = { NOT_STARTED: 0, RUNNING: 0, COMPLETED: 0 };
   ops.forEach(o => { const s = opStatus[o.operationId] || 'NOT_STARTED'; counts[s] = (counts[s] || 0) + 1; });
 

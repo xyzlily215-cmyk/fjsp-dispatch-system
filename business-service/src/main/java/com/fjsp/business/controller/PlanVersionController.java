@@ -1,10 +1,10 @@
 package com.fjsp.business.controller;
 
-import java.util.List;
 import java.util.Map;
 
 import com.fjsp.business.common.ApiResponse;
 import com.fjsp.business.common.BizException;
+import com.fjsp.business.common.PageResponse;
 import com.fjsp.business.dto.PublishRequest;
 import com.fjsp.business.dto.ReviewRequest;
 import com.fjsp.business.dto.SubmitReviewRequest;
@@ -29,13 +29,23 @@ public class PlanVersionController {
     }
 
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> list() {
-        return ApiResponse.ok(planVersionService.list());
+    public ApiResponse<PageResponse<Map<String, Object>>> list(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return ApiResponse.ok(planVersionService.list(page, size));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<Map<String, Object>> get(@PathVariable String id) {
         return ApiResponse.ok(planVersionService.detail(id));
+    }
+
+    @GetMapping("/{id}/operations")
+    public ApiResponse<PageResponse<Map<String, Object>>> operations(
+            @PathVariable String id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return ApiResponse.ok(planVersionService.operations(id, page, size));
     }
 
     @GetMapping("/{id}/diff")

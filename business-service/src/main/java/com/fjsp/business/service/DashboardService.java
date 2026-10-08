@@ -2,6 +2,7 @@ package com.fjsp.business.service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -123,8 +124,11 @@ public class DashboardService {
                     lastEndByOrder.put(orderId, op);
                 }
             }
+            List<String> orderIds = new ArrayList<>(lastEndByOrder.keySet());
+            Map<String, ProductionOrder> ordersById = new HashMap<>();
+            productionOrderRepository.findAllById(orderIds).forEach(o -> ordersById.put(o.getId(), o));
             for (Map.Entry<String, ScheduleOperation> e : lastEndByOrder.entrySet()) {
-                ProductionOrder order = productionOrderRepository.findById(e.getKey()).orElse(null);
+                ProductionOrder order = ordersById.get(e.getKey());
                 if (order != null && e.getValue().getEndAt().isAfter(order.getDueAt())
                         && !"COMPLETED".equals(order.getStatus())) {
                     Map<String, Object> entry = new LinkedHashMap<>();
@@ -138,15 +142,14 @@ public class DashboardService {
         }
         exceptions.put("delayedOrders", delayedOrders);
         List<Map<String, Object>> breakdowns = new ArrayList<>();
-        for (Event event : eventRepository.findAll()) {
-            if (Event.TYPE_BREAKDOWN.equals(event.getEventType())) {
-                Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("eventCode", event.getEventCode());
-                entry.put("machineId", event.getMachineId());
-                entry.put("occurredAt", event.getOccurredAt());
-                entry.put("repairEndAt", event.getRepairEndAt());
-                breakdowns.add(entry);
-            }
+        for (Event event : eventRepository.findByEventTypeOrderByOccurredAtDesc(
+                Event.TYPE_BREAKDOWN, PageRequest.of(0, 50))) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("eventCode", event.getEventCode());
+            entry.put("machineId", event.getMachineId());
+            entry.put("occurredAt", event.getOccurredAt());
+            entry.put("repairEndAt", event.getRepairEndAt());
+            breakdowns.add(entry);
         }
         exceptions.put("breakdowns", breakdowns);
         data.put("exceptions", exceptions);
