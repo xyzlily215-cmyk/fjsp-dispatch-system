@@ -121,6 +121,21 @@ const pvOps = pvOpsPage.items;
 assert(pvOps.length === pv.operationCount, 'operations 端点一次取回全部工序');
 hasFields(pvOps[0], ['operationId', 'machineId', 'setupStartAt', 'processStartAt', 'startAt', 'endAt',
   'changeoverMinutes', 'frozen', 'affected', 'reasonCode'], 'operations.items[0]');
+hasFields(pvOps[0], ['orderId', 'orderCode', 'sequenceNo', 'dueAt', 'priority', 'operationStatus'],
+  'operations.items[0] 订单维度字段(F-09)');
+
+// 6b. 计划版本 CSV 导出（F-09）
+{
+  const resp = await fetch(`${API}/plan-versions/${pvId}/export`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  assert(resp.status === 200, `导出 CSV 返回 200（实际 ${resp.status}）`);
+  assert((resp.headers.get('content-type') || '').startsWith('text/csv'), '导出 Content-Type 为 text/csv');
+  assert((resp.headers.get('content-disposition') || '').includes('attachment; filename='), '导出带附件文件名');
+  const buf = new Uint8Array(await resp.arrayBuffer());
+  assert(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF, '导出内容带 UTF-8 BOM');
+  const text = new TextDecoder().decode(buf);
+  assert(text.includes('订单号,产品族,优先级,交期'), 'CSV 含工序明细表头');
+  assert(text.includes('C_max(分钟)'), 'CSV 含 KPI 摘要');
+}
 
 // 7. 提交审核 -> 审核通过 -> 发布
 console.log('== 审核发布 ==');

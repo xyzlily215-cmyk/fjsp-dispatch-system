@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ui-check.sh — 验证前端（8082）跨域访问业务服务（8081）的关键接口
-# 用法: bash scripts/ui-check.sh
-set -u
+# 用法: bash web/scripts/ui-check.sh
+set -euo pipefail
 ORIGIN="http://localhost:8082"
 API="http://localhost:8081/api/v1"
 FAIL=0
@@ -9,8 +9,8 @@ FAIL=0
 check_cors() {
   local method="$1" path="$2"
   local resp header
-  resp=$(curl -s -i -H "Origin: $ORIGIN" "$API$path")
-  header=$(printf '%s' "$resp" | grep -i '^Access-Control-Allow-Origin:' | tr -d '\r')
+  resp=$(curl -s -i -H "Origin: $ORIGIN" "$API$path") || true
+  header=$(printf '%s' "$resp" | grep -i '^Access-Control-Allow-Origin:' | tr -d '\r') || true
   if printf '%s' "$header" | grep -q "$ORIGIN"; then
     echo "PASS  CORS $method $path -> $header"
   else
@@ -24,7 +24,7 @@ check_preflight() {
   resp=$(curl -s -i -X OPTIONS -H "Origin: $ORIGIN" \
     -H "Access-Control-Request-Method: $req_method" \
     -H "Access-Control-Request-Headers: content-type,idempotency-key" \
-    "$API$path")
+    "$API$path") || true
   if printf '%s' "$resp" | grep -qi "Access-Control-Allow-Origin: $ORIGIN" \
      && printf '%s' "$resp" | grep -qi "idempotency-key"; then
     echo "PASS  preflight $req_method $path"
@@ -36,7 +36,7 @@ check_preflight() {
 check_static() {
   local path="$1"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8082$path")
+  code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8082$path") || true
   if [ "$code" = "200" ]; then echo "PASS  static $path"; else echo "FAIL  static $path (HTTP $code)"; FAIL=1; fi
 }
 

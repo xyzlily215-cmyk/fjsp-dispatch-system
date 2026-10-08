@@ -22,16 +22,22 @@ function renderCurrent() {
   const el = document.getElementById(currentPage);
   try {
     const r = Pages[currentPage].render(el, currentParams || {});
-    if (r && r.catch) r.catch(e => { el.innerHTML = errorBoxHtml(e); });
+    // 页面 render 多为 async：最终 innerHTML 在 promise 兑现前写入，此处统一应用角色可见性
+    if (r && r.catch) r.catch(e => { el.innerHTML = errorBoxHtml(e); })
+      .finally(() => applyRoleVisibility(el));
   } catch (e) {
     el.innerHTML = errorBoxHtml(e);
   }
+  applyRoleVisibility(el);
 }
 
 /* 共享缓存：当前发布计划、版本列表，跨页跳转时预选 */
 const Shared = {
   dashboard: null,
-  ganttVersionId: null,     // 资源甘特预选版本
+  ganttVersionId: null,     // 甘特预选版本
+  ganttView: null,          // 甘特视图：resource / order
+  ganttFocusOp: null,       // 跨视图联动定位的目标工序
+  calendarMachineId: null,  // 设备日历预选设备
   compareBaselineId: null,  // 方案对比预选
   compareCandidateId: null,
   selectedTaskId: null,     // 任务详情预选
@@ -71,6 +77,9 @@ const App = {
     if (!this.listenersBound) {
       document.querySelectorAll('.menu-item[data-page]').forEach(item => {
         item.addEventListener('click', () => goTo(item.dataset.page));
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTo(item.dataset.page); }
+        });
       });
       document.querySelectorAll('.menu-parent').forEach(p => {
         p.addEventListener('click', () => p.classList.toggle('collapsed'));
@@ -78,6 +87,8 @@ const App = {
       this.listenersBound = true;
     }
     Auth.renderUserBadge();
+    // 菜单项的 data-roles 可见性（如系统管理仅 ADMIN）
+    applyRoleVisibility(document.getElementById('navMenu'));
     await refreshShared();
     goTo('board');
   },

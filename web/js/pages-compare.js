@@ -26,7 +26,7 @@ registerPage('compare', ['结果分析', '方案对比'], async (el) => {
 
   const headHtml = `
     <div class="page-header"><div><h1>方案对比</h1><p>基准版本与候选版本的 KPI 与逐工序差异（GET /plan-versions/{id}/diff）</p></div>
-      <div class="buttons"><button class="btn" id="cmpRun">开始对比</button></div></div>
+      <div class="buttons"><button class="btn" id="cmpRun">开始对比</button><button class="btn" id="cmpExport">导出候选版本 CSV</button></div></div>
     <section class="card section-card"><div class="toolbar"><div class="filters">
       <span class="filter-label">基准版本</span>${sel('cmpBaseline', versions, baselineId)}
       <span class="filter-label" style="margin-left:10px">候选版本</span>${sel('cmpCandidate', versions, candidateId)}
@@ -40,6 +40,12 @@ registerPage('compare', ['结果分析', '方案对比'], async (el) => {
       Shared.compareBaselineId = document.getElementById('cmpBaseline').value;
       Shared.compareCandidateId = document.getElementById('cmpCandidate').value;
       renderCurrent();
+    };
+    document.getElementById('cmpExport').onclick = async () => {
+      try {
+        await Api.exportPlanVersion(document.getElementById('cmpCandidate').value);
+        toast('CSV 已开始下载');
+      } catch (e) { toastErr(e, '导出失败'); }
     };
   };
   bind();
@@ -106,5 +112,50 @@ registerPage('compare', ['结果分析', '方案对比'], async (el) => {
     <div class="table-wrap"><table class="data-table">
       <thead><tr><th>工序</th><th>原计划（${esc(diff.baselineVersionCode)}）</th><th>候选方案（${esc(diff.candidateVersionCode)}）</th><th>变更类型</th><th>影响原因</th><th>状态</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#909399">两个版本的工序计划完全一致</td></tr>'}</tbody>
-    </table></div>`;
+    </table></div>
+    <div id="cmpGroup"></div>`;
+
+  /* F-08：同候选组（局部/完全重调度）并列比较，异步填充，不阻塞主差异渲染 */
+  renderCandidateGroup(versions, candVer, baselineId, diff);
 });
+
+/* 同 candidateGroupId 的候选方案（局部/完全）并列：KPI、计划扰动与变更规模相对同一基准版本比较 */
+async function renderCandidateGroup(versions, candVer, baselineId, candDiff) {
+  const box = document.getElementById('cmpGroup');
+  if (!box || !candVer || !candVer.candidateGroupId) return;
+  const members = versions.filter(v => v.candidateGroupId === candVer.candidateGroupId).slice(0, 4);
+  if (members.length < 2) return;
+  box.innerHTML = `<div class="section-pad" style="border-top:1px solid #ebeef5">
+    <h3 style="margin:0 0 10px;font-size:15px">同候选组并列比较（${esc(candVer.candidateGroupId)}）</h3>
+    <div id="cmpGroupTable">${loadingHtml('正在计算组内差异…')}</div></div>`;
+  const rows = [];
+  for (const v of members) {
+    if (v.id === candVer.id) { rows.push({ v, d: candDiff }); continue; }
+    try { rows.push({ v, d: await Api.diff(v.id, baselineId) }); }
+    catch (e) { rows.push({ v, error: e }); }
+  }
+  const tableEl = document.getElementById('cmpGroupTable');
+  if (!tableEl) return;
+  const kpiOf = (v) => v.kpi || {};
+  const dPlanOf = (v) => kpiOf(v).deltaPlan ? kpiOf(v).deltaPlan.deltaPlan : null;
+  tableEl.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>版本</th><th>候选类型</th><th>状态</th><th>C_max</th><th>加权拖期</th><th>延期订单</th><th>Δ_plan</th><th>偏移/换机/顺序</th><th>操作</th></tr></thead>
+    <tbody>${rows.map(({ v, d, error }) => {
+      const sm = (d && d.summary) || {};
+      return `<tr>
+      <td>${esc(v.versionCode)}${v.id === candVer.id ? ' ' + tag('当前选中', 'blue') : ''}</td>
+      <td>${v.candidateType ? statusTag(v.candidateType) : '-'}</td>
+      <td>${statusTag(v.status)}</td>
+      ${error ? `<td colspan="5">${errorBoxHtml(error, '差异计算失败')}</td>` : `
+      <td>${fmtMinutes(kpiOf(v).cMaxMinutes)}</td>
+      <td>${fmtMinutes(kpiOf(v).weightedTardinessMinutes)}</td>
+      <td>${kpiOf(v).nTardy ?? '-'}</td>
+      <td>${dPlanOf(v) !== null ? dPlanOf(v).toFixed(3) : '-'}</td>
+      <td><span class="muted">${sm.timeShiftedCount || 0} / ${sm.machineChangedCount || 0} / ${sm.sequenceChangedCount || 0}</span></td>`}
+      <td>${v.id === candVer.id ? '<span class="muted">-</span>' : `<button class="btn small" data-cmp-pick="${esc(v.id)}">设为候选</button>`}</td>
+    </tr>`;
+    }).join('')}</tbody></table></div>`;
+  box.querySelectorAll('[data-cmp-pick]').forEach(b => {
+    b.onclick = () => { Shared.compareCandidateId = b.dataset.cmpPick; renderCurrent(); };
+  });
+}

@@ -130,61 +130,120 @@ registerPage('calendar', ['基础数据', '设备日历'], async (el) => {
     ? Shared.calendarMachineId : withCal[0].machineId;
   const machine = withCal.find(m => m.machineId === selected);
 
-  let intervals;
-  try { intervals = await Api.calendarIntervals(machine.calendarId); }
+  let intervals, versions;
+  try { [intervals, versions] = await Promise.all([
+    Api.calendarIntervals(machine.calendarId), Api.calendarVersions(machine.calendarId)]); }
   catch (e) { el.innerHTML = errorBoxHtml(e, '日历区间加载失败'); return; }
   const TYPE_TEXT = { WORK: '班次可用', BREAK: '休息', HOLIDAY: '节假日', REPAIR: '维修' };
+  const current = (versions || []).find(v => v.current);
 
   el.innerHTML = `
-    <div class="page-header"><div><h1>设备日历</h1><p>班次（WORK）定义可用时间；不可用区间从可用时间中扣除</p></div>
+    <div class="page-header"><div><h1>设备日历</h1><p>班次（WORK）定义可用时间；不可用区间从可用时间中扣除；任何变更生成新版本，历史版本不改写</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
-      <button class="btn primary" id="calAdd" data-roles="ADMIN">+ 新增不可用区间</button></div></div>
+      <button class="btn" id="calVersions">版本历史</button>
+      <button class="btn primary" id="calAdd" data-roles="ADMIN">+ 新增区间</button></div></div>
     <section class="card section-card"><div class="toolbar"><div class="filters">
       <span class="filter-label">设备 / 日历</span>
       <select class="field wide" id="calMachine">${withCal.map(m =>
         `<option value="${esc(m.machineId)}" ${m.machineId === selected ? 'selected' : ''}>${esc(m.machineId)} · ${esc(m.machineName || m.workCenterId)}（${esc(m.calendarId)}）</option>`).join('')}
-      </select></div></div>
+      </select>
+      ${current ? `<span style="margin-left:10px">当前版本 ${tag(current.calendarCode + ' v' + current.calendarVersion, 'green')}</span>` : ''}
+      </div></div>
       <div class="table-wrap"><table class="data-table">
-        <thead><tr><th>类型</th><th>开始时间</th><th>结束时间</th><th>时长</th><th>备注</th></tr></thead>
+        <thead><tr><th>类型</th><th>开始时间</th><th>结束时间</th><th>时长</th><th>备注</th><th>操作</th></tr></thead>
         <tbody>${intervals.map(i => `<tr>
           <td><span class="interval-type ${esc(i.intervalType)}">${esc(TYPE_TEXT[i.intervalType] || i.intervalType)}</span></td>
           <td>${fmtDateTime(i.startAt)}</td><td>${fmtDateTime(i.endAt)}</td>
           <td>${Math.round((Date.parse(i.endAt) - Date.parse(i.startAt)) / 60000)} 分钟</td>
-          <td><span class="muted">${esc(i.note || '-')}</span></td></tr>`).join('')
-          || '<tr><td colspan="5" style="text-align:center;color:#909399">暂无区间</td></tr>'}</tbody>
+          <td><span class="muted">${esc(i.note || '-')}</span></td>
+          <td class="table-actions"><a data-del="${esc(i.intervalId)}" data-roles="ADMIN" style="color:#d54941">删除</a></td></tr>`).join('')
+          || '<tr><td colspan="6" style="text-align:center;color:#909399">暂无区间</td></tr>'}</tbody>
       </table></div></section>`;
 
   document.getElementById('calMachine').onchange = (ev) => { Shared.calendarMachineId = ev.target.value; renderCurrent(); };
+
+  document.getElementById('calVersions').onclick = () => {
+    openModal({
+      title: `日历版本历史（${current ? current.calendarCode : machine.calendarId}）`,
+      wide: true, okText: '关闭',
+      body: `
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>版本</th><th>状态</th><th>变更说明</th><th>生成时间</th><th>操作</th></tr></thead>
+        <tbody>${(versions || []).map(v => `<tr>
+          <td><b>v${v.calendarVersion}</b>${v.current ? ' ' + tag('当前', 'green') : ''}</td>
+          <td>${statusTag(v.status)}</td>
+          <td>${esc(v.changeNote || '初始版本')}</td>
+          <td>${fmtDateTime(v.createdAt)}</td>
+          <td class="table-actions"><a data-ver="${esc(v.calendarId)}" data-vno="${v.calendarVersion}">查看区间</a></td></tr>`).join('')
+          || '<tr><td colspan="5" style="text-align:center;color:#909399">暂无版本</td></tr>'}</tbody>
+      </table></div>
+      <div id="verIntervals" style="margin-top:10px"></div>
+      <p class="hint">历史版本区间只读、不改写；已生成任务的输入快照内联了当时的区间，新排程任务只使用当前版本。</p>`,
+      onOk: () => {},
+    });
+    document.querySelectorAll('a[data-ver]').forEach(a => {
+      a.onclick = async () => {
+        const box = document.getElementById('verIntervals');
+        box.innerHTML = loadingHtml(`正在加载 v${a.dataset.vno} 区间…`);
+        try {
+          const list = await Api.calendarIntervals(a.dataset.ver);
+          box.innerHTML = `<h3 style="margin:0 0 8px;font-size:14px">v${esc(a.dataset.vno)} 区间（只读）</h3>
+            <div class="table-wrap"><table class="data-table">
+            <thead><tr><th>类型</th><th>开始时间</th><th>结束时间</th><th>备注</th></tr></thead>
+            <tbody>${list.map(i => `<tr>
+              <td><span class="interval-type ${esc(i.intervalType)}">${esc(TYPE_TEXT[i.intervalType] || i.intervalType)}</span></td>
+              <td>${fmtDateTime(i.startAt)}</td><td>${fmtDateTime(i.endAt)}</td>
+              <td><span class="muted">${esc(i.note || '-')}</span></td></tr>`).join('')
+              || '<tr><td colspan="4" style="text-align:center;color:#909399">暂无区间</td></tr>'}</tbody>
+            </table></div>`;
+        } catch (e) { box.innerHTML = errorBoxHtml(e, '版本区间加载失败'); }
+      };
+    });
+  };
+
   document.getElementById('calAdd').onclick = () => {
     openModal({
-      title: `新增不可用区间（${machine.calendarId}）`, okText: '保存',
+      title: `新增日历区间（${current ? current.calendarCode + ' v' + current.calendarVersion : machine.calendarId}）`, okText: '保存',
       body: `
       <div class="form-grid">
         <label class="required">类型</label><select class="field" id="ciType">
           <option value="BREAK">休息（BREAK）</option>
           <option value="HOLIDAY">节假日（HOLIDAY）</option>
           <option value="REPAIR">维修（REPAIR）</option>
+          <option value="WORK">班次可用（WORK，班次调整）</option>
         </select>
         <label class="required">开始时间</label><input type="datetime-local" class="field" id="ciStart" value="${isoToLocalInput(new Date(Date.now() + 24 * 3600e3).toISOString())}">
         <label class="required">结束时间</label><input type="datetime-local" class="field" id="ciEnd" value="${isoToLocalInput(new Date(Date.now() + 25 * 3600e3).toISOString())}">
         <label>备注</label><textarea class="field" id="ciNote" placeholder="可选"></textarea>
       </div>
-      <p class="hint">区间不可与已有不可用区间重叠；结束时间必须晚于开始时间。保存后对之后创建的排程任务生效。</p>`,
+      <p class="hint">不可用区间不可与已有不可用区间重叠；维修区间不得覆盖已完成的执行记录；结束时间必须晚于开始时间。保存后生成新日历版本，只对之后创建的排程任务生效。</p>`,
       onOk: async () => {
         const startAt = localInputToIso(document.getElementById('ciStart').value);
         const endAt = localInputToIso(document.getElementById('ciEnd').value);
         if (!startAt || !endAt) { modalError('请填写完整的起止时间'); return false; }
         if (Date.parse(endAt) <= Date.parse(startAt)) { modalError('结束时间必须晚于开始时间'); return false; }
-        await Api.addCalendarInterval(machine.calendarId, {
+        const r = await Api.addCalendarInterval(machine.calendarId, {
           intervalType: document.getElementById('ciType').value,
           startAt, endAt,
           note: document.getElementById('ciNote').value.trim() || undefined,
         });
-        toast('不可用区间已保存');
+        toast(`区间已保存，日历生成新版本 v${r.calendarVersion}，仅对后续新任务生效`);
         renderCurrent();
       },
     });
   };
+
+  el.querySelectorAll('a[data-del]').forEach(a => {
+    a.onclick = async () => {
+      const iv = intervals.find(i => i.intervalId === a.dataset.del);
+      if (!confirm(`确定删除该${TYPE_TEXT[iv.intervalType] || iv.intervalType}区间（${fmtDateTime(iv.startAt)} ~ ${fmtDateTime(iv.endAt)}）？\n删除将生成新日历版本，历史版本保留可查。`)) return;
+      try {
+        const r = await Api.deleteCalendarInterval(machine.calendarId, a.dataset.del);
+        toast(`区间已删除，日历生成新版本 v${r.calendarVersion}`);
+        renderCurrent();
+      } catch (e) { toastErr(e, '删除失败'); }
+    };
+  });
 });
 
 /* ---------------- 工艺模板 ---------------- */
@@ -333,19 +392,25 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
   catch (e) { el.innerHTML = errorBoxHtml(e, '订单加载失败'); return; }
   const activeTemplates = templates.filter(t => t.status === 'ACTIVE');
   const families = [...new Set(activeTemplates.map(t => t.productFamily))];
+  const FIELD_LABEL = { productFamily: '产品族', templateId: '工艺模板', quantity: '数量', priority: '优先级', arrivalAt: '到达时间', dueAt: '交期' };
 
   el.innerHTML = `
-    <div class="page-header"><div><h1>订单管理</h1><p>生产订单与工序明细；仅未排程（WAITING）订单可编辑</p></div>
+    <div class="page-header"><div><h1>订单管理</h1><p>生产订单与工序明细；已排程订单的工艺字段需走修订流程（原因必填，需重新排程生效）</p></div>
       <div class="buttons"><button class="btn" onclick="renderCurrent()">&#8635; 刷新</button>
       <button class="btn primary" id="ordAdd" data-roles="ADMIN">+ 新增订单</button></div></div>
     <section class="card table-card"><div class="table-wrap"><table class="data-table">
-      <thead><tr><th></th><th>订单号</th><th>产品族</th><th>数量</th><th>优先级</th><th>到达时间</th><th>交期</th><th>状态</th><th>工序数</th><th>操作</th></tr></thead>
+      <thead><tr><th></th><th>订单号</th><th>产品族</th><th>数量</th><th>优先级</th><th>到达时间</th><th>交期</th><th>状态</th><th>备注</th><th>工序数</th><th>操作</th></tr></thead>
       <tbody>${orders.map((o, i) => `
         <tr class="clickable" data-order="${i}"><td>▸</td><td>${esc(o.orderCode)}</td><td>${esc(o.productFamily)}</td>
           <td>${o.quantity}</td><td>${o.priority}</td><td>${fmtDateTime(o.arrivalAt)}</td><td>${fmtDateTime(o.dueAt)}</td>
-          <td>${statusTag(o.status)}</td><td>${(o.operations || []).length}</td>
-          <td class="table-actions">${o.status === 'WAITING' ? `<a data-edit="${esc(o.orderId)}">编辑</a>` : ''}</td></tr>
-        <tr class="ops-expand is-hidden" id="ops-${i}"><td colspan="10"><table class="data-table">
+          <td>${statusTag(o.status)}${o.revisionNo ? ' ' + tag('修订×' + o.revisionNo, 'orange') : ''}</td>
+          <td><span class="muted">${esc(o.remark || '-')}</span></td>
+          <td>${(o.operations || []).length}</td>
+          <td class="table-actions">${o.scheduled
+            ? `<a data-revise="${esc(o.orderId)}">修订</a>`
+            : `<a data-edit="${esc(o.orderId)}">编辑</a>`}
+            <a data-revs="${esc(o.orderId)}" data-code="${esc(o.orderCode)}">修订记录</a></td></tr>
+        <tr class="ops-expand is-hidden" id="ops-${i}"><td colspan="11"><table class="data-table">
           <thead><tr><th>工序</th><th>序号</th><th>状态</th><th>候选设备（准备/加工 分钟）</th></tr></thead>
           <tbody>${(o.operations || []).map(op => `<tr><td>${esc(op.operationId)}</td><td>${op.seqNo}</td><td>${statusTag(op.status)}</td>
             <td>${(op.candidates || []).map(c => `<span class="machine-chip">${esc(c.machineId)} ${c.setupMinutes}/${c.processMinutes}</span>`).join(' ')}</td></tr>`).join('')}</tbody>
@@ -375,6 +440,7 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
         <label class="required">优先级</label><input type="number" class="field" id="ofPriority" min="1" max="5" value="3">
         <label class="required">到达时间</label><input type="datetime-local" class="field" id="ofArrival" value="${isoToLocalInput(new Date().toISOString())}">
         <label class="required">交期</label><input type="datetime-local" class="field" id="ofDue" value="${isoToLocalInput(new Date(Date.now() + 48 * 3600e3).toISOString())}">
+        <label>备注</label><textarea class="field" id="ofRemark" placeholder="可选"></textarea>
       </div>
       <p class="hint">创建后按所选模板实例化工序，订单进入待排程（WAITING）状态，可在基线排程中勾选参与。</p>`,
       onOk: async () => {
@@ -392,6 +458,7 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
           orderCode, productFamily: document.getElementById('ofFamily').value,
           quantity, priority, arrivalAt, dueAt,
           templateId: document.getElementById('ofTpl').value,
+          remark: document.getElementById('ofRemark').value.trim() || undefined,
         });
         toast(`订单 ${r.orderCode} 已创建，实例化 ${r.operationIds.length} 道工序`);
         renderCurrent();
@@ -400,6 +467,18 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
     document.getElementById('ofFamily').onchange = (ev) => {
       document.getElementById('ofTpl').innerHTML = tplOptions(ev.target.value);
     };
+  };
+
+  const collectProcessFields = (prefix) => {
+    const quantity = parseInt(document.getElementById(prefix + 'Qty').value, 10);
+    const priority = parseInt(document.getElementById(prefix + 'Priority').value, 10);
+    const arrivalAt = localInputToIso(document.getElementById(prefix + 'Arrival').value);
+    const dueAt = localInputToIso(document.getElementById(prefix + 'Due').value);
+    if (!quantity || quantity <= 0) { modalError('数量必须是正整数'); return null; }
+    if (!priority || priority < 1 || priority > 5) { modalError('优先级必须在 1-5 之间'); return null; }
+    if (!arrivalAt || !dueAt) { modalError('请填写到达时间与交期'); return null; }
+    if (Date.parse(dueAt) < Date.parse(arrivalAt)) { modalError('交期不能早于到达时间'); return false; }
+    return { quantity, priority, arrivalAt, dueAt };
   };
 
   el.querySelectorAll('a[data-edit]').forEach(a => {
@@ -415,20 +494,88 @@ registerPage('orders', ['基础数据', '订单管理'], async (el) => {
           <label class="required">优先级</label><input type="number" class="field" id="efPriority" min="1" max="5" value="${o.priority}">
           <label class="required">到达时间</label><input type="datetime-local" class="field" id="efArrival" value="${isoToLocalInput(o.arrivalAt)}">
           <label class="required">交期</label><input type="datetime-local" class="field" id="efDue" value="${isoToLocalInput(o.dueAt)}">
+          <label>备注</label><textarea class="field" id="efRemark">${esc(o.remark || '')}</textarea>
         </div>
-        <p class="hint">仅未排程订单可编辑；产品族与工艺路线不可变更（会影响已实例化工序）。</p>`,
+        <p class="hint">仅未排程订单可直接编辑工艺字段；产品族与工艺路线不可变更（会影响已实例化工序）。备注任何状态下可改。</p>`,
         onOk: async () => {
-          const quantity = parseInt(document.getElementById('efQty').value, 10);
-          const priority = parseInt(document.getElementById('efPriority').value, 10);
-          const arrivalAt = localInputToIso(document.getElementById('efArrival').value);
-          const dueAt = localInputToIso(document.getElementById('efDue').value);
-          if (!quantity || quantity <= 0) { modalError('数量必须是正整数'); return false; }
-          if (!priority || priority < 1 || priority > 5) { modalError('优先级必须在 1-5 之间'); return false; }
-          if (Date.parse(dueAt) < Date.parse(arrivalAt)) { modalError('交期不能早于到达时间'); return false; }
-          await Api.updateOrder(o.orderId, { quantity, priority, arrivalAt, dueAt });
+          const f = collectProcessFields('ef');
+          if (!f) return false;
+          await Api.updateOrder(o.orderId, { ...f, remark: document.getElementById('efRemark').value.trim() });
           toast('订单 ' + o.orderCode + ' 已更新');
           renderCurrent();
         },
+      });
+    };
+  });
+
+  /* F-04 已排程订单：工艺字段变更走修订流程（原因必填，提交前展示前后差异） */
+  const tplOptionsForRevise = (o) => {
+    const listed = activeTemplates.some(t => t.templateId === o.templateId);
+    const currentOpt = listed || !o.templateId ? ''
+      : `<option value="${esc(o.templateId)}" selected>（当前模板，已停用/归档）</option>`;
+    return currentOpt + tplOptions(o.productFamily, o.templateId);
+  };
+  el.querySelectorAll('a[data-revise]').forEach(a => {
+    a.onclick = () => {
+      const o = orders.find(x => x.orderId === a.dataset.revise);
+      openModal({
+        title: '修订订单 ' + o.orderCode, okText: '提交修订',
+        body: `
+        <div class="form-grid">
+          <label>订单号</label><input class="field" value="${esc(o.orderCode)}" disabled>
+          <label>产品族</label><input class="field" value="${esc(o.productFamily)}" disabled>
+          <label>工艺模板</label><select class="field" id="rfTpl">${tplOptionsForRevise(o)}</select>
+          <label class="required">数量</label><input type="number" class="field" id="rfQty" min="1" value="${o.quantity}">
+          <label class="required">优先级</label><input type="number" class="field" id="rfPriority" min="1" max="5" value="${o.priority}">
+          <label class="required">到达时间</label><input type="datetime-local" class="field" id="rfArrival" value="${isoToLocalInput(o.arrivalAt)}">
+          <label class="required">交期</label><input type="datetime-local" class="field" id="rfDue" value="${isoToLocalInput(o.dueAt)}">
+          <label class="required">修订原因</label><textarea class="field" id="rfReason" placeholder="必填，如：客户加单 / 工艺升级"></textarea>
+        </div>
+        <p class="hint">订单已排程：修订会记录前后值差异并更新订单；模板变更时未开始的工序按新模板重建、已开始的保持不变；修订后需重新排程才会反映到计划（不自动触发）。</p>`,
+        onOk: async () => {
+          const f = collectProcessFields('rf');
+          if (!f) return false;
+          const reason = document.getElementById('rfReason').value.trim();
+          if (!reason) { modalError('请填写修订原因'); return false; }
+          const templateId = document.getElementById('rfTpl').value || null;
+          const payload = { reason };
+          const diffs = [];
+          if (f.quantity !== o.quantity) { payload.quantity = f.quantity; diffs.push(`数量: ${o.quantity} → ${f.quantity}`); }
+          if (f.priority !== o.priority) { payload.priority = f.priority; diffs.push(`优先级: ${o.priority} → ${f.priority}`); }
+          if (Date.parse(f.arrivalAt) !== Date.parse(o.arrivalAt)) { payload.arrivalAt = f.arrivalAt; diffs.push(`到达时间: ${fmtDateTime(o.arrivalAt)} → ${fmtDateTime(f.arrivalAt)}`); }
+          if (Date.parse(f.dueAt) !== Date.parse(o.dueAt)) { payload.dueAt = f.dueAt; diffs.push(`交期: ${fmtDateTime(o.dueAt)} → ${fmtDateTime(f.dueAt)}`); }
+          if (templateId !== (o.templateId || null)) {
+            payload.templateId = templateId;
+            const t = activeTemplates.find(x => x.templateId === templateId);
+            diffs.push(`工艺模板: → ${t ? t.templateCode + ' v' + t.templateVersion : templateId}`);
+          }
+          if (!diffs.length) { modalError('未修改任何工艺字段'); return false; }
+          if (!confirm(`确认提交修订？\n\n${diffs.join('\n')}\n\n修订原因：${reason}\n\n提交后需重新排程才会生效。`)) return false;
+          const r = await Api.createOrderRevision(o.orderId, payload);
+          toast(`订单 ${o.orderCode} 已生成修订记录 #${r.revisionNo}，需重新排程后生效`);
+          renderCurrent();
+        },
+      });
+    };
+  });
+
+  el.querySelectorAll('a[data-revs]').forEach(a => {
+    a.onclick = async () => {
+      let revisions;
+      try { revisions = await Api.orderRevisions(a.dataset.revs); }
+      catch (e) { toastErr(e, '修订记录加载失败'); return; }
+      const fmtVal = (field, v) => (field === 'arrivalAt' || field === 'dueAt') ? fmtDateTime(v) : (v ?? '-');
+      openModal({
+        title: `订单 ${a.dataset.code} 修订记录`, wide: true, okText: '关闭',
+        body: revisions.length ? `<div class="table-wrap"><table class="data-table">
+          <thead><tr><th>#</th><th>时间</th><th>操作人</th><th>原因</th><th>前后差异</th></tr></thead>
+          <tbody>${revisions.map(r => `<tr>
+            <td>${r.revisionNo}</td><td>${fmtDateTime(r.createdAt)}</td><td>${esc(r.operator || '-')}</td>
+            <td>${esc(r.reason)}</td>
+            <td>${(r.changedFields || []).map(c => `<div>${esc(FIELD_LABEL[c.field] || c.field)}: ${esc(String(fmtVal(c.field, c.oldValue)))} → ${esc(String(fmtVal(c.field, c.newValue)))}</div>`).join('')}</td>
+          </tr>`).join('')}</tbody></table></div>`
+          : '<p class="muted">暂无修订记录。</p>',
+        onOk: () => {},
       });
     };
   });
@@ -460,7 +607,9 @@ registerPage('versions', ['计划调度', '计划版本'], async (el) => {
         <td class="table-actions">
           <a data-act="gantt" data-id="${esc(v.id)}">甘特</a>
           ${v.parentId ? `<a data-act="compare" data-id="${esc(v.id)}" data-parent="${esc(v.parentId)}">对比</a>` : ''}
+          <a data-act="export" data-id="${esc(v.id)}" data-code="${esc(v.versionCode)}">导出 CSV</a>
           ${v.status === 'DRAFT' ? `<a data-act="submit" data-id="${esc(v.id)}" data-code="${esc(v.versionCode)}">提交审核</a>` : ''}
+          ${v.status === 'SUPERSEDED' ? `<a data-act="rollback" data-id="${esc(v.id)}" data-code="${esc(v.versionCode)}" data-roles="REVIEWER,ADMIN" style="color:#e6a23c">回滚</a>` : ''}
         </td></tr>`).join('') || '<tr><td colspan="10" style="text-align:center;color:#909399">暂无版本</td></tr>'}</tbody>
     </table></div></section>`;
   el.querySelectorAll('a[data-act]').forEach(a => {
@@ -468,12 +617,28 @@ registerPage('versions', ['计划调度', '计划版本'], async (el) => {
       const { act, id, parent, code } = a.dataset;
       if (act === 'gantt') { Shared.ganttVersionId = id; goTo('resource-gantt'); }
       else if (act === 'compare') { Shared.compareBaselineId = parent; Shared.compareCandidateId = id; goTo('compare'); }
+      else if (act === 'export') {
+        try { await Api.exportPlanVersion(id); toast(code + ' CSV 已开始下载'); }
+        catch (e) { toastErr(e, '导出失败'); }
+      }
       else if (act === 'submit') {
         try {
           const pv = await Api.planVersion(id);
           await Api.submitReview(id, pv.version);
           toast(code + ' 已提交审核'); renderCurrent();
         } catch (e) { toastErr(e, '提交审核失败'); }
+      }
+      else if (act === 'rollback') {
+        const remark = prompt(`回滚 ${code}：将复制该历史版本的排程快照生成新草稿（不覆盖历史版本）。\n当前已完成/加工中/冻结窗内工序的安排以实际为准；存在冲突将被拒绝。\n请填写回滚原因：`);
+        if (remark === null) return;
+        if (!remark.trim()) { toast('回滚原因不能为空', 'error'); return; }
+        try {
+          const r = await Api.rollback(id, remark.trim());
+          toast(`已生成回滚草稿 ${r.versionCode}，提交审核并发布后生效`); renderCurrent();
+        } catch (e) {
+          if (e.code === 'E_ROLLBACK_CONFLICT') toastErr(e, '回滚冲突，未生成草稿');
+          else toastErr(e, '回滚失败');
+        }
       }
     };
   });
@@ -504,8 +669,31 @@ registerPage('execution', ['执行反馈', '实际执行'], async (el) => {
   const opStatus = {};
   orders.forEach(o => (o.operations || []).forEach(op => { opStatus[op.operationId] = op.status; }));
   const ops = (opsPage.items || []).slice().sort((a, b) => a.startAt < b.startAt ? -1 : 1);
-  const counts = { NOT_STARTED: 0, RUNNING: 0, COMPLETED: 0 };
+  const counts = { NOT_STARTED: 0, RUNNING: 0, PAUSED: 0, COMPLETED: 0 };
   ops.forEach(o => { const s = opStatus[o.operationId] || 'NOT_STARTED'; counts[s] = (counts[s] || 0) + 1; });
+  const deviationCount = ops.filter(o => o.executionDeviation).length;
+
+  const execActions = (o, s) => {
+    const links = [];
+    if (s !== 'RUNNING' && s !== 'PAUSED' && s !== 'COMPLETED') {
+      links.push(`<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="RUNNING">开工</a>`);
+    }
+    if (s === 'RUNNING') {
+      links.push(`<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="PAUSED">暂停</a>`);
+      links.push(`<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="COMPLETED">完工</a>`);
+    }
+    if (s === 'PAUSED') {
+      links.push(`<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="RESUMED">恢复</a>`);
+    }
+    if (s !== 'COMPLETED') {
+      links.push(`<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="EXCEPTION">异常</a>`);
+    }
+    links.push(`<a data-timeline="${esc(o.operationId)}">时间线</a>`);
+    if (o.executionDeviation || o.executionException) {
+      links.push(`<a data-roles="DISPATCHER,ADMIN" data-reschedule="${esc(o.operationId)}">重调度</a>`);
+    }
+    return links.join('');
+  };
 
   el.innerHTML = `
     <div class="page-header"><div><h1>实际执行反馈</h1><p>当前执行计划 ${esc(plan.versionCode)} 的工序执行状态反馈（POST /operations/{id}/execution）</p></div>
@@ -514,33 +702,85 @@ registerPage('execution', ['执行反馈', '实际执行'], async (el) => {
       <div class="card stat-card"><span>当前版本</span><b>${esc(plan.versionCode)}</b></div>
       <div class="card stat-card"><span>未开始</span><b>${counts.NOT_STARTED || 0}</b></div>
       <div class="card stat-card"><span>加工中</span><b style="color:#348dd5">${counts.RUNNING || 0}</b></div>
+      <div class="card stat-card"><span>暂停中</span><b style="color:#e6a23c">${counts.PAUSED || 0}</b></div>
       <div class="card stat-card"><span>已完成</span><b style="color:#67a23c">${counts.COMPLETED || 0}</b></div>
+      <div class="card stat-card"><span>执行偏差</span><b style="color:#d54941">${deviationCount}</b></div>
     </div>
     <section class="card table-card"><div class="table-wrap" style="max-height:600px"><table class="data-table">
-      <thead><tr><th>工序</th><th>设备</th><th>计划开始</th><th>计划结束</th><th>冻结</th><th>执行状态</th><th>反馈</th></tr></thead>
+      <thead><tr><th>工序</th><th>设备</th><th>计划开始</th><th>计划结束</th><th>冻结</th><th>执行状态</th><th>标记</th><th>反馈</th></tr></thead>
       <tbody>${ops.map(o => {
         const s = opStatus[o.operationId] || 'NOT_STARTED';
+        const marks = [
+          o.executionDeviation ? tag(`偏差 ${o.deviationMinutes} 分`, 'red') : '',
+          o.executionException ? tag('异常', 'red') : '',
+        ].filter(Boolean).join('') || '-';
         return `<tr><td>${esc(o.operationId)}</td><td>${esc(o.machineId)}</td>
           <td>${fmtDateTime(o.startAt)}</td><td>${fmtDateTime(o.endAt)}</td>
           <td>${o.frozen ? tag('冻结', 'orange') : '-'}</td><td>${statusTag(s)}</td>
-          <td class="table-actions">
-            ${s !== 'RUNNING' && s !== 'COMPLETED' ? `<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="RUNNING">开工</a>` : ''}
-            ${s === 'RUNNING' ? `<a data-roles="PRODUCTION_MANAGER,ADMIN" data-op="${esc(o.operationId)}" data-st="COMPLETED">完工</a>` : ''}
-          </td></tr>`;
+          <td>${marks}</td>
+          <td class="table-actions">${execActions(o, s)}</td></tr>`;
       }).join('')}</tbody>
-    </table></div></section>`;
+    </table></div></section>
+    <section class="card" id="execTimelineCard" style="display:none"><div class="section-pad" id="execTimeline"></div></section>`;
 
   el.querySelectorAll('a[data-op]').forEach(a => {
     a.onclick = async () => {
       const now = new Date().toISOString();
-      const payload = a.dataset.st === 'RUNNING'
-        ? { status: 'RUNNING', actualStartAt: now }
-        : { status: 'COMPLETED', actualEndAt: now };
+      const st = a.dataset.st;
+      let payload;
+      if (st === 'RUNNING') payload = { status: 'RUNNING', actualStartAt: now };
+      else if (st === 'COMPLETED') payload = { status: 'COMPLETED', actualEndAt: now };
+      else if (st === 'RESUMED') payload = { status: 'RESUMED' };
+      else if (st === 'PAUSED') {
+        const reason = prompt('请输入暂停原因（必填）：');
+        if (reason === null) return;
+        if (!reason.trim()) { toast('暂停原因不能为空', 'error'); return; }
+        payload = { status: 'PAUSED', remark: reason.trim() };
+      } else if (st === 'EXCEPTION') {
+        const reasonCode = prompt('请选择异常原因码：\nMACHINE_BREAKDOWN 设备故障 / CALENDAR_BLOCKED 日历阻塞 / PREDECESSOR_WAIT 前工序等待 / QUALITY_ISSUE 质量问题 / MATERIAL_SHORTAGE 物料短缺');
+        if (reasonCode === null) return;
+        if (!reasonCode.trim()) { toast('异常原因码不能为空', 'error'); return; }
+        const remark = prompt('请填写异常备注（必填）：');
+        if (remark === null) return;
+        if (!remark.trim()) { toast('异常备注不能为空', 'error'); return; }
+        payload = { status: 'EXCEPTION', reasonCode: reasonCode.trim(), remark: remark.trim() };
+      }
+      const label = { RUNNING: '开工', PAUSED: '暂停', RESUMED: '恢复', COMPLETED: '完工', EXCEPTION: '异常' }[st];
       try {
-        await Api.execution(a.dataset.op, payload);
-        toast(`工序 ${a.dataset.op} 已反馈 ${a.dataset.st === 'RUNNING' ? '开工' : '完工'}`);
+        const r = await Api.execution(a.dataset.op, payload);
+        toast(r.reasonCode === 'EXECUTION_DEVIATION'
+          ? `工序 ${a.dataset.op} 已反馈${label}，偏差 ${r.deviationMinutes} 分钟，已标记执行偏差`
+          : `工序 ${a.dataset.op} 已反馈${label}`);
         renderCurrent();
       } catch (e) { toastErr(e, '执行反馈失败'); }
+    };
+  });
+
+  el.querySelectorAll('a[data-reschedule]').forEach(a => {
+    a.onclick = () => {
+      toast(`工序 ${a.dataset.reschedule} 存在执行偏差/异常，请登记事件后创建重调度任务`);
+      goTo('breakdown');
+    };
+  });
+
+  el.querySelectorAll('a[data-timeline]').forEach(a => {
+    a.onclick = async () => {
+      const card = document.getElementById('execTimelineCard');
+      const panel = document.getElementById('execTimeline');
+      panel.innerHTML = loadingHtml('正在加载执行时间线…');
+      card.style.display = '';
+      try {
+        const records = await Api.executionTimeline(a.dataset.timeline);
+        panel.innerHTML = `<h3 style="margin:0 0 10px;font-size:15px">工序 ${esc(a.dataset.timeline)} 执行时间线</h3>
+          ${records.length ? `<div class="table-wrap"><table class="data-table">
+            <thead><tr><th>动作</th><th>时间</th><th>原因码</th><th>偏差(分)</th><th>备注</th></tr></thead>
+            <tbody>${records.map(r => `<tr><td>${statusTag(r.status)}</td>
+              <td>${fmtDateTime(r.occurredAt || r.actualStartAt || r.actualEndAt || r.createdAt)}</td>
+              <td>${r.reasonCode ? statusTag(r.reasonCode) : '-'}</td>
+              <td>${r.deviationMinutes ?? '-'}</td>
+              <td>${esc(r.remark || '-')}</td></tr>`).join('')}</tbody>
+          </table></div>` : '<p class="muted">暂无执行记录。</p>'}`;
+      } catch (e) { panel.innerHTML = errorBoxHtml(e, '时间线加载失败'); }
     };
   });
 });

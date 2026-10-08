@@ -20,9 +20,10 @@ const Auth = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Source': 'web' },
         body: JSON.stringify({ username, password }),
+        signal: AbortSignal.timeout(15000),
       });
     } catch (e) {
-      throw new ApiError('E_NETWORK', '无法连接业务服务 ' + API_BASE + '：' + e.message);
+      throw new ApiError('E_NETWORK', networkErrorText(e));
     }
     const body = await resp.json().catch(() => null);
     if (!body || body.code !== 'OK') {
@@ -41,12 +42,19 @@ const Auth = {
     localStorage.removeItem(this.USER_KEY);
   },
 
+  /* 清理页面级定时器/连接（调度任务页的轮询与 SSE 进度流，全局声明于 pages-schedule.js） */
+  clearPageTimers() {
+    if (typeof stopTaskWatch !== 'undefined') stopTaskWatch();
+  },
+
   logout() {
+    this.clearPageTimers();
     this.clear();
     location.reload();
   },
 
   handleUnauthorized() {
+    this.clearPageTimers();
     this.clear();
     this.showLogin('登录已过期，请重新登录');
   },
@@ -105,20 +113,12 @@ const ROLE_TEXT = {
 };
 function roleText(role) { return ROLE_TEXT[role] || role || '-'; }
 
-/* 按角色隐藏带 data-roles 的元素（如 "DISPATCHER,ADMIN"），动态渲染内容由 observer 兜底 */
+/* 按角色隐藏带 data-roles 的元素（如 "DISPATCHER,ADMIN"）。
+ * 无 MutationObserver：渲染入口（renderCurrent / openModal 及各局部重渲染处）在插入 DOM 后显式调用本函数。 */
 function applyRoleVisibility(root) {
+  if (!Auth.token()) return;
   (root.querySelectorAll ? root.querySelectorAll('[data-roles]') : []).forEach(el => {
     const roles = el.dataset.roles.split(',').map(s => s.trim());
     el.style.display = Auth.hasAnyRole(...roles) ? '' : 'none';
   });
 }
-new MutationObserver(mutations => {
-  if (!Auth.token()) return;
-  for (const m of mutations) {
-    for (const node of m.addedNodes) {
-      if (node.nodeType !== 1) continue;
-      if (node.matches && node.matches('[data-roles]')) applyRoleVisibility(node.parentNode || document.body);
-      applyRoleVisibility(node);
-    }
-  }
-}).observe(document.body, { childList: true, subtree: true });

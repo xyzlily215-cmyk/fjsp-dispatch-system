@@ -45,10 +45,10 @@ function fmtPct(x, digits = 1) {
   return (x * 100).toFixed(digits) + '%';
 }
 
-/* datetime-local input value -> ISO Zulu string */
+/* datetime-local input value -> ISO Zulu string（按 Asia/Shanghai 墙钟解析，与 fmtTime/fmtDateTime 展示时区一致） */
 function localInputToIso(v) {
   if (!v) return null;
-  return new Date(v).toISOString();
+  return new Date(v.length === 16 ? v + ':00+08:00' : v + '+08:00').toISOString();
 }
 /* ISO -> datetime-local input value (Asia/Shanghai 墙钟) */
 function isoToLocalInput(iso) {
@@ -88,14 +88,18 @@ function errorBoxHtml(e, title = '请求失败') {
 const STATUS_TAGS = {
   PENDING: ['gray', '排队中'], RUNNING: ['blue', '求解中'], SUCCESS: ['green', '成功'],
   INFEASIBLE: ['red', '无可行解'], TIME_LIMIT: ['orange', '达到时间上限'], FAILED: ['red', '失败'],
+  RETRY_WAIT: ['orange', '等待重试'], CANCELLED: ['gray', '已取消'],
   DRAFT: ['gray', '草稿'], REVIEW_PENDING: ['orange', '待审核'], REVIEWED: ['blue', '已审核'],
   PUBLISHED: ['purple', '已发布'], EXECUTING: ['green', '执行中'], SUPERSEDED: ['gray', '已替代'],
   REJECTED: ['red', '已驳回'],
   ACTIVE: ['green', '正常'], DOWN: ['red', '故障'], MAINTENANCE: ['orange', '维护中'],
   SCHEDULED: ['blue', '已排程'], WAITING: ['gray', '待排程'], COMPLETED: ['green', '已完成'],
-  NOT_STARTED: ['gray', '未开始'], CONFIRMED: ['orange', '已确认'], USED_FOR_SOLVE: ['green', '已用于求解'],
+  NOT_STARTED: ['gray', '未开始'], PAUSED: ['orange', '已暂停'], RESUMED: ['blue', '已恢复'],
+  EXCEPTION: ['red', '异常'], EXECUTION_DEVIATION: ['red', '执行偏差'],
+  CONFIRMED: ['orange', '已确认'], USED_FOR_SOLVE: ['green', '已用于求解'],
+  CREATED: ['gray', '已录入'], CLOSED: ['gray', '已关闭'],
   BASELINE: ['blue', '基线排程'], LOCAL_RESCHEDULE: ['orange', '局部重调度'], FULL_RESCHEDULE: ['red', '完全重调度'],
-  LOCAL: ['orange', '局部重调度'], FULL: ['red', '完全重调度'],
+  LOCAL: ['orange', '局部重调度'], FULL: ['red', '完全重调度'], ROLLBACK: ['purple', '回滚'],
   BREAKDOWN: ['red', '设备故障'], NEW_ORDER: ['blue', '新订单'], URGENT_INSERT: ['red', '紧急插单'], NORMAL_APPEND: ['blue', '常规追加'],
 };
 
@@ -124,7 +128,7 @@ function reasonText(r) { return REASON_TEXT[r] || r || '-'; }
 function openModal({ title, body, okText = '确定', wide = false, onOk }) {
   const mask = document.getElementById('modalMask');
   mask.innerHTML = `
-    <div class="modal${wide ? ' wide' : ''}">
+    <div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">
       <div class="modal-head"><span>${esc(title)}</span><button class="close" id="modalClose">×</button></div>
       <div class="modal-body">${body}<div id="modalErr"></div></div>
       <div class="modal-foot">
@@ -133,7 +137,14 @@ function openModal({ title, body, okText = '确定', wide = false, onOk }) {
       </div>
     </div>`;
   mask.classList.add('open');
-  const close = () => { mask.classList.remove('open'); mask.innerHTML = ''; };
+  applyRoleVisibility(mask);
+  const onEsc = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => {
+    document.removeEventListener('keydown', onEsc);
+    mask.classList.remove('open');
+    mask.innerHTML = '';
+  };
+  document.addEventListener('keydown', onEsc);
   document.getElementById('modalClose').onclick = close;
   document.getElementById('modalCancel').onclick = close;
   mask.onmousedown = (e) => { if (e.target === mask) close(); };
@@ -151,6 +162,9 @@ function openModal({ title, body, okText = '确定', wide = false, onOk }) {
       btn.disabled = false;
     }
   };
+  const first = mask.querySelector('.modal-body input, .modal-body select, .modal-body textarea, [tabindex]')
+    || document.getElementById('modalOk');
+  if (first) first.focus();
   return { close, errEl: () => document.getElementById('modalErr') };
 }
 

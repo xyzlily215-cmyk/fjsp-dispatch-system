@@ -78,10 +78,17 @@ registerPage('baseline', ['计划调度', '基线排程'], async (el) => {
 });
 
 /* ---------------- 调度任务 ---------------- */
+const TASK_ACTIVE = ['PENDING', 'RUNNING', 'RETRY_WAIT'];
 let taskPollTimer = null;
+let taskEventSource = null;
+
+function stopTaskWatch() {
+  if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null; }
+  if (taskEventSource) { taskEventSource.close(); taskEventSource = null; }
+}
 
 registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
-  if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null; }
+  stopTaskWatch();
   el.innerHTML = loadingHtml('正在加载任务列表…');
   const pageNo = Shared.tasksPageNo || 0;
   let page;
@@ -101,7 +108,7 @@ registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
     ? Shared.selectedTaskId : (tasks.length ? tasks[0].taskId : null);
 
   el.innerHTML = `
-    <div class="page-header"><div><h1>调度任务</h1><p>算法求解任务的进度与结果，进行中的任务每 3 秒自动刷新</p></div>
+    <div class="page-header"><div><h1>调度任务</h1><p>算法求解任务的进度与结果，进行中的任务经 SSE 实时推送，断线自动回退 3 秒轮询</p></div>
       <div class="buttons"><button class="btn" id="taskRefresh">&#8635; 刷新</button>
       <button class="btn primary" onclick="goTo('baseline')">+ 基线排程</button></div></div>
     <div class="task-center">
@@ -134,21 +141,64 @@ registerPage('tasks', ['计划调度', '调度任务'], async (el) => {
   };
 
   const t = await loadDetail();
-  if (t && (t.status === 'PENDING' || t.status === 'RUNNING')) {
-    taskPollTimer = setInterval(async () => {
-      if (currentPage !== 'tasks') { clearInterval(taskPollTimer); taskPollTimer = null; return; }
-      const nt = await loadDetail();
-      if (nt && nt.status !== 'PENDING' && nt.status !== 'RUNNING') {
-        clearInterval(taskPollTimer); taskPollTimer = null;
-        toast(`任务 ${nt.taskCode} 求解结束：${(STATUS_TAGS[nt.status] || [])[1] || nt.status}`,
-          nt.status === 'SUCCESS' ? 'success' : 'info');
-      }
-    }, 3000);
+  if (t && TASK_ACTIVE.includes(t.status)) {
+    const finishWatch = (nt) => {
+      stopTaskWatch();
+      toast(`任务 ${nt.taskCode} 求解结束：${(STATUS_TAGS[nt.status] || [])[1] || nt.status}`,
+        nt.status === 'SUCCESS' ? 'success' : 'info');
+    };
+    const startPolling = () => {
+      if (taskPollTimer) return;
+      taskPollTimer = setInterval(async () => {
+        if (currentPage !== 'tasks') { stopTaskWatch(); return; }
+        const nt = await loadDetail();
+        if (nt && !TASK_ACTIVE.includes(nt.status)) finishWatch(nt);
+      }, 3000);
+    };
+    if (window.EventSource) {
+      // ticket 换取是异步的；失败（含 ticket 过期/一次性被消费）统一回退轮询
+      (async () => {
+        let url;
+        try { url = await Api.taskEventsUrl(selectedId); }
+        catch (e) { startPolling(); return; }
+        if (currentPage !== 'tasks' || taskPollTimer) return; // 已切页或已回退轮询
+        const es = new EventSource(url);
+        taskEventSource = es;
+        let opened = false;
+        es.onopen = () => { opened = true; };
+        es.addEventListener('progress', async (ev) => {
+          let d = null;
+          try { d = JSON.parse(ev.data); } catch (e) { /* 忽略无法解析的事件 */ }
+          const nt = await loadDetail();
+          if ((d && d.terminal) || (nt && !TASK_ACTIVE.includes(nt.status))) {
+            es.close();
+            if (nt) finishWatch(nt);
+          }
+        });
+        es.addEventListener('heartbeat', (ev) => {
+          try {
+            const d = JSON.parse(ev.data);
+            const elapsedEl = document.getElementById('tdElapsed');
+            if (elapsedEl && d.elapsedMs != null) elapsedEl.textContent = (d.elapsedMs / 1000).toFixed(1) + 's';
+          } catch (e) { /* 忽略无法解析的心跳 */ }
+        });
+        es.onerror = () => {
+          // CLOSED = 服务端拒绝或连接被终结（浏览器不再自动重连），回退轮询
+          if (es.readyState === EventSource.CLOSED) { stopTaskWatch(); startPolling(); }
+        };
+        // 5 秒内未建立连接（服务不可达，浏览器持续重试中）同样回退轮询
+        setTimeout(() => {
+          if (!opened && taskEventSource === es) { stopTaskWatch(); startPolling(); }
+        }, 5000);
+      })();
+    } else {
+      startPolling();
+    }
   }
 });
 
 function renderTaskDetail(detailEl, t) {
-  const terminal = ['SUCCESS', 'INFEASIBLE', 'TIME_LIMIT', 'FAILED'].includes(t.status);
+  const terminal = !TASK_ACTIVE.includes(t.status);
   const kpi = t.kpi;
   const conflicts = t.conflicts || [];
   detailEl.innerHTML = `
@@ -157,11 +207,11 @@ function renderTaskDetail(detailEl, t) {
       ${statusTag(t.status)}
     </div>
     <div class="task-progress-box">
-      <div class="task-progress-main"><b>${t.progress ?? 0}%</b><span>求解进度${terminal ? '（已结束）' : '（每 3 秒刷新）'}</span>
+      <div class="task-progress-main"><b>${t.progress ?? 0}%</b><span>求解进度${terminal ? '（已结束）' : '（SSE 实时推送）'}</span>
         <div class="progress"><b style="width:${t.progress ?? 0}%"></b></div></div>
       <div class="task-progress-metric"><span>结果状态</span><b>${esc(t.resultStatus || '-')}</b></div>
       <div class="task-progress-metric"><span>算法版本</span><b>${esc(t.algorithmVersion || '-')}</b></div>
-      <div class="task-progress-metric"><span>耗时</span><b>${t.elapsedMs != null ? (t.elapsedMs / 1000).toFixed(1) + 's' : '-'}</b></div>
+      <div class="task-progress-metric"><span>耗时</span><b id="tdElapsed">${t.elapsedMs != null ? (t.elapsedMs / 1000).toFixed(1) + 's' : '-'}</b></div>
     </div>
     <div class="section-pad">
       <dl class="detail-list">
@@ -194,6 +244,8 @@ function renderTaskDetail(detailEl, t) {
           <button class="btn primary" id="tdGantt">查看甘特</button>
           <button class="btn" id="tdSubmit" data-roles="DISPATCHER,ADMIN">提交审核</button>` : ''}
         ${t.status === 'SUCCESS' && t.oldPlanVersionId && t.planVersionId ? '<button class="btn" id="tdCompare">与旧版对比</button>' : ''}
+        ${TASK_ACTIVE.includes(t.status) ? '<button class="btn" id="tdCancel" data-roles="DISPATCHER,ADMIN">取消任务</button>' : ''}
+        ${['FAILED', 'CANCELLED'].includes(t.status) ? '<button class="btn" id="tdRetry" data-roles="DISPATCHER,ADMIN">重试任务</button>' : ''}
       </div>
     </div>`;
 
@@ -213,4 +265,22 @@ function renderTaskDetail(detailEl, t) {
     Shared.compareBaselineId = t.oldPlanVersionId; Shared.compareCandidateId = t.planVersionId;
     goTo('compare');
   };
+  const cancelBtn = document.getElementById('tdCancel');
+  if (cancelBtn) cancelBtn.onclick = async () => {
+    if (!confirm(`确定取消任务 ${t.taskCode}？运行中的任务将丢弃求解结果。`)) return;
+    try {
+      await Api.cancelTask(t.taskId);
+      toast('已请求取消', 'info');
+      renderCurrent();
+    } catch (e) { toastErr(e, '取消失败'); }
+  };
+  const retryBtn = document.getElementById('tdRetry');
+  if (retryBtn) retryBtn.onclick = async () => {
+    try {
+      await Api.retryTask(t.taskId);
+      toast(`任务 ${t.taskCode} 已重新排队`);
+      renderCurrent();
+    } catch (e) { toastErr(e, '重试失败'); }
+  };
+  applyRoleVisibility(detailEl);
 }

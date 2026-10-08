@@ -115,6 +115,7 @@ registerPage('review', ['审核发布', '待审核方案'], async (el) => {
         renderCurrent();
       } catch (e) { msg(errorBoxHtml(e, '退回修改失败')); }
     };
+    applyRoleVisibility(box);
   }
 
   if (queue.length) await loadDetail(queue[0].id);
