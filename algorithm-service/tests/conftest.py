@@ -1,7 +1,19 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.environ.get("FJSP_RUN_SLOW") == "1":
+        return
+    skip_slow = pytest.mark.skip(
+        reason="slow quality baseline; set FJSP_RUN_SLOW=1 to enable")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)
 
 
 def tiny_request(**over):

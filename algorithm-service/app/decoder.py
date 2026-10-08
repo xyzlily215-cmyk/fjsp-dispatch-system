@@ -1,3 +1,4 @@
+from bisect import bisect_right
 from typing import List, Optional, Tuple
 
 from .instance import INF, Problem
@@ -26,11 +27,14 @@ class Schedule:
 
 
 def _interval_start(avail, t):
-    for a, b in avail:
-        if a <= t < b:
+    # avail is merged, sorted and non-overlapping (_merge_intervals), so the
+    # interval containing t is the last one with start <= t; (t, INF) sorts
+    # past every interval starting exactly at t since all ends are < INF
+    i = bisect_right(avail, (t, INF)) - 1
+    if i >= 0:
+        a, b = avail[i]
+        if t < b:
             return a
-        if a > t:
-            break
     return None
 
 
@@ -129,7 +133,11 @@ def _insert_block(blocks, block):
 
 
 def decode(problem: Problem, os_seq: List[int], ms_genes: List[int]) -> Schedule:
-    timelines = {m: list(problem.fixed_blocks[m]) for m in problem.machine_ids}
+    # 块级深拷贝：下方的换型归一化会就地改写块的 BCO/BS，而 GA 在一次求解内
+    # 复用同一 problem 反复 decode（评估缓存按染色体键记忆，problem 不变）。
+    # 只拷贝外层列表会让归一化结果泄漏进 problem.fixed_blocks，污染后续解码
+    # 中 _try_slot 对 BFIX==1 块的判断。
+    timelines = {m: [list(b) for b in problem.fixed_blocks[m]] for m in problem.machine_ids}
     placements: List[Optional[Tuple[str, int, int, int]]] = [None] * len(problem.ops)
     for op in problem.ops:
         if op.fixed is not None:
@@ -177,6 +185,11 @@ def decode(problem: Problem, os_seq: List[int], ms_genes: List[int]) -> Schedule
             blocks.append(block)
             placements[op.index] = (machine, t, t + dur, co)
             penalty_ops.append(op.operation_id)
+            # minutes of lateness relative to the earliest possible start, +1
+            # so even a zero-overflow infeasible placement adds a positive
+            # tie-break term on top of ga.PENALTY (different magnitude role:
+            # this ranks among infeasible solutions, PENALTY separates them
+            # from feasible ones)
             overflow += (t + dur) - ready + 1
             continue
         t, co, succ = res

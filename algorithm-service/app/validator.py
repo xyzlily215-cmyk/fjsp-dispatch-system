@@ -1,11 +1,9 @@
 from typing import Dict, List, Optional, Tuple
 
+from .conflicts import make_conflict
 from .instance import MODE_LOCAL, Problem
 
-
-def _conflict(rule, objects, severity, suggestion):
-    return {"rule": rule, "objects": list(objects),
-            "severity": severity, "suggestion": suggestion}
+_conflict = make_conflict
 
 
 def validate_plan(problem: Problem,
@@ -31,12 +29,13 @@ def validate_plan(problem: Problem,
                 "UNKNOWN_MACHINE", [op.operation_id, machine], "ERROR",
                 "设备 %s 不在设备列表中" % machine))
             continue
-        if all(m != machine for m, _s, _p in op.candidates):
+        sp = op.cand_by_machine.get(machine)
+        if sp is None:
             conflicts.append(_conflict(
                 "NOT_CANDIDATE_MACHINE", [op.operation_id, machine], "ERROR",
                 "设备 %s 不在工序 %s 的候选设备集合内" % (machine, op.operation_id)))
             continue
-        m, setup, proc = next(c for c in op.candidates if c[0] == machine)
+        setup, proc = sp
         if not op.hard_locked and pl[2] - pl[1] != setup + proc:
             conflicts.append(_conflict(
                 "DURATION_MISMATCH", [op.operation_id], "ERROR",

@@ -1,5 +1,8 @@
+import logging
+import math
 import random
 import time
+from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
 from .decoder import Schedule, decode
@@ -20,7 +23,28 @@ from .operators import (
     uniform_crossover_ms,
 )
 
+# Infeasibility penalty per unplaceable operation. All other fitness terms are
+# normalized by compute_bases() to roughly [0, population-scale weights], so
+# 1e5 per penalized op dominates any feasible solution by orders of magnitude
+# without risking float overflow.
 PENALTY = 100000.0
+
+# Upper bound for the evaluation cache. It is pure memoization (decoding is
+# deterministic), so evicting entries only costs a re-decode, never correctness.
+# 50k entries keep memory bounded even for extreme requests
+# (populationSize<=2000, maxGenerations<=100000).
+CACHE_MAX_ENTRIES = 50_000
+
+# Per-generation evaluation cost budget in operation units (~pop x opCount).
+# Each chromosome evaluation decodes all operations, so a large population on a
+# large instance can exhaust timeLimitSeconds before the main loop even starts.
+# populationSize is capped to POP_EVAL_BUDGET / opCount, floored at
+# MIN_POPULATION so tiny requested populations (>=2) still pass through when
+# they are under the budget.
+POP_EVAL_BUDGET = 20_000
+MIN_POPULATION = 20
+
+logger = logging.getLogger(__name__)
 
 
 class Chromosome:
@@ -38,12 +62,16 @@ class Chromosome:
 
 
 class GAResult:
-    def __init__(self, best_chrom, best_schedule, best_metrics, generations, timed_out):
+    def __init__(self, best_chrom, best_schedule, best_metrics, generations,
+                 timed_out, termination_reason, timings=None):
         self.best_chrom = best_chrom
         self.best_schedule = best_schedule
         self.best_metrics = best_metrics
         self.generations = generations
         self.timed_out = timed_out
+        self.termination_reason = termination_reason
+        # phase timings in ms: initPopulationMs / evolutionMs / localSearchMs
+        self.timings = timings or {}
 
 
 def resolve_objective_weights(mode: str, ow: Dict[str, float]) -> Dict[str, float]:
@@ -67,7 +95,10 @@ class HybridGA:
         self.params = params
         self.weights = weights
         self.rng = random.Random(params.randomSeed)
-        self.cache: Dict[Tuple, Tuple[float, Optional[Dict], Optional[Schedule]]] = {}
+        self.cache: "OrderedDict[Tuple, Tuple[int, float, Optional[Dict], Optional[Schedule]]]" = OrderedDict()
+        # bumped whenever bases change; cached entries from an older bases
+        # version are stale and recomputed lazily on next access
+        self.bases_version = 0
         self.bases: Dict[str, float] = {
             "cmax": 0.0, "tWeighted": 0.0, "loadImbalance": 0.0,
             "deltaPlan": 0.0, "nMachineChange": 0.0,
@@ -94,25 +125,31 @@ class HybridGA:
     def evaluate(self, chrom: Chromosome, keep_solution: bool = False):
         key = chrom.key()
         hit = self.cache.get(key)
-        if hit is not None:
-            return hit
+        if hit is not None and hit[0] == self.bases_version:
+            self.cache.move_to_end(key)
+            return hit[1], hit[2], hit[3]
         schedule = decode(self.problem, chrom.os_seq, chrom.ms)
         metrics = compute_metrics(self.problem, schedule)
         fit = self.fitness_of(metrics, schedule.penalty_ops, schedule.overflow)
-        entry = (fit, metrics, schedule if keep_solution else None)
+        entry = (self.bases_version, fit, metrics,
+                 schedule if keep_solution else None)
         self.cache[key] = entry
-        return entry
+        self.cache.move_to_end(key)
+        if len(self.cache) > CACHE_MAX_ENTRIES:
+            self.cache.popitem(last=False)
+        return fit, metrics, entry[3]
 
     # ---------------- initialization ----------------
 
-    def initial_population(self) -> List[Chromosome]:
+    def initial_population(self, pop_size: Optional[int] = None) -> List[Chromosome]:
         p = self.params
         mix = {"edd": 0.25, "spt": 0.15, "mwkr": 0.20, "random": 0.40}
         if p.initMix:
             for k in mix:
                 if k in p.initMix:
                     mix[k] = float(p.initMix[k])
-        pop_size = p.populationSize
+        if pop_size is None:
+            pop_size = p.populationSize
         counts = {
             "edd": int(round(mix["edd"] * pop_size)),
             "spt": int(round(mix["spt"] * pop_size)),
@@ -149,13 +186,19 @@ class HybridGA:
                                   build_ms_random(self.problem, self.rng)))
         return pop[:pop_size]
 
-    def compute_bases(self, pop: List[Chromosome]) -> None:
+    def compute_bases(self, pop: List[Chromosome], deadline: float) -> None:
         # normalization bases: metrics of the best initial individual
         best_fit, best_metrics = None, None
         for chrom in pop:
             fit, metrics, _s = self.evaluate(chrom)
             if best_fit is None or fit < best_fit:
                 best_fit, best_metrics = fit, metrics
+            if time.monotonic() >= deadline:
+                # keep unit bases: cached entries stay valid under the current
+                # bases_version, and run() will return the best-so-far anyway
+                logger.warning("deadline hit during initial evaluation; "
+                               "keeping unit normalization bases")
+                return
         # first pass uses unit bases; recompute with bases fixed to this solution
         self.bases = {
             "cmax": best_metrics["cmax"],
@@ -164,7 +207,9 @@ class HybridGA:
             "deltaPlan": best_metrics["delta"]["deltaPlan"],
             "nMachineChange": best_metrics["nMachineChange"],
         }
-        self.cache.clear()
+        # entries cached under the unit bases are stale; invalidate them
+        # lazily via the version tag instead of clearing the whole cache
+        self.bases_version += 1
 
     # ---------------- genetic operators ----------------
 
@@ -272,40 +317,77 @@ class HybridGA:
 
     def run(self) -> GAResult:
         p = self.params
-        deadline = time.monotonic() + p.timeLimitSeconds
-        pop = self.initial_population()
-        self.compute_bases(pop)
+        t0 = time.monotonic()
+        deadline = t0 + p.timeLimitSeconds
+        n_ops = max(1, len(self.problem.ops))
+        pop_size = min(p.populationSize,
+                       max(MIN_POPULATION, math.ceil(POP_EVAL_BUDGET / n_ops)))
+        if pop_size < p.populationSize:
+            logger.info("populationSize capped %d -> %d (opCount=%d)",
+                        p.populationSize, pop_size, n_ops)
+
+        t_init = time.monotonic()
+        pop = self.initial_population(pop_size)
+        self.compute_bases(pop, deadline)
 
         scored = []
+        timed_out = False
         for chrom in pop:
             fit, metrics, _s = self.evaluate(chrom)
             scored.append((fit, chrom))
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
         scored.sort(key=lambda x: x[0])
+        init_ms = int((time.monotonic() - t_init) * 1000)
 
         best = scored[0][1].copy()
         best_fit = scored[0][0]
         generations = 0
-        timed_out = False
+        t_evo = time.monotonic()
         for gen in range(p.maxGenerations):
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
             pop = self.next_generation(scored)
             scored = []
+            aborted = False
             for chrom in pop:
                 fit, _m, _s = self.evaluate(chrom)
                 scored.append((fit, chrom))
+                if time.monotonic() >= deadline:
+                    aborted = True
+                    break
             scored.sort(key=lambda x: x[0])
             generations += 1
             if scored[0][0] < best_fit - 1e-12:
                 best = scored[0][1].copy()
                 best_fit = scored[0][0]
+            if aborted:
+                timed_out = True
+                break
+        evolution_ms = int((time.monotonic() - t_evo) * 1000)
 
+        termination_reason = "timeLimit" if timed_out else "maxGenerations"
+        t_ls = time.monotonic()
         if p.localSearchTrials > 0 and time.monotonic() < deadline:
             best = self.local_search(best, p.localSearchTrials, deadline)
+            termination_reason = ("timeLimit" if time.monotonic() >= deadline
+                                  else "localSearch")
+        local_search_ms = int((time.monotonic() - t_ls) * 1000)
 
         fit, metrics, schedule = self.evaluate(best, keep_solution=True)
         if schedule is None:
             schedule = decode(self.problem, best.os_seq, best.ms)
             metrics = compute_metrics(self.problem, schedule)
-        return GAResult(best, schedule, metrics, generations, timed_out)
+        timings = {
+            "initPopulationMs": init_ms,
+            "evolutionMs": evolution_ms,
+            "localSearchMs": local_search_ms,
+        }
+        logger.info("GA finished: generations=%d elapsedMs=%d bestFitness=%.6f "
+                    "termination=%s penalizedOps=%d timings=%s",
+                    generations, int((time.monotonic() - t0) * 1000), fit,
+                    termination_reason, len(schedule.penalty_ops), timings)
+        return GAResult(best, schedule, metrics, generations, timed_out,
+                        termination_reason, timings)

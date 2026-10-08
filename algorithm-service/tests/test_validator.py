@@ -87,3 +87,48 @@ def test_changeover_correct_value_passes():
     }
     conflicts = _validate(tiny_request(), plan)
     assert _rules(conflicts) == []
+
+
+def _window_request(m1_proc, m2_proc):
+    return tiny_request(
+        machines=[
+            {"machineId": "M1", "workCenterId": "WC1",
+             "productFamilies": ["F1"],
+             "availableIntervals": [[0, 5]]},
+            {"machineId": "M2", "workCenterId": "WC1",
+             "productFamilies": ["F1"],
+             "availableIntervals": [[0, 100]]},
+        ],
+        orders=[
+            {"orderId": "A1", "productFamily": "F1", "quantity": 1,
+             "arrivalMinutes": 0, "dueMinutes": 1000, "priority": 3,
+             "operations": [
+                 {"operationId": "A1-10", "seqNo": 10,
+                  "candidates": [
+                      {"machineId": "M1", "setupMinutes": 2,
+                       "processMinutes": m1_proc},
+                      {"machineId": "M2", "setupMinutes": 10,
+                       "processMinutes": m2_proc}]},
+             ]},
+        ],
+    )
+
+
+def test_pre_check_window_checked_per_candidate():
+    # M1 offers the shortest duration (2+8=10) but only a 5-minute window;
+    # M2 has a 100-minute window but needs 10+140=150 minutes there.
+    # A global min-duration check fits 10 into M2's window and wrongly passes.
+    req = SolveRequest(**_window_request(m1_proc=8, m2_proc=140))
+    conflicts = []
+    problem = build_problem(req, conflicts)
+    assert problem is not None
+    assert "NO_FEASIBLE_WINDOW" in _rules(conflicts)
+
+
+def test_pre_check_window_passes_when_some_candidate_fits():
+    # Same shape, but M2's duration (10+80=90) fits its 100-minute window.
+    req = SolveRequest(**_window_request(m1_proc=8, m2_proc=80))
+    conflicts = []
+    problem = build_problem(req, conflicts)
+    assert problem is not None
+    assert "NO_FEASIBLE_WINDOW" not in _rules(conflicts)

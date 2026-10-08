@@ -1,3 +1,4 @@
+from bisect import bisect_left, bisect_right, insort
 from typing import Dict, List, Tuple
 
 from .decoder import BCMP, BCO, BFAM, BS, Schedule
@@ -61,29 +62,42 @@ def compute_delta(problem: Problem, placements) -> Dict[str, float]:
         machine_rate = mchg / d
         n_machine_change = mchg
 
-    old_by_m = {}
-    new_by_m = {}
+    # Sequence-change rate over unordered same-machine pairs: a pair counts
+    # towards `total` only when both old and new starts are strict (no tie),
+    # and towards `changed` when the relative order flipped. The old-plan
+    # order is static, so we walk ops grouped by old start (precomputed and
+    # sorted at Problem build time) and maintain a sorted list of the new
+    # starts already seen: for a new start na, earlier ops with na' > na are
+    # inversions, and na' == na are tie-excluded. O(n log n)-ish per machine
+    # instead of O(n^2) pair enumeration per chromosome.
+    new_start_by_m: Dict[str, Dict[str, int]] = {}
     for op in non_new:
-        old_machine = problem.old_plan[op.operation_id][0]
-        new_machine = placements[op.index][0]
-        old_by_m.setdefault(old_machine, set()).add(op.operation_id)
-        new_by_m.setdefault(new_machine, set()).add(op.operation_id)
+        pl = placements[op.index]
+        new_start_by_m.setdefault(pl[0], {})[op.operation_id] = pl[1]
     total = 0
     changed = 0
-    for m in sorted(old_by_m):
-        common = sorted(old_by_m[m] & new_by_m.get(m, set()))
-        for x in range(len(common)):
-            for y in range(x + 1, len(common)):
-                a_id, b_id = common[x], common[y]
-                oa = problem.old_plan[a_id][1]
-                ob = problem.old_plan[b_id][1]
-                na = placements[problem.op_index[a_id]][1]
-                nb = placements[problem.op_index[b_id]][1]
-                if oa == ob or na == nb:
-                    continue
-                total += 1
-                if (oa > ob) != (na > nb):
-                    changed += 1
+    for m, old_seq in problem.old_seq_by_machine.items():
+        new_map = new_start_by_m.get(m)
+        if not new_map:
+            continue
+        prev_starts: List[int] = []  # sorted new starts of earlier old-start groups
+        i = 0
+        n = len(old_seq)
+        while i < n:
+            o_start = old_seq[i][1]
+            group = []
+            while i < n and old_seq[i][1] == o_start:
+                na = new_map.get(old_seq[i][0])
+                if na is not None:
+                    group.append(na)
+                i += 1
+            for na in group:
+                le = bisect_right(prev_starts, na)
+                eq = le - bisect_left(prev_starts, na)
+                total += len(prev_starts) - eq
+                changed += len(prev_starts) - le
+            for na in group:
+                insort(prev_starts, na)
     seq_rate = changed / total if total else 0.0
 
     dw = problem.delta_weights

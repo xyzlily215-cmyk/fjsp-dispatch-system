@@ -142,3 +142,97 @@ def test_delta_plan_machine_change():
     assert delta["nMachineChange"] == 1
     expected = 0.5 * 0.75 + 0.3 * 0.25 + 0.2 * (1.0 / 3.0)
     assert abs(delta["deltaPlan"] - expected) < 1e-9
+
+
+# ---- compute_delta sequence-rate differential test -------------------------
+# Oracle below is the original O(n^2) pair enumeration, kept here as the
+# reference for the optimized implementation in kpi.compute_delta.
+
+import random as _random
+
+from app.kpi import compute_delta
+
+
+def _oracle_seq_rate(problem, placements):
+    non_new = [op for op in problem.ops
+               if not op.is_new and op.operation_id in problem.old_plan]
+    old_by_m = {}
+    new_by_m = {}
+    for op in non_new:
+        old_machine = problem.old_plan[op.operation_id][0]
+        new_machine = placements[op.index][0]
+        old_by_m.setdefault(old_machine, set()).add(op.operation_id)
+        new_by_m.setdefault(new_machine, set()).add(op.operation_id)
+    total = 0
+    changed = 0
+    for m in sorted(old_by_m):
+        common = sorted(old_by_m[m] & new_by_m.get(m, set()))
+        for x in range(len(common)):
+            for y in range(x + 1, len(common)):
+                a_id, b_id = common[x], common[y]
+                oa = problem.old_plan[a_id][1]
+                ob = problem.old_plan[b_id][1]
+                na = placements[problem.op_index[a_id]][1]
+                nb = placements[problem.op_index[b_id]][1]
+                if oa == ob or na == nb:
+                    continue
+                total += 1
+                if (oa > ob) != (na > nb):
+                    changed += 1
+    return changed / total if total else 0.0
+
+
+def test_sequence_change_rate_matches_pair_enumeration():
+    rng = _random.Random(20261008)
+    machine_ids = ["M1", "M2", "M3"]
+    machines = [{"machineId": m, "workCenterId": "WC1",
+                 "productFamilies": ["F1", "F2"],
+                 "availableIntervals": [[0, 10000]]} for m in machine_ids]
+    for _ in range(40):
+        # random instance: 2-5 orders x 1-3 ops, random old plan with ties
+        orders = []
+        old_plan = []
+        for oi in range(rng.randint(2, 5)):
+            ops = []
+            for si in range(rng.randint(1, 3)):
+                oid = "O%d-%d" % (oi, si)
+                cands = [{"machineId": m, "setupMinutes": 0, "processMinutes": 10}
+                         for m in rng.sample(machine_ids, rng.randint(1, 3))]
+                ops.append({"operationId": oid, "seqNo": (si + 1) * 10,
+                            "candidates": cands})
+                if rng.random() < 0.85:  # leave some ops "new"
+                    old_plan.append({
+                        "operationId": oid,
+                        "machineId": rng.choice(machine_ids),
+                        # small value range -> frequent start-time ties
+                        "startAtMinutes": rng.randrange(0, 8) * 10,
+                        "endAtMinutes": 9999,
+                    })
+            orders.append({"orderId": "O%d" % oi, "productFamily": "F1",
+                           "quantity": 1, "arrivalMinutes": 0,
+                           "dueMinutes": 9999, "priority": 3,
+                           "operations": ops})
+        if not old_plan:
+            continue
+        req = SolveRequest(**{
+            "mode": "FULL_RESCHEDULE",
+            "simulationStartAt": "2026-09-16T08:00:00+08:00",
+            "machines": machines,
+            "orders": orders,
+            "oldPlan": old_plan,
+            "changeoverDefault": 0,
+            "objectiveWeights": {},
+            "algorithm": {"populationSize": 5, "maxGenerations": 1,
+                          "timeLimitSeconds": 5, "randomSeed": 1},
+        })
+        problem = build_problem(req, [])
+        assert problem is not None
+        # random new placements with ties, machine changes included
+        placements = [None] * len(problem.ops)
+        for op in problem.ops:
+            start = rng.randrange(0, 8) * 10
+            placements[op.index] = (rng.choice(machine_ids), start,
+                                    start + 10, 0)
+        delta = compute_delta(problem, placements)
+        expected = _oracle_seq_rate(problem, placements)
+        assert abs(delta["sequenceChangeRate"] - expected) < 1e-12
