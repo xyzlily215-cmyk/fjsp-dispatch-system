@@ -1,139 +1,57 @@
 package com.fjsp.business.controller;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import com.fjsp.business.common.ApiResponse;
-import com.fjsp.business.common.BizException;
-import com.fjsp.business.entity.Machine;
-import com.fjsp.business.entity.OrderOperation;
-import com.fjsp.business.entity.ProcessOperation;
-import com.fjsp.business.entity.ProcessTemplate;
-import com.fjsp.business.entity.ProductionOrder;
-import com.fjsp.business.repository.MachineRepository;
-import com.fjsp.business.repository.OrderOperationRepository;
-import com.fjsp.business.repository.ProcessOperationRepository;
-import com.fjsp.business.repository.ProcessTemplateRepository;
-import com.fjsp.business.repository.ProductionOrderRepository;
+import com.fjsp.business.dto.DashboardResponse;
+import com.fjsp.business.dto.MachineResponse;
+import com.fjsp.business.dto.OrderListItemResponse;
+import com.fjsp.business.dto.ProcessTemplateResponse;
+import com.fjsp.business.service.BaseDataQueryService;
 import com.fjsp.business.service.DashboardService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1")
 public class BaseDataController {
 
-    private final MachineRepository machineRepository;
-    private final ProductionOrderRepository productionOrderRepository;
-    private final OrderOperationRepository orderOperationRepository;
-    private final ProcessTemplateRepository processTemplateRepository;
-    private final ProcessOperationRepository processOperationRepository;
+    private final BaseDataQueryService baseDataQueryService;
     private final DashboardService dashboardService;
 
-    public BaseDataController(MachineRepository machineRepository,
-                              ProductionOrderRepository productionOrderRepository,
-                              OrderOperationRepository orderOperationRepository,
-                              ProcessTemplateRepository processTemplateRepository,
-                              ProcessOperationRepository processOperationRepository,
+    public BaseDataController(BaseDataQueryService baseDataQueryService,
                               DashboardService dashboardService) {
-        this.machineRepository = machineRepository;
-        this.productionOrderRepository = productionOrderRepository;
-        this.orderOperationRepository = orderOperationRepository;
-        this.processTemplateRepository = processTemplateRepository;
-        this.processOperationRepository = processOperationRepository;
+        this.baseDataQueryService = baseDataQueryService;
         this.dashboardService = dashboardService;
     }
 
     @GetMapping("/machines")
-    public ApiResponse<List<Map<String, Object>>> machines() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Machine machine : machineRepository.findAll()) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("machineId", machine.getId());
-            entry.put("machineCode", machine.getMachineCode());
-            entry.put("machineName", machine.getMachineName());
-            entry.put("workCenterId", machine.getWorkCenterId());
-            entry.put("calendarId", machine.getCalendarId());
-            entry.put("productFamilies", machine.getProductFamilies());
-            entry.put("status", machine.getStatus());
-            entry.put("remark", machine.getRemark());
-            result.add(entry);
-        }
-        result.sort(Comparator.comparing(m -> (String) m.get("machineId")));
-        return ApiResponse.ok(result);
+    public ApiResponse<List<MachineResponse>> machines() {
+        return ApiResponse.ok(baseDataQueryService.listMachines());
     }
 
     @GetMapping("/orders")
-    public ApiResponse<List<Map<String, Object>>> orders() {
-        List<ProductionOrder> orders = productionOrderRepository.findAll();
-        // 批量取回全部工序后按订单分组，避免每单一次查询（N+1）
-        List<String> orderIds = orders.stream().map(ProductionOrder::getId).toList();
-        Map<String, List<OrderOperation>> opsByOrder = new LinkedHashMap<>();
-        for (OrderOperation op : orderOperationRepository.findByOrderIdIn(orderIds)) {
-            opsByOrder.computeIfAbsent(op.getOrderId(), k -> new ArrayList<>()).add(op);
-        }
-        opsByOrder.values().forEach(list -> list.sort(Comparator.comparing(OrderOperation::getSequenceNo)));
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (ProductionOrder order : orders) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("orderId", order.getId());
-            entry.put("orderCode", order.getOrderCode());
-            entry.put("productFamily", order.getProductFamily());
-            entry.put("quantity", order.getQuantity());
-            entry.put("arrivalAt", order.getArrivalAt());
-            entry.put("dueAt", order.getDueAt());
-            entry.put("priority", order.getPriority());
-            entry.put("status", order.getStatus());
-            entry.put("templateId", order.getTemplateId());
-            List<Map<String, Object>> ops = new ArrayList<>();
-            for (OrderOperation op : opsByOrder.getOrDefault(order.getId(), List.of())) {
-                Map<String, Object> opEntry = new LinkedHashMap<>();
-                opEntry.put("operationId", op.getId());
-                opEntry.put("seqNo", op.getSequenceNo());
-                opEntry.put("status", op.getStatus());
-                opEntry.put("candidates", op.getCandidates());
-                ops.add(opEntry);
-            }
-            entry.put("operations", ops);
-            result.add(entry);
-        }
-        result.sort(Comparator.comparing(o -> (String) o.get("orderId")));
-        return ApiResponse.ok(result);
+    public ApiResponse<List<OrderListItemResponse>> orders() {
+        return ApiResponse.ok(baseDataQueryService.listOrders());
     }
 
     @GetMapping("/process-templates")
-    public ApiResponse<List<Map<String, Object>>> processTemplates() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (ProcessTemplate template : processTemplateRepository.findAll()) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("templateId", template.getId());
-            entry.put("templateCode", template.getTemplateCode());
-            entry.put("productFamily", template.getProductFamily());
-            entry.put("templateVersion", template.getTemplateVersion());
-            entry.put("status", template.getStatus());
-            List<Map<String, Object>> ops = new ArrayList<>();
-            for (ProcessOperation po : processOperationRepository
-                    .findByTemplateIdOrderBySequenceNo(template.getId())) {
-                Map<String, Object> opEntry = new LinkedHashMap<>();
-                opEntry.put("sequenceNo", po.getSequenceNo());
-                opEntry.put("operationCode", po.getOperationCode());
-                opEntry.put("defaultCandidates", po.getDefaultCandidates());
-                ops.add(opEntry);
-            }
-            entry.put("operations", ops);
-            result.add(entry);
-        }
-        result.sort(Comparator.comparing(t -> (String) t.get("templateCode")));
-        return ApiResponse.ok(result);
+    public ApiResponse<List<ProcessTemplateResponse>> processTemplates() {
+        return ApiResponse.ok(baseDataQueryService.listProcessTemplates());
     }
 
+    /**
+     * F-01 看板聚合：planVersionId（id 或 versionCode，缺省取当前发布版本）；
+     * window = SHIFT / LAST_24H / CUSTOM（CUSTOM 需 from/to，ISO 8601），过滤事件与异常时间范围。
+     */
     @GetMapping("/dashboard")
-    public ApiResponse<Map<String, Object>> dashboard() {
-        return ApiResponse.ok(dashboardService.dashboard());
+    public ApiResponse<DashboardResponse> dashboard(
+            @RequestParam(required = false) String planVersionId,
+            @RequestParam(required = false) String window,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ApiResponse.ok(dashboardService.dashboard(planVersionId, window, from, to));
     }
 }

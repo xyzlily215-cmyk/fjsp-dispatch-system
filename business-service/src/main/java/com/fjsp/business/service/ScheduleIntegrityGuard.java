@@ -87,10 +87,16 @@ public class ScheduleIntegrityGuard {
         OffsetDateTime freezeEnd = freezeStart != null ? freezeStart.plusMinutes(freezeWindowMinutes) : null;
 
         List<String> violations = new ArrayList<>();
+        // 一次性拉回旧计划全部工序的执行记录，内存分组，替代逐工序 exists/findFirst 的 N+1
+        List<String> opIds = oldOps.stream().map(ScheduleOperation::getOperationId).toList();
+        Map<String, List<ExecutionRecord>> recordsByOp = opIds.isEmpty() ? Map.of()
+                : executionRecordRepository.findByOperationIdIn(opIds).stream()
+                        .collect(Collectors.groupingBy(ExecutionRecord::getOperationId));
         for (ScheduleOperation old : oldOps) {
             String opId = old.getOperationId();
             ScheduleOperation cand = candByOp.get(opId);
-            if (executionRecordRepository.existsByOperationIdAndStatus(opId, "COMPLETED")) {
+            List<ExecutionRecord> records = recordsByOp.getOrDefault(opId, List.of());
+            if (records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()))) {
                 if (cand == null) {
                     violations.add(opId + "(已完成工序被移除)");
                 } else if (!old.getMachineId().equals(cand.getMachineId())
@@ -100,8 +106,9 @@ public class ScheduleIntegrityGuard {
                 }
                 continue;
             }
-            var running = executionRecordRepository
-                    .findFirstByOperationIdAndStatusAndActualEndAtIsNull(opId, "RUNNING");
+            var running = records.stream()
+                    .filter(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null)
+                    .findFirst();
             if (running.isPresent()) {
                 ExecutionRecord record = running.get();
                 if (cand == null) {

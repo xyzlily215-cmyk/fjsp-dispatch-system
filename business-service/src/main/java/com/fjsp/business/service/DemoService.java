@@ -3,7 +3,8 @@ package com.fjsp.business.service;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.fjsp.business.repository.AuditLogRepository;
+import com.fjsp.business.common.BizException;
+import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.repository.CalendarIntervalRepository;
 import com.fjsp.business.repository.EventImpactRepository;
 import com.fjsp.business.repository.EventRepository;
@@ -20,6 +21,7 @@ import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import com.fjsp.business.repository.ScheduleTaskRepository;
 import com.fjsp.business.repository.WorkCalendarRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,9 +44,9 @@ public class DemoService {
     private final WorkCalendarRepository workCalendarRepository;
     private final MachineRepository machineRepository;
     private final IdempotencyRecordRepository idempotencyRecordRepository;
-    private final AuditLogRepository auditLogRepository;
     private final SeedService seedService;
     private final AuditService auditService;
+    private final FjspProperties properties;
 
     public DemoService(EventImpactRepository eventImpactRepository,
                        ExecutionRecordRepository executionRecordRepository,
@@ -62,9 +64,9 @@ public class DemoService {
                        WorkCalendarRepository workCalendarRepository,
                        MachineRepository machineRepository,
                        IdempotencyRecordRepository idempotencyRecordRepository,
-                       AuditLogRepository auditLogRepository,
                        SeedService seedService,
-                       AuditService auditService) {
+                       AuditService auditService,
+                       FjspProperties properties) {
         this.eventImpactRepository = eventImpactRepository;
         this.executionRecordRepository = executionRecordRepository;
         this.scheduleOperationRepository = scheduleOperationRepository;
@@ -81,13 +83,16 @@ public class DemoService {
         this.workCalendarRepository = workCalendarRepository;
         this.machineRepository = machineRepository;
         this.idempotencyRecordRepository = idempotencyRecordRepository;
-        this.auditLogRepository = auditLogRepository;
         this.seedService = seedService;
         this.auditService = auditService;
+        this.properties = properties;
     }
 
     @Transactional
     public Map<String, Object> reset() {
+        if (!properties.getDemo().isEnabled()) {
+            throw new BizException("E_FORBIDDEN", "演示重置接口在当前环境未启用", HttpStatus.FORBIDDEN);
+        }
         eventImpactRepository.deleteAll();
         executionRecordRepository.deleteAll();
         scheduleOperationRepository.deleteAll();
@@ -104,7 +109,7 @@ public class DemoService {
         workCalendarRepository.deleteAll();
         machineRepository.deleteAll();
         idempotencyRecordRepository.deleteAll();
-        auditLogRepository.deleteAll();
+        // audit_log 不在清空清单：保留审计可追溯性（V1 中 audit_log 无外键依赖业务表，保留安全）
 
         Map<String, Object> seedSummary = seedService.seed();
         auditService.record("DEMO_RESET", "system", "demo", "business data cleared and reseeded");

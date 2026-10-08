@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FJSP 业务服务全流程冒烟测试
-# 前置：业务服务运行在 8080，算法服务运行在 ${ALGO:-8101}
+# 前置：业务服务运行在 8081，算法服务运行在 ${ALGO:-8101}
 set -u
 BASE="${BASE:-http://localhost:8081/api/v1}"
 PASS=0

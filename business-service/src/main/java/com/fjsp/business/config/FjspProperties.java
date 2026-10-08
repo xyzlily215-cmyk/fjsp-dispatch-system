@@ -37,6 +37,8 @@ public class FjspProperties {
     private final Auth auth = new Auth();
     @Valid
     private final Cors cors = new Cors();
+    @Valid
+    private final Demo demo = new Demo();
 
     @NotNull
     private Duration freezeWindow = Duration.ofMinutes(30);
@@ -61,6 +63,10 @@ public class FjspProperties {
 
     public Cors getCors() {
         return cors;
+    }
+
+    public Demo getDemo() {
+        return demo;
     }
 
     public Duration getFreezeWindow() {
@@ -141,6 +147,12 @@ public class FjspProperties {
         /** RUNNING 任务 timeoutAt = now + algorithm.timeout + timeoutBuffer。 */
         @NotNull
         private Duration timeoutBuffer = Duration.ofSeconds(60);
+        /** SSE 心跳间隔。 */
+        @NotNull
+        private Duration sseHeartbeat = Duration.ofSeconds(15);
+        /** SSE 单次连接最长保持时间，超时后由客户端重连。 */
+        @NotNull
+        private Duration sseTimeout = Duration.ofMinutes(30);
         @Valid
         private final Executor executor = new Executor();
 
@@ -160,17 +172,36 @@ public class FjspProperties {
             this.timeoutBuffer = timeoutBuffer;
         }
 
+        public Duration getSseHeartbeat() {
+            return sseHeartbeat;
+        }
+
+        public void setSseHeartbeat(Duration sseHeartbeat) {
+            this.sseHeartbeat = sseHeartbeat;
+        }
+
+        public Duration getSseTimeout() {
+            return sseTimeout;
+        }
+
+        public void setSseTimeout(Duration sseTimeout) {
+            this.sseTimeout = sseTimeout;
+        }
+
         public Executor getExecutor() {
             return executor;
         }
 
         public static class Executor {
+            // 单算法进程串行执行 GA（CPU 密集，Python 线程并行只会争 GIL），
+            // 业务侧对应 1 并发；其余任务在队列中等待，状态保持 PENDING
             @Min(1)
-            private int coreSize = 2;
+            private int coreSize = 1;
             @Min(1)
-            private int maxSize = 4;
+            private int maxSize = 1;
+            /** 排队容量：覆盖启动恢复时一次性重派全部 PENDING 的场景。 */
             @Min(0)
-            private int queueCapacity = 20;
+            private int queueCapacity = 100;
 
             public int getCoreSize() {
                 return coreSize;
@@ -220,6 +251,19 @@ public class FjspProperties {
 
         public void setTokenTtl(Duration tokenTtl) {
             this.tokenTtl = tokenTtl;
+        }
+    }
+
+    public static class Demo {
+        /** /demo/reset 开关：默认关闭；local profile 显式开启供本地/demo 脚本使用，prod 保持关闭。 */
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

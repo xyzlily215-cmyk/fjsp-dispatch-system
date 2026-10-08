@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.entity.CalendarInterval;
@@ -107,12 +108,20 @@ public class SnapshotBuilder {
                 }
             }
             OffsetDateTime freezeStart = event != null ? event.getOccurredAt() : simStart;
+            // 一次性拉回旧计划全部工序的执行记录，内存分组，避免逐工序 exists/findFirst 的 N+1
+            List<String> opIds = oldOps.stream().map(ScheduleOperation::getOperationId).toList();
+            Map<String, List<ExecutionRecord>> recordsByOp = opIds.isEmpty() ? Map.of()
+                    : executionRecordRepository.findByOperationIdIn(opIds).stream()
+                            .collect(Collectors.groupingBy(ExecutionRecord::getOperationId));
             List<Map<String, Object>> lockings = new ArrayList<>();
             for (ScheduleOperation op : oldOps) {
                 String opId = op.getOperationId();
-                boolean completed = executionRecordRepository.existsByOperationIdAndStatus(opId, "COMPLETED");
+                List<ExecutionRecord> records = recordsByOp.getOrDefault(opId, List.of());
+                boolean completed = records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()));
                 var running = completed ? java.util.Optional.<ExecutionRecord>empty()
-                        : executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(opId, "RUNNING");
+                        : records.stream()
+                                .filter(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null)
+                                .findFirst();
                 boolean inProgress = running.isPresent();
                 boolean frozen = !completed && !inProgress && !affected.contains(opId)
                         && !op.getStartAt().isBefore(freezeStart)
@@ -150,8 +159,8 @@ public class SnapshotBuilder {
     }
 
     private List<Map<String, Object>> buildMachines(OffsetDateTime simStart) {
-        List<Event> breakdowns = eventRepository.findAll().stream()
-                .filter(e -> Event.TYPE_BREAKDOWN.equals(e.getEventType()) && e.getRepairEndAt() != null)
+        List<Event> breakdowns = eventRepository.findByEventType(Event.TYPE_BREAKDOWN).stream()
+                .filter(e -> e.getRepairEndAt() != null)
                 .toList();
         List<Map<String, Object>> machines = new ArrayList<>();
         for (Machine machine : machineRepository.findAll()) {

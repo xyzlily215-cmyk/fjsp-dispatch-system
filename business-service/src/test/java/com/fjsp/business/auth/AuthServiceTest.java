@@ -80,6 +80,53 @@ class AuthServiceTest {
     }
 
     @Test
+    void login_fiveConsecutiveFailures_locksAccount() {
+        AuthService service = authService();
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user(true)));
+
+        for (int i = 0; i < 5; i++) {
+            BizException e = assertThrows(BizException.class, () -> service.login("admin", "wrong"));
+            assertEquals("E_UNAUTHORIZED", e.getCode());
+        }
+
+        // 锁定期内即使密码正确也直接拒绝（429）
+        BizException locked = assertThrows(BizException.class, () -> service.login("admin", "Fj@123456"));
+        assertEquals("E_LOGIN_LOCKED", locked.getCode());
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, locked.getStatus());
+    }
+
+    @Test
+    void login_success_clearsFailureCount() {
+        AuthService service = authService();
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user(true)));
+
+        // 连续失败 4 次后成功一次，计数清零；再失败 4 次仍未锁定
+        for (int i = 0; i < 4; i++) {
+            assertThrows(BizException.class, () -> service.login("admin", "wrong"));
+        }
+        assertNotNull(service.login("admin", "Fj@123456").get("token"));
+        for (int i = 0; i < 4; i++) {
+            BizException e = assertThrows(BizException.class, () -> service.login("admin", "wrong"));
+            assertEquals("E_UNAUTHORIZED", e.getCode());
+        }
+        assertNotNull(service.login("admin", "Fj@123456").get("token"));
+    }
+
+    @Test
+    void login_failuresAreScopedPerUsername() {
+        AuthService service = authService();
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user(true)));
+        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+        for (int i = 0; i < 5; i++) {
+            assertThrows(BizException.class, () -> service.login("ghost", "wrong"));
+        }
+
+        // ghost 已锁定不影响 admin 正常登录
+        assertNotNull(service.login("admin", "Fj@123456").get("token"));
+    }
+
+    @Test
     void me_returnsProfile() {
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user(true)));
 

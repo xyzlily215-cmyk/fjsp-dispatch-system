@@ -7,7 +7,13 @@ import java.util.Optional;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.dto.BreakdownEventRequest;
+import com.fjsp.business.dto.BreakdownEventResponse;
+import com.fjsp.business.dto.EventResponse;
+import com.fjsp.business.dto.EventRevisionResponse;
+import com.fjsp.business.dto.ImpactSummaryResponse;
 import com.fjsp.business.dto.NewOrderEventRequest;
+import com.fjsp.business.dto.NewOrderEventResponse;
+import com.fjsp.business.dto.ReviseEventRequest;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.ExecutionRecord;
 import com.fjsp.business.entity.Machine;
@@ -17,6 +23,7 @@ import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
+import com.fjsp.business.entity.ScheduleTask;
 import com.fjsp.business.repository.EventImpactRepository;
 import com.fjsp.business.repository.EventRepository;
 import com.fjsp.business.repository.MachineRepository;
@@ -80,6 +87,12 @@ class EventServiceTest {
 
     // ---------- 紧急订单插入 ----------
 
+    /** 写接口统一走 idempotencyService.execute 模板：测试替身直接执行 action（回放场景单独打桩）。 */
+    private void stubExecuteRunsAction() {
+        when(idempotencyService.execute(anyString(), any(), any(), any()))
+                .thenAnswer(inv -> ((java.util.function.Supplier<Object>) inv.getArgument(2)).get());
+    }
+
     private NewOrderEventRequest newOrderRequest() {
         return new NewOrderEventRequest("URGENT_INSERT", "ORD-NEW-1", "FAM-A", 10,
                 "2026-09-16T09:00:00+08:00", "2026-09-20T08:00:00+08:00", 5,
@@ -110,15 +123,15 @@ class EventServiceTest {
     }
 
     private void stubNewOrderHappyPath(NewOrderEventRequest req) {
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(productionOrderRepository.existsByOrderCode("ORD-NEW-1")).thenReturn(false);
         when(processTemplateRepository.findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(
                 "FAM-A", "ACTIVE")).thenReturn(Optional.of(activeTemplate()));
         when(processOperationRepository.findByTemplateIdOrderBySequenceNo("TPL-1"))
                 .thenReturn(templateOperations());
-        when(codeGenerator.next(eq("EVT"), any())).thenReturn("EVT-001");
+        when(codeGenerator.next("EVT")).thenReturn("EVT-001");
         when(eventImpactRepository.findByEventId(anyString())).thenReturn(List.of());
-        when(impactCalculator.summarize(any())).thenReturn(Map.of("total", 2));
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(2, Map.of()));
     }
 
     @Test
@@ -126,7 +139,7 @@ class EventServiceTest {
         NewOrderEventRequest req = newOrderRequest();
         stubNewOrderHappyPath(req);
 
-        Map<String, Object> data = eventService.createNewOrderEvent("key-1", req);
+        NewOrderEventResponse data = eventService.createNewOrderEvent("key-1", req);
 
         ArgumentCaptor<ProductionOrder> orderCaptor = ArgumentCaptor.forClass(ProductionOrder.class);
         verify(productionOrderRepository).save(orderCaptor.capture());
@@ -152,18 +165,16 @@ class EventServiceTest {
         assertNotNull(event.getFingerprint());
 
         verify(impactCalculator).recordNewOrderImpacts(any(Event.class), eq("ORD-NEW-1"));
-        verify(idempotencyService).store(eq("key-1"), eq(req), any());
+        verify(idempotencyService).execute(eq("key-1"), eq(req), any(), any());
 
-        @SuppressWarnings("unchecked")
-        List<String> operationIds = (List<String>) data.get("operationIds");
-        assertEquals(List.of("ORD-NEW-1-1", "ORD-NEW-1-2"), operationIds);
-        assertEquals("EVT-001", data.get("eventCode"));
+        assertEquals(List.of("ORD-NEW-1-1", "ORD-NEW-1-2"), data.operationIds());
+        assertEquals("EVT-001", data.eventCode());
     }
 
     @Test
     void createNewOrderEvent_duplicateOrderCode_rejected() {
         NewOrderEventRequest req = newOrderRequest();
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(productionOrderRepository.existsByOrderCode("ORD-NEW-1")).thenReturn(true);
 
         BizException e = assertThrows(BizException.class,
@@ -175,12 +186,14 @@ class EventServiceTest {
     @Test
     void createNewOrderEvent_idempotencyReplay_returnsStoredResponse() {
         NewOrderEventRequest req = newOrderRequest();
-        Map<String, Object> stored = Map.of("eventId", "e-old", "orderCode", "ORD-NEW-1");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.of(stored));
+        NewOrderEventResponse stored = new NewOrderEventResponse("e-old", "EVT-OLD", "ORD-NEW-1",
+                "ORD-NEW-1", List.of(), null);
+        when(idempotencyService.execute(eq("key-1"), eq(req), any(), eq(NewOrderEventResponse.class)))
+                .thenReturn(stored);
 
-        Map<String, Object> data = eventService.createNewOrderEvent("key-1", req);
+        NewOrderEventResponse data = eventService.createNewOrderEvent("key-1", req);
 
-        assertEquals("e-old", data.get("eventId"));
+        assertEquals("e-old", data.eventId());
         verify(eventRepository, never()).save(any());
         verify(productionOrderRepository, never()).save(any());
     }
@@ -188,7 +201,7 @@ class EventServiceTest {
     @Test
     void createNewOrderEvent_noActiveTemplate_rejected() {
         NewOrderEventRequest req = newOrderRequest();
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(productionOrderRepository.existsByOrderCode("ORD-NEW-1")).thenReturn(false);
         when(processTemplateRepository.findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(
                 "FAM-A", "ACTIVE")).thenReturn(Optional.empty());
@@ -203,7 +216,7 @@ class EventServiceTest {
         NewOrderEventRequest req = new NewOrderEventRequest("URGENT_INSERT", "ORD-NEW-1", "FAM-A",
                 10, "2026-09-16T09:00:00+08:00", "2026-09-20T08:00:00+08:00", 9,
                 "2026-09-16T09:00:00+08:00", null);
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
 
         BizException e = assertThrows(BizException.class,
                 () -> eventService.createNewOrderEvent("key-1", req));
@@ -215,7 +228,7 @@ class EventServiceTest {
         NewOrderEventRequest req = new NewOrderEventRequest("URGENT_INSERT", "ORD-NEW-1", "FAM-A",
                 10, "2026-09-16T09:00:00+08:00", "2026-09-16T09:00:00+08:00", 5,
                 "2026-09-16T09:00:00+08:00", null);
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(productionOrderRepository.existsByOrderCode("ORD-NEW-1")).thenReturn(false);
         when(processTemplateRepository.findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(
                 "FAM-A", "ACTIVE")).thenReturn(Optional.of(activeTemplate()));
@@ -272,14 +285,14 @@ class EventServiceTest {
     @Test
     void createBreakdownEvent_success() {
         BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
         when(impactCalculator.currentPublishedPlan()).thenReturn(null);
-        when(codeGenerator.next(eq("EVT"), any())).thenReturn("EVT-002");
+        when(codeGenerator.next("EVT")).thenReturn("EVT-002");
         when(impactCalculator.computeBreakdownImpacts(any(Event.class))).thenReturn(List.of());
-        when(impactCalculator.summarize(any())).thenReturn(Map.of("total", 0));
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
 
-        Map<String, Object> data = eventService.createBreakdownEvent("key-1", req);
+        BreakdownEventResponse data = eventService.createBreakdownEvent("key-1", req);
 
         ArgumentCaptor<Event> eventCaptor = ArgumentCaptor.forClass(Event.class);
         verify(eventRepository).save(eventCaptor.capture());
@@ -292,14 +305,14 @@ class EventServiceTest {
         assertNotNull(event.getFingerprint());
 
         verify(impactCalculator).computeBreakdownImpacts(any(Event.class));
-        verify(idempotencyService).store(eq("key-1"), eq(req), any());
-        assertEquals(OffsetDateTime.parse("2026-09-16T11:00:00+08:00"), data.get("repairEndAt"));
+        verify(idempotencyService).execute(eq("key-1"), eq(req), any(), any());
+        assertEquals(OffsetDateTime.parse("2026-09-16T11:00:00+08:00"), data.repairEndAt());
     }
 
     @Test
     void createBreakdownEvent_machineNotFound_rejected() {
         BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(machineRepository.findById("M1")).thenReturn(Optional.empty());
 
         BizException e = assertThrows(BizException.class,
@@ -311,7 +324,7 @@ class EventServiceTest {
     void createBreakdownEvent_invalidDuration_rejected() {
         BreakdownEventRequest req = new BreakdownEventRequest("M1", "2026-09-16T10:00:00+08:00",
                 0, "MANUAL", null);
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
 
         BizException e = assertThrows(BizException.class,
                 () -> eventService.createBreakdownEvent("key-1", req));
@@ -321,7 +334,7 @@ class EventServiceTest {
     @Test
     void createBreakdownEvent_hitsRunningOperation_rejected() {
         BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
         when(impactCalculator.currentPublishedPlan()).thenReturn(publishedPlan());
         when(impactCalculator.runningExecutions()).thenReturn(List.of(runningRecord("OP-1")));
@@ -339,17 +352,17 @@ class EventServiceTest {
     void createBreakdownEvent_completedOperation_allowed() {
         // 已完成工序没有 RUNNING 执行记录，故障登记不被拦截
         BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
         when(impactCalculator.currentPublishedPlan()).thenReturn(publishedPlan());
         when(impactCalculator.runningExecutions()).thenReturn(List.of());
-        when(codeGenerator.next(eq("EVT"), any())).thenReturn("EVT-003");
+        when(codeGenerator.next("EVT")).thenReturn("EVT-003");
         when(impactCalculator.computeBreakdownImpacts(any(Event.class))).thenReturn(List.of());
-        when(impactCalculator.summarize(any())).thenReturn(Map.of("total", 0));
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
 
-        Map<String, Object> data = eventService.createBreakdownEvent("key-1", req);
+        BreakdownEventResponse data = eventService.createBreakdownEvent("key-1", req);
 
-        assertNotNull(data.get("eventId"));
+        assertNotNull(data.eventId());
         verify(eventRepository).save(any(Event.class));
     }
 
@@ -357,32 +370,34 @@ class EventServiceTest {
     void createBreakdownEvent_idleWindow_allowed() {
         // 故障发生在 12:00，而执行中工序计划区间是 09:30-10:30，不在区间内
         BreakdownEventRequest req = breakdownRequest("2026-09-16T12:00:00+08:00");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.empty());
+        stubExecuteRunsAction();
         when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
         when(impactCalculator.currentPublishedPlan()).thenReturn(publishedPlan());
         when(impactCalculator.runningExecutions()).thenReturn(List.of(runningRecord("OP-1")));
         when(scheduleOperationRepository.findByPlanVersionIdAndOperationId("PV-1", "OP-1"))
                 .thenReturn(Optional.of(plannedOp("OP-1", "2026-09-16T09:30:00+08:00",
                         "2026-09-16T10:30:00+08:00")));
-        when(codeGenerator.next(eq("EVT"), any())).thenReturn("EVT-004");
+        when(codeGenerator.next("EVT")).thenReturn("EVT-004");
         when(impactCalculator.computeBreakdownImpacts(any(Event.class))).thenReturn(List.of());
-        when(impactCalculator.summarize(any())).thenReturn(Map.of("total", 0));
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
 
-        Map<String, Object> data = eventService.createBreakdownEvent("key-1", req);
+        BreakdownEventResponse data = eventService.createBreakdownEvent("key-1", req);
 
-        assertNotNull(data.get("eventId"));
+        assertNotNull(data.eventId());
         verify(eventRepository).save(any(Event.class));
     }
 
     @Test
     void createBreakdownEvent_idempotencyReplay_returnsStoredResponse() {
         BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
-        Map<String, Object> stored = Map.of("eventId", "e-old", "machineId", "M1");
-        when(idempotencyService.findReplay("key-1", req)).thenReturn(Optional.of(stored));
+        BreakdownEventResponse stored = new BreakdownEventResponse("e-old", "EVT-OLD", "M1",
+                null, null, null);
+        when(idempotencyService.execute(eq("key-1"), eq(req), any(), eq(BreakdownEventResponse.class)))
+                .thenReturn(stored);
 
-        Map<String, Object> data = eventService.createBreakdownEvent("key-1", req);
+        BreakdownEventResponse data = eventService.createBreakdownEvent("key-1", req);
 
-        assertEquals("e-old", data.get("eventId"));
+        assertEquals("e-old", data.eventId());
         verify(eventRepository, never()).save(any());
     }
 
@@ -417,11 +432,11 @@ class EventServiceTest {
         assertEquals(0, resp.getPage());
         assertEquals(10, resp.getSize());
         assertEquals(1, resp.getItems().size());
-        Map<String, Object> item = resp.getItems().get(0);
-        assertEquals("e1", item.get("eventId"));
-        assertEquals("EVT-e1", item.get("eventCode"));
-        assertEquals("BREAKDOWN", item.get("eventType"));
-        assertEquals("CONFIRMED", item.get("status"));
+        EventResponse item = resp.getItems().get(0);
+        assertEquals("e1", item.eventId());
+        assertEquals("EVT-e1", item.eventCode());
+        assertEquals("BREAKDOWN", item.eventType());
+        assertEquals("CONFIRMED", item.status());
     }
 
     @Test
@@ -446,5 +461,281 @@ class EventServiceTest {
         assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, -1, 10));
         assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, 0, 0));
         assertThrows(BizException.class, () -> eventService.listEvents(null, null, null, null, 0, 201));
+    }
+
+    // ---- F-07 录入去重 ----
+
+    @Test
+    void createNewOrderEvent_duplicateFingerprint_rejected() {
+        NewOrderEventRequest req = newOrderRequest();
+        stubExecuteRunsAction();
+        when(productionOrderRepository.existsByOrderCode("ORD-NEW-1")).thenReturn(false);
+        when(processTemplateRepository.findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(
+                "FAM-A", "ACTIVE")).thenReturn(Optional.of(activeTemplate()));
+        when(processOperationRepository.findByTemplateIdOrderBySequenceNo("TPL-1"))
+                .thenReturn(templateOperations());
+        when(eventRepository.existsByFingerprint(anyString())).thenReturn(true);
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.createNewOrderEvent("key-1", req));
+        assertEquals("E_DUPLICATE", e.getCode());
+        verify(eventRepository, never()).save(any());
+        verify(productionOrderRepository, never()).save(any());
+    }
+
+    @Test
+    void createBreakdownEvent_duplicateFingerprint_rejected() {
+        BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
+        stubExecuteRunsAction();
+        when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
+        when(impactCalculator.currentPublishedPlan()).thenReturn(null);
+        when(eventRepository.findByMachineIdAndEventType("M1", Event.TYPE_BREAKDOWN)).thenReturn(List.of());
+        when(eventRepository.existsByFingerprint(anyString())).thenReturn(true);
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.createBreakdownEvent("key-1", req));
+        assertEquals("E_DUPLICATE", e.getCode());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void createBreakdownEvent_overlappingRepairWindow_rejected() {
+        BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
+        stubExecuteRunsAction();
+        when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
+        when(impactCalculator.currentPublishedPlan()).thenReturn(null);
+        Event existing = sampleEvent("e9", "CONFIRMED", Event.TYPE_BREAKDOWN);
+        existing.setMachineId("M1");
+        existing.setOccurredAt(OffsetDateTime.parse("2026-09-16T09:30:00+08:00"));
+        existing.setRepairEndAt(OffsetDateTime.parse("2026-09-16T10:30:00+08:00"));
+        when(eventRepository.findByMachineIdAndEventType("M1", Event.TYPE_BREAKDOWN))
+                .thenReturn(List.of(existing));
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.createBreakdownEvent("key-1", req));
+        assertEquals("E_DUPLICATE", e.getCode());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void createBreakdownEvent_overlappingClosedEvent_allowed() {
+        // 已关闭（含被修订）的历史故障不参与重叠去重
+        BreakdownEventRequest req = breakdownRequest("2026-09-16T10:00:00+08:00");
+        stubExecuteRunsAction();
+        when(machineRepository.findById("M1")).thenReturn(Optional.of(machine()));
+        when(impactCalculator.currentPublishedPlan()).thenReturn(null);
+        Event closed = sampleEvent("e9", "CLOSED", Event.TYPE_BREAKDOWN);
+        closed.setMachineId("M1");
+        closed.setOccurredAt(OffsetDateTime.parse("2026-09-16T09:30:00+08:00"));
+        closed.setRepairEndAt(OffsetDateTime.parse("2026-09-16T10:30:00+08:00"));
+        when(eventRepository.findByMachineIdAndEventType("M1", Event.TYPE_BREAKDOWN))
+                .thenReturn(List.of(closed));
+        when(eventRepository.existsByFingerprint(anyString())).thenReturn(false);
+        when(codeGenerator.next("EVT")).thenReturn("EVT-009");
+        when(impactCalculator.computeBreakdownImpacts(any(Event.class))).thenReturn(List.of());
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
+
+        BreakdownEventResponse data = eventService.createBreakdownEvent("key-1", req);
+
+        assertNotNull(data.eventId());
+        verify(eventRepository).save(any(Event.class));
+    }
+
+    // ---- F-07 事件关闭 ----
+
+    private ScheduleTask task(String id, String status) {
+        ScheduleTask task = new ScheduleTask();
+        task.setId(id);
+        task.setTaskCode("TSK-" + id);
+        task.setMode("LOCAL_RESCHEDULE");
+        task.setStatus(status);
+        return task;
+    }
+
+    @Test
+    void closeEvent_success() {
+        Event event = sampleEvent("e1", "USED_FOR_SOLVE", Event.TYPE_BREAKDOWN);
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(event));
+        when(scheduleTaskRepository.findByEventId("e1"))
+                .thenReturn(List.of(task("t1", "SUCCESS"), task("t2", "CANCELLED")));
+
+        EventResponse data = eventService.closeEvent("e1");
+
+        assertEquals("CLOSED", event.getStatus());
+        assertNotNull(event.getClosedAt());
+        assertEquals("CLOSED", data.status());
+        verify(eventRepository).save(event);
+        verify(auditService).record(eq("EVENT_CLOSE"), eq("event"), eq("e1"), anyString());
+    }
+
+    @Test
+    void closeEvent_pendingTasks_rejected() {
+        Event event = sampleEvent("e1", "USED_FOR_SOLVE", Event.TYPE_BREAKDOWN);
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(event));
+        when(scheduleTaskRepository.findByEventId("e1"))
+                .thenReturn(List.of(task("t1", "RUNNING"), task("t2", "SUCCESS")));
+
+        BizException e = assertThrows(BizException.class, () -> eventService.closeEvent("e1"));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+        assertTrue(e.getMessage().contains("TSK-t1"));
+        assertEquals("USED_FOR_SOLVE", event.getStatus());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void closeEvent_alreadyClosed_rejected() {
+        Event event = sampleEvent("e1", "CLOSED", Event.TYPE_BREAKDOWN);
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(event));
+
+        BizException e = assertThrows(BizException.class, () -> eventService.closeEvent("e1"));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+    }
+
+    // ---- F-07 事件修订 ----
+
+    private Event breakdownOriginal() {
+        Event original = sampleEvent("e1", "USED_FOR_SOLVE", Event.TYPE_BREAKDOWN);
+        original.setMachineId("M1");
+        original.setOccurredAt(OffsetDateTime.parse("2026-09-16T10:00:00+08:00"));
+        original.setRepairDurationMinutes(60);
+        original.setRepairEndAt(OffsetDateTime.parse("2026-09-16T11:00:00+08:00"));
+        original.setSource("MANUAL");
+        return original;
+    }
+
+    @Test
+    void reviseEvent_breakdown_success() {
+        stubExecuteRunsAction();
+        Event original = breakdownOriginal();
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+        when(scheduleTaskRepository.findByEventId("e1")).thenReturn(List.of(task("t1", "SUCCESS")));
+        when(codeGenerator.next("EVT")).thenReturn("EVT-100");
+        when(impactCalculator.currentPublishedPlan()).thenReturn(null);
+        when(eventRepository.findByMachineIdAndEventType("M1", Event.TYPE_BREAKDOWN))
+                .thenReturn(List.of(original));
+        when(impactCalculator.computeBreakdownImpacts(any(Event.class))).thenReturn(List.of());
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
+
+        ReviseEventRequest req = new ReviseEventRequest("维修时长更正为 90 分钟", null, 90, null, null, null);
+        EventRevisionResponse data = eventService.reviseEvent("key-1", "e1", req);
+
+        ArgumentCaptor<Event> captor = ArgumentCaptor.forClass(Event.class);
+        verify(eventRepository, times(2)).save(captor.capture());
+        Event revision = captor.getAllValues().get(0);
+        assertEquals("EVT-100", revision.getEventCode());
+        assertEquals("CONFIRMED", revision.getStatus());
+        assertEquals("e1", revision.getRevisionOf());
+        assertEquals("维修时长更正为 90 分钟", revision.getRevisionReason());
+        assertEquals(90, revision.getRepairDurationMinutes());
+        assertEquals(OffsetDateTime.parse("2026-09-16T11:30:00+08:00"), revision.getRepairEndAt());
+        assertNotNull(revision.getFingerprint());
+
+        assertEquals("CLOSED", original.getStatus());
+        assertNotNull(original.getClosedAt());
+        verify(impactCalculator).computeBreakdownImpacts(any(Event.class));
+        verify(auditService).record(eq("EVENT_REVISE"), eq("event"), eq("e1"), anyString());
+        assertEquals("EVT-100", data.eventCode());
+        assertEquals("e1", data.revisionOf());
+    }
+
+    @Test
+    void reviseEvent_newOrder_success() {
+        stubExecuteRunsAction();
+        Event original = sampleEvent("e1", "USED_FOR_SOLVE", Event.TYPE_NEW_ORDER);
+        original.setSubType("URGENT_INSERT");
+        original.setOrderId("ORD-1");
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+        when(scheduleTaskRepository.findByEventId("e1")).thenReturn(List.of());
+        when(codeGenerator.next("EVT")).thenReturn("EVT-101");
+        when(eventImpactRepository.findByEventId(anyString())).thenReturn(List.of());
+        when(impactCalculator.summarize(any())).thenReturn(new ImpactSummaryResponse(0, Map.of()));
+
+        ReviseEventRequest req = new ReviseEventRequest("更正为常规追加", null, null, null,
+                "NORMAL_APPEND", null);
+        EventRevisionResponse data = eventService.reviseEvent("key-1", "e1", req);
+
+        ArgumentCaptor<Event> captor = ArgumentCaptor.forClass(Event.class);
+        verify(eventRepository, times(2)).save(captor.capture());
+        Event revision = captor.getAllValues().get(0);
+        assertEquals(Event.TYPE_NEW_ORDER, revision.getEventType());
+        assertEquals("NORMAL_APPEND", revision.getSubType());
+        assertEquals("ORD-1", revision.getOrderId());
+        assertEquals("e1", revision.getRevisionOf());
+        verify(impactCalculator).recordNewOrderImpacts(any(Event.class), eq("ORD-1"));
+        assertEquals("CLOSED", original.getStatus());
+        assertEquals("EVT-101", data.eventCode());
+    }
+
+    @Test
+    void reviseEvent_missingReason_rejected() {
+        stubExecuteRunsAction();
+        Event original = breakdownOriginal();
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.reviseEvent("key-1", "e1", new ReviseEventRequest(" ", null, null, null, null, null)));
+        assertEquals("E_VALIDATION", e.getCode());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void reviseEvent_alreadyClosed_rejected() {
+        stubExecuteRunsAction();
+        Event original = breakdownOriginal();
+        original.setStatus("CLOSED");
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.reviseEvent("key-1", "e1",
+                        new ReviseEventRequest("更正", null, null, null, null, null)));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void reviseEvent_pendingTasks_rejected() {
+        stubExecuteRunsAction();
+        Event original = breakdownOriginal();
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+        when(scheduleTaskRepository.findByEventId("e1")).thenReturn(List.of(task("t1", "RETRY_WAIT")));
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.reviseEvent("key-1", "e1",
+                        new ReviseEventRequest("更正", null, null, null, null, null)));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+        assertEquals("USED_FOR_SOLVE", original.getStatus());
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void reviseEvent_breakdownOverlapsOtherEvent_rejected() {
+        stubExecuteRunsAction();
+        Event original = breakdownOriginal();
+        Event other = sampleEvent("e9", "CONFIRMED", Event.TYPE_BREAKDOWN);
+        other.setMachineId("M1");
+        other.setOccurredAt(OffsetDateTime.parse("2026-09-16T10:30:00+08:00"));
+        other.setRepairEndAt(OffsetDateTime.parse("2026-09-16T12:00:00+08:00"));
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(original));
+        when(scheduleTaskRepository.findByEventId("e1")).thenReturn(List.of());
+        when(impactCalculator.currentPublishedPlan()).thenReturn(null);
+        when(eventRepository.findByMachineIdAndEventType("M1", Event.TYPE_BREAKDOWN))
+                .thenReturn(List.of(original, other));
+
+        // 修订后区间 [10:00, 11:30) 与 e9 的 [10:30, 12:00) 重叠；原事件自身被排除
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.reviseEvent("key-1", "e1",
+                        new ReviseEventRequest("延长维修", null, 90, null, null, null)));
+        assertEquals("E_DUPLICATE", e.getCode());
+        assertEquals("USED_FOR_SOLVE", original.getStatus());
+    }
+
+    @Test
+    void reschedulePreview_closedEvent_rejected() {
+        Event event = sampleEvent("e1", "CLOSED", Event.TYPE_BREAKDOWN);
+        when(eventRepository.findById("e1")).thenReturn(Optional.of(event));
+
+        BizException e = assertThrows(BizException.class,
+                () -> eventService.reschedulePreview("e1", null, null));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
     }
 }

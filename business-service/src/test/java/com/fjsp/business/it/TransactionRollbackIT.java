@@ -86,9 +86,12 @@ class TransactionRollbackIT extends AbstractPostgresIT {
         assertTrue(replay.isPresent());
         assertEquals("t-1", ((Map<?, ?>) replay.get()).get("taskId"));
 
-        // 同键直接再插：唯一约束在事务提交时生效，表现为 UnexpectedRollbackException
-        assertThrows(org.springframework.transaction.UnexpectedRollbackException.class,
-                () -> idempotencyService.store("it-key-1", request, response));
+        // 同键直接再插：唯一约束在独立新事务内生效，重复写入被吞掉（first writer wins），不影响已提交业务
+        idempotencyService.store("it-key-1", request, response);
+        assertEquals(1, idempotencyRecordRepository.count(), "同键重复写不应产生第二条记录");
+        replay = idempotencyService.findReplay("it-key-1", request);
+        assertTrue(replay.isPresent());
+        assertEquals("t-1", ((Map<?, ?>) replay.get()).get("taskId"));
 
         // 同键不同摘要：业务层 E_DUPLICATE
         BizException dup = assertThrows(BizException.class,

@@ -55,6 +55,10 @@ public class BizException extends RuntimeException {
         return new BizException("E_PLAN_STALE", message, HttpStatus.CONFLICT);
     }
 
+    public static BizException rollbackConflict(String message) {
+        return new BizException("E_ROLLBACK_CONFLICT", message, HttpStatus.CONFLICT);
+    }
+
     public String getCode() {
         return code;
     }

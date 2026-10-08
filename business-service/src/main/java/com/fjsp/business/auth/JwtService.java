@@ -42,6 +42,8 @@ public class JwtService {
                 .subject(user.getUsername())
                 .claim("role", user.getRole())
                 .claim("displayName", user.getDisplayName() != null ? user.getDisplayName() : "")
+                // tokenVersion：停用/改角色/重置密码时递增，过滤器比对后旧 token 立即失效
+                .claim("tv", user.getTokenVersion())
                 .issuedAt(Date.from(now.toInstant()))
                 .expiration(Date.from(now.plus(tokenTtl).toInstant()))
                 .signWith(key)

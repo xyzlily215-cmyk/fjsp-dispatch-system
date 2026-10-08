@@ -1,5 +1,7 @@
 package com.fjsp.business.entity;
 
+import java.time.OffsetDateTime;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -21,6 +23,13 @@ public class WorkCalendar {
 
     @Column(nullable = false)
     private String status = "ACTIVE";
+
+    @Column(nullable = false)
+    private OffsetDateTime createdAt = OffsetDateTime.now();
+
+    /** 生成本版本时的变更说明（如"新增不可用区间 REPAIR ..."），首版本为 null。 */
+    @Column(length = 500)
+    private String changeNote;
 
     public String getId() {
         return id;
@@ -52,5 +61,21 @@ public class WorkCalendar {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(OffsetDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public String getChangeNote() {
+        return changeNote;
+    }
+
+    public void setChangeNote(String changeNote) {
+        this.changeNote = changeNote;
     }
 }

@@ -58,10 +58,19 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("E_VALIDATION", "请求参数不合法: " + e.getMessage()));
     }
 
+    // multipart 大小限制在容器层抛出，早于 ImportService 的服务端校验
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUploadSize(
+            org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error("E_VALIDATION", "文件超过大小上限 2MB"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleOther(Exception e) {
+        // 异常详情（SQL/堆栈等）只记日志，不向客户端泄露内部实现
         log.error("unhandled error", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("E_INTERNAL", "服务内部错误: " + e.getMessage()));
+                .body(ApiResponse.error("E_INTERNAL", "服务器内部错误，请稍后重试"));
     }
 }

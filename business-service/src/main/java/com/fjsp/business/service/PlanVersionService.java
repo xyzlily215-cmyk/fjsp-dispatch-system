@@ -1,430 +1,180 @@
 package com.fjsp.business.service;
 
-import java.time.Duration;
-import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fjsp.business.client.AlgorithmClient;
-import com.fjsp.business.common.BizException;
+import com.fjsp.business.common.LookupSupport;
 import com.fjsp.business.common.PageResponse;
 import com.fjsp.business.common.PageSupport;
-import com.fjsp.business.common.RequestContext;
+import com.fjsp.business.dto.PlanDiffResponse;
+import com.fjsp.business.dto.PlanOperationResponse;
+import com.fjsp.business.dto.PlanVersionDetailResponse;
+import com.fjsp.business.dto.PlanVersionSummaryResponse;
 import com.fjsp.business.dto.PublishRequest;
 import com.fjsp.business.dto.ReviewRequest;
+import com.fjsp.business.dto.RollbackRequest;
 import com.fjsp.business.dto.SubmitReviewRequest;
-import com.fjsp.business.entity.EventImpact;
-import com.fjsp.business.entity.InputSnapshot;
+import com.fjsp.business.entity.ExecutionRecord;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.OrderOperation;
-import com.fjsp.business.repository.EventImpactRepository;
-import com.fjsp.business.repository.EventRepository;
-import com.fjsp.business.repository.InputSnapshotRepository;
+import com.fjsp.business.repository.ExecutionRecordRepository;
 import com.fjsp.business.repository.OrderOperationRepository;
 import com.fjsp.business.repository.PlanVersionRepository;
 import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 计划版本查询（列表/详情/工序明细分页）+ 写操作用例的委托门面：
+ * 审批流转见 {@link PlanReviewService}，发布见 {@link PlanPublishService}，
+ * 回滚见 {@link PlanRollbackService}，版本对比见 {@link PlanDiffService}。
+ */
 @Service
 public class PlanVersionService {
 
-    private static final Logger log = LoggerFactory.getLogger(PlanVersionService.class);
-
     private final PlanVersionRepository planVersionRepository;
     private final ScheduleOperationRepository scheduleOperationRepository;
-    private final InputSnapshotRepository inputSnapshotRepository;
-    private final EventImpactRepository eventImpactRepository;
     private final ProductionOrderRepository productionOrderRepository;
     private final OrderOperationRepository orderOperationRepository;
-    private final EventRepository eventRepository;
-    private final AlgorithmClient algorithmClient;
-    private final AuditService auditService;
-    private final PlanStateMachine planStateMachine;
-    private final ScheduleIntegrityGuard integrityGuard;
+    private final ExecutionRecordRepository executionRecordRepository;
+    private final PlanVersionMapper planVersionMapper;
+    private final PlanReviewService planReviewService;
+    private final PlanPublishService planPublishService;
+    private final PlanRollbackService planRollbackService;
+    private final PlanDiffService planDiffService;
 
     public PlanVersionService(PlanVersionRepository planVersionRepository,
                               ScheduleOperationRepository scheduleOperationRepository,
-                              InputSnapshotRepository inputSnapshotRepository,
-                              EventImpactRepository eventImpactRepository,
                               ProductionOrderRepository productionOrderRepository,
                               OrderOperationRepository orderOperationRepository,
-                              EventRepository eventRepository,
-                              AlgorithmClient algorithmClient,
-                              AuditService auditService,
-                              PlanStateMachine planStateMachine,
-                              ScheduleIntegrityGuard integrityGuard) {
+                              ExecutionRecordRepository executionRecordRepository,
+                              PlanVersionMapper planVersionMapper,
+                              PlanReviewService planReviewService,
+                              PlanPublishService planPublishService,
+                              PlanRollbackService planRollbackService,
+                              PlanDiffService planDiffService) {
         this.planVersionRepository = planVersionRepository;
         this.scheduleOperationRepository = scheduleOperationRepository;
-        this.inputSnapshotRepository = inputSnapshotRepository;
-        this.eventImpactRepository = eventImpactRepository;
         this.productionOrderRepository = productionOrderRepository;
         this.orderOperationRepository = orderOperationRepository;
-        this.eventRepository = eventRepository;
-        this.algorithmClient = algorithmClient;
-        this.auditService = auditService;
-        this.planStateMachine = planStateMachine;
-        this.integrityGuard = integrityGuard;
+        this.executionRecordRepository = executionRecordRepository;
+        this.planVersionMapper = planVersionMapper;
+        this.planReviewService = planReviewService;
+        this.planPublishService = planPublishService;
+        this.planRollbackService = planRollbackService;
+        this.planDiffService = planDiffService;
     }
 
     public PlanVersion find(String idOrCode) {
-        return planVersionRepository.findById(idOrCode)
-                .or(() -> planVersionRepository.findByVersionCode(idOrCode))
-                .orElseThrow(() -> BizException.notFound("计划版本不存在: " + idOrCode));
+        return LookupSupport.byIdOrCode(idOrCode, planVersionRepository::findById,
+                planVersionRepository::findByVersionCode, "计划版本不存在");
     }
 
-    public PageResponse<Map<String, Object>> list(Integer page, Integer size) {
+    public PageResponse<PlanVersionSummaryResponse> list(Integer page, Integer size) {
         PageRequest pageable = PageSupport.of(page, size, PageSupport.DEFAULT_MAX_SIZE,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        return PageResponse.of(planVersionRepository.findAllBy(pageable), this::toSummary);
+        return PageResponse.of(planVersionRepository.findAllBy(pageable), planVersionMapper::toSummary);
     }
 
-    public Map<String, Object> detail(String idOrCode) {
+    public PlanVersionDetailResponse detail(String idOrCode) {
         PlanVersion pv = find(idOrCode);
-        Map<String, Object> data = toSummary(pv);
         // 工序明细不再内嵌（可能上千行），由 GET /plan-versions/{id}/operations 分页获取
-        data.put("operationCount", scheduleOperationRepository.countByPlanVersionId(pv.getId()));
-        return data;
+        return PlanVersionDetailResponse.of(planVersionMapper.toSummary(pv),
+                scheduleOperationRepository.countByPlanVersionId(pv.getId()));
     }
 
-    public PageResponse<Map<String, Object>> operations(String idOrCode, Integer page, Integer size) {
+    public PageResponse<PlanOperationResponse> operations(String idOrCode, Integer page, Integer size) {
         PlanVersion pv = find(idOrCode);
         PageRequest pageable = PageSupport.of(page, size, PageSupport.BULK_MAX_SIZE,
                 Sort.by(Sort.Direction.ASC, "startAt").and(Sort.by("operationId")));
-        return PageResponse.of(scheduleOperationRepository.findByPlanVersionId(pv.getId(), pageable),
-                this::toOperationMap);
+        var result = scheduleOperationRepository.findByPlanVersionId(pv.getId(), pageable);
+        // 一次性拉回本页工序的执行记录，内存聚合偏差/异常/暂停标记，替代逐工序查询的 N+1
+        List<String> opIds = result.getContent().stream().map(ScheduleOperation::getOperationId).toList();
+        Map<String, List<ExecutionRecord>> recordsByOp = opIds.isEmpty() ? Map.of()
+                : executionRecordRepository.findByOperationIdIn(opIds).stream()
+                        .collect(Collectors.groupingBy(ExecutionRecord::getOperationId));
+        // 订单维度字段（订单甘特/CSV 导出需要）：同样批量装载，避免逐工序查询
+        OrderContext orders = loadOrderContext(opIds);
+        return PageResponse.of(result, op -> toOperationResponse(op, recordsByOp.get(op.getOperationId()), orders));
     }
 
-    private Map<String, Object> toSummary(PlanVersion pv) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", pv.getId());
-        map.put("versionCode", pv.getVersionCode());
-        map.put("parentId", pv.getParentId());
-        map.put("candidateGroupId", pv.getCandidateGroupId());
-        map.put("candidateType", pv.getCandidateType());
-        map.put("status", pv.getStatus());
-        map.put("taskId", pv.getTaskId());
-        map.put("kpi", pv.getKpi());
-        map.put("version", pv.getVersion());
-        map.put("reviewComment", pv.getReviewComment());
-        map.put("reviewedBy", pv.getReviewedBy());
-        map.put("reviewedAt", pv.getReviewedAt());
-        map.put("publishedBy", pv.getPublishedBy());
-        map.put("publishedAt", pv.getPublishedAt());
-        map.put("createdAt", pv.getCreatedAt());
-        return map;
+    /** 批量装载工序所属订单上下文：operationId -> 订单工序 -> 订单。 */
+    private OrderContext loadOrderContext(List<String> opIds) {
+        if (opIds.isEmpty()) {
+            return new OrderContext(Map.of(), Map.of());
+        }
+        Map<String, OrderOperation> orderOpById = new HashMap<>();
+        for (OrderOperation oo : orderOperationRepository.findAllById(opIds)) {
+            orderOpById.put(oo.getId(), oo);
+        }
+        List<String> orderIds = orderOpById.values().stream().map(OrderOperation::getOrderId)
+                .distinct().toList();
+        Map<String, ProductionOrder> orderById = new HashMap<>();
+        for (ProductionOrder order : productionOrderRepository.findAllById(orderIds)) {
+            orderById.put(order.getId(), order);
+        }
+        return new OrderContext(orderOpById, orderById);
     }
 
-    private Map<String, Object> toOperationMap(ScheduleOperation op) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("operationId", op.getOperationId());
-        map.put("machineId", op.getMachineId());
-        map.put("setupStartAt", op.getSetupStartAt());
-        map.put("processStartAt", op.getProcessStartAt());
-        map.put("startAt", op.getStartAt());
-        map.put("endAt", op.getEndAt());
-        map.put("changeoverMinutes", op.getChangeoverMinutes());
-        map.put("frozen", op.getFrozen());
-        map.put("affected", op.getAffected());
-        map.put("reasonCode", op.getReasonCode());
-        return map;
+    private record OrderContext(Map<String, OrderOperation> orderOpById,
+                                Map<String, ProductionOrder> orderById) {
     }
 
-    public Map<String, Object> diff(String idOrCode, String baselineIdOrCode) {
-        PlanVersion candidate = find(idOrCode);
-        PlanVersion baseline = find(baselineIdOrCode);
-        Map<String, ScheduleOperation> baseOps = scheduleOperationRepository
-                .findByPlanVersionId(baseline.getId()).stream()
-                .collect(Collectors.toMap(ScheduleOperation::getOperationId, o -> o));
-        Map<String, ScheduleOperation> candOps = scheduleOperationRepository
-                .findByPlanVersionId(candidate.getId()).stream()
-                .collect(Collectors.toMap(ScheduleOperation::getOperationId, o -> o));
-
-        Map<String, String> impactTypeByOp = new HashMap<>();
-        for (EventImpact impact : eventImpactRepository.findAll()) {
-            impactTypeByOp.putIfAbsent(impact.getOperationId(), impact.getImpactType());
-        }
-
-        Map<String, Map<String, Integer>> baseSeqRank = sequenceRanks(new ArrayList<>(baseOps.values()));
-        Map<String, Map<String, Integer>> candSeqRank = sequenceRanks(new ArrayList<>(candOps.values()));
-
-        List<Map<String, Object>> diffs = new ArrayList<>();
-        List<String> added = new ArrayList<>();
-        List<String> removed = new ArrayList<>();
-        int shifted = 0;
-        int machineChanged = 0;
-        int sequenceChanged = 0;
-
-        for (ScheduleOperation cand : candOps.values()) {
-            ScheduleOperation base = baseOps.get(cand.getOperationId());
-            if (base == null) {
-                added.add(cand.getOperationId());
-                continue;
-            }
-            long shift = Duration.between(base.getStartAt().toInstant(),
-                    cand.getStartAt().toInstant()).toMinutes();
-            boolean machineChangedFlag = !base.getMachineId().equals(cand.getMachineId());
-            Integer oldRank = rankOf(baseSeqRank, base);
-            Integer newRank = rankOf(candSeqRank, cand);
-            boolean seqChangedFlag = !machineChangedFlag && oldRank != null && newRank != null
-                    && !oldRank.equals(newRank);
-            if (shift != 0) {
-                shifted++;
-            }
-            if (machineChangedFlag) {
-                machineChanged++;
-            }
-            if (seqChangedFlag) {
-                sequenceChanged++;
-            }
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("operationId", cand.getOperationId());
-            entry.put("timeShiftMinutes", shift);
-            entry.put("machineChanged", machineChangedFlag);
-            entry.put("sequenceChanged", seqChangedFlag);
-            entry.put("oldMachineId", base.getMachineId());
-            entry.put("newMachineId", cand.getMachineId());
-            entry.put("oldStartAt", base.getStartAt());
-            entry.put("newStartAt", cand.getStartAt());
-            entry.put("frozen", cand.getFrozen());
-            entry.put("reasonCode", cand.getReasonCode());
-            entry.put("impactType", impactTypeByOp.get(cand.getOperationId()));
-            diffs.add(entry);
-        }
-        for (String opId : baseOps.keySet()) {
-            if (!candOps.containsKey(opId)) {
-                removed.add(opId);
-            }
-        }
-        diffs.sort(Comparator.comparing(d -> (String) d.get("operationId")));
-
-        Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("comparedOperations", diffs.size());
-        summary.put("addedOperations", added);
-        summary.put("removedOperations", removed);
-        summary.put("timeShiftedCount", shifted);
-        summary.put("machineChangedCount", machineChanged);
-        summary.put("sequenceChangedCount", sequenceChanged);
-
-        Map<String, Object> kpiDiff = new LinkedHashMap<>();
-        Map<String, Object> baseKpi = baseline.getKpi() != null ? baseline.getKpi() : Map.of();
-        Map<String, Object> candKpi = candidate.getKpi() != null ? candidate.getKpi() : Map.of();
-        for (String key : candKpi.keySet()) {
-            Object cv = candKpi.get(key);
-            Object bv = baseKpi.get(key);
-            if (cv instanceof Number && bv instanceof Number) {
-                kpiDiff.put(key, ((Number) cv).doubleValue() - ((Number) bv).doubleValue());
-            }
-        }
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("baselineVersionId", baseline.getId());
-        data.put("baselineVersionCode", baseline.getVersionCode());
-        data.put("candidateVersionId", candidate.getId());
-        data.put("candidateVersionCode", candidate.getVersionCode());
-        data.put("summary", summary);
-        data.put("kpiDiff", kpiDiff);
-        data.put("operations", diffs);
-        return data;
+    private PlanOperationResponse toOperationResponse(ScheduleOperation op, List<ExecutionRecord> records,
+                                                      OrderContext orders) {
+        OrderOperation orderOp = orders.orderOpById().get(op.getOperationId());
+        ProductionOrder order = orderOp != null ? orders.orderById().get(orderOp.getOrderId()) : null;
+        List<ExecutionRecord> exec = records != null ? records : List.of();
+        return new PlanOperationResponse(op.getOperationId(), op.getMachineId(), op.getSetupStartAt(),
+                op.getProcessStartAt(), op.getStartAt(), op.getEndAt(), op.getChangeoverMinutes(),
+                op.getFrozen(), op.getAffected(), op.getReasonCode(),
+                orderOp != null ? orderOp.getOrderId() : null,
+                orderOp != null ? orderOp.getSequenceNo() : null,
+                orderOp != null ? orderOp.getStatus() : null,
+                order != null ? order.getOrderCode() : null,
+                order != null ? order.getProductFamily() : null,
+                order != null ? order.getPriority() : null,
+                order != null ? order.getDueAt() : null,
+                exec.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus())),
+                exec.stream().anyMatch(r -> ExecutionService.REASON_EXECUTION_DEVIATION.equals(r.getReasonCode())),
+                exec.stream().map(ExecutionRecord::getDeviationMinutes)
+                        .filter(Objects::nonNull).max(Integer::compareTo).orElse(null),
+                exec.stream().anyMatch(r -> "EXCEPTION".equals(r.getStatus())),
+                exec.stream().anyMatch(r -> "PAUSED".equals(r.getStatus()) && r.getActualEndAt() == null));
     }
 
-    private Map<String, Map<String, Integer>> sequenceRanks(List<ScheduleOperation> ops) {
-        Map<String, List<ScheduleOperation>> byMachine = ops.stream()
-                .collect(Collectors.groupingBy(ScheduleOperation::getMachineId));
-        Map<String, Map<String, Integer>> ranks = new HashMap<>();
-        byMachine.forEach((machine, list) -> {
-            list.sort(Comparator.comparing(ScheduleOperation::getStartAt));
-            Map<String, Integer> rank = new HashMap<>();
-            for (int i = 0; i < list.size(); i++) {
-                rank.put(list.get(i).getOperationId(), i);
-            }
-            ranks.put(machine, rank);
-        });
-        return ranks;
+    public PlanDiffResponse diff(String idOrCode, String baselineIdOrCode) {
+        return planDiffService.diff(idOrCode, baselineIdOrCode);
     }
 
-    private Integer rankOf(Map<String, Map<String, Integer>> ranks, ScheduleOperation op) {
-        Map<String, Integer> machineRanks = ranks.get(op.getMachineId());
-        return machineRankNullSafe(machineRanks, op.getOperationId());
+    public PlanVersionSummaryResponse submitReview(String idOrCode, SubmitReviewRequest req) {
+        return planReviewService.submitReview(idOrCode, req);
     }
 
-    private Integer machineRankNullSafe(Map<String, Integer> machineRanks, String opId) {
-        return machineRanks == null ? null : machineRanks.get(opId);
+    public PlanVersionSummaryResponse persistSubmitReview(String planVersionId, Long version) {
+        return planReviewService.persistSubmitReview(planVersionId, version);
     }
 
-    @Transactional
-    public Map<String, Object> submitReview(String idOrCode, SubmitReviewRequest req) {
-        PlanVersion pv = find(idOrCode);
-        if (req == null || req.version() == null) {
-            throw BizException.validation("请求体必须包含 version");
-        }
-        if (!req.version().equals(pv.getVersion())) {
-            throw BizException.versionStale("version 不匹配，请刷新后重试");
-        }
-        planStateMachine.assertTransition(pv.getStatus(), PlanStateMachine.REVIEW_PENDING);
-        revalidateOrThrow(pv);
-        pv.setStatus(PlanStateMachine.REVIEW_PENDING);
-        planVersionRepository.saveAndFlush(pv);
-        auditService.record("PLAN_SUBMIT_REVIEW", "plan_version", pv.getId(), pv.getVersionCode());
-        return toSummary(pv);
+    public PlanVersionSummaryResponse revise(String idOrCode, SubmitReviewRequest req) {
+        return planReviewService.revise(idOrCode, req);
     }
 
-    @Transactional
-    public Map<String, Object> revise(String idOrCode, SubmitReviewRequest req) {
-        PlanVersion pv = find(idOrCode);
-        if (req == null || req.version() == null) {
-            throw BizException.validation("请求体必须包含 version");
-        }
-        if (!req.version().equals(pv.getVersion())) {
-            throw BizException.versionStale("version 不匹配，请刷新后重试");
-        }
-        planStateMachine.assertTransition(pv.getStatus(), PlanStateMachine.DRAFT);
-        pv.setStatus(PlanStateMachine.DRAFT);
-        planVersionRepository.saveAndFlush(pv);
-        auditService.record("PLAN_REVISE", "plan_version", pv.getId(), pv.getVersionCode());
-        return toSummary(pv);
+    public PlanVersionSummaryResponse review(String idOrCode, ReviewRequest req) {
+        return planReviewService.review(idOrCode, req);
     }
 
-    private void revalidateOrThrow(PlanVersion pv) {
-        if (pv.getTaskId() == null) {
-            return;
-        }
-        InputSnapshot snapshot = inputSnapshotRepository.findByTaskId(pv.getTaskId()).orElse(null);
-        if (snapshot == null) {
-            return;
-        }
-        Map<String, Object> snap = snapshot.getSnapshotJson();
-        Map<String, Object> validateRequest = new LinkedHashMap<>();
-        validateRequest.put("simulationStartAt", snap.get("simulationStartAt"));
-        validateRequest.put("machines", snap.get("machines"));
-        validateRequest.put("orders", snap.get("orders"));
-        validateRequest.put("changeoverDefault", snap.get("changeoverDefault"));
-        validateRequest.put("changeoverMatrix", snap.get("changeoverMatrix"));
-        validateRequest.put("mode", snap.get("mode"));
-        if (snap.get("oldPlan") != null) {
-            validateRequest.put("oldPlan", snap.get("oldPlan"));
-        }
-        if (snap.get("lockings") != null) {
-            validateRequest.put("lockings", snap.get("lockings"));
-        }
-        if (snap.get("affectedOperationIds") != null) {
-            validateRequest.put("affectedOperationIds", snap.get("affectedOperationIds"));
-        }
-        List<Map<String, Object>> ops = new ArrayList<>();
-        for (ScheduleOperation op : scheduleOperationRepository.findByPlanVersionId(pv.getId())) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("operationId", op.getOperationId());
-            entry.put("machineId", op.getMachineId());
-            entry.put("startAt", op.getStartAt().toString());
-            entry.put("endAt", op.getEndAt().toString());
-            entry.put("changeoverMinutes", op.getChangeoverMinutes());
-            ops.add(entry);
-        }
-        validateRequest.put("operations", ops);
-        JsonNode validation = algorithmClient.validate(validateRequest);
-        if (!validation.path("passed").asBoolean(false)) {
-            throw BizException.infeasible("提交前约束复核未通过: " + validation.path("conflicts"));
-        }
+    public PlanVersionSummaryResponse publish(String idOrCode, PublishRequest req) {
+        return planPublishService.publish(idOrCode, req);
     }
 
-    @Transactional
-    public Map<String, Object> review(String idOrCode, ReviewRequest req) {
-        PlanVersion pv = find(idOrCode);
-        if (req == null || req.decision() == null
-                || (!"APPROVE".equals(req.decision()) && !"REJECT".equals(req.decision()))) {
-            throw BizException.validation("decision 必须是 APPROVE / REJECT");
-        }
-        if ("REJECT".equals(req.decision()) && (req.comment() == null || req.comment().isBlank())) {
-            throw BizException.validation("REJECT 必须填写 comment");
-        }
-        if (req.version() == null || !req.version().equals(pv.getVersion())) {
-            throw BizException.versionStale("version 不匹配，请刷新后重试");
-        }
-        String target = "APPROVE".equals(req.decision())
-                ? PlanStateMachine.REVIEWED : PlanStateMachine.REJECTED;
-        planStateMachine.assertTransition(pv.getStatus(), target);
-        pv.setStatus(target);
-        pv.setReviewComment(req.comment());
-        pv.setReviewedBy(RequestContext.operator());
-        pv.setReviewedAt(OffsetDateTime.now());
-        planVersionRepository.saveAndFlush(pv);
-        auditService.record("PLAN_REVIEW_" + req.decision(), "plan_version", pv.getId(),
-                pv.getVersionCode() + " comment=" + req.comment());
-        return toSummary(pv);
-    }
-
-    @Transactional
-    public Map<String, Object> publish(String idOrCode, PublishRequest req) {
-        PlanVersion pv = find(idOrCode);
-        if (req == null || req.version() == null || !req.version().equals(pv.getVersion())) {
-            throw BizException.versionStale("version 不匹配，请刷新后重试");
-        }
-        planStateMachine.assertTransition(pv.getStatus(), PlanStateMachine.PUBLISHED);
-        assertNotStale(pv);
-        integrityGuard.verifyAgainstExecution(pv);
-        List<PlanVersion> currentPublished = planVersionRepository
-                .findByStatusIn(List.of(PlanStateMachine.PUBLISHED, PlanStateMachine.EXECUTING));
-        for (PlanVersion old : currentPublished) {
-            planStateMachine.assertTransition(old.getStatus(), PlanStateMachine.SUPERSEDED);
-            old.setStatus(PlanStateMachine.SUPERSEDED);
-            planVersionRepository.save(old);
-        }
-        pv.setStatus(PlanStateMachine.PUBLISHED);
-        pv.setPublishedAt(OffsetDateTime.now());
-        pv.setPublishedBy(RequestContext.operator());
-        planVersionRepository.saveAndFlush(pv);
-
-        // orders covered by this plan become SCHEDULED
-        Map<String, OrderOperation> opById = new HashMap<>();
-        for (OrderOperation oo : orderOperationRepository.findAll()) {
-            opById.put(oo.getId(), oo);
-        }
-        Map<String, ProductionOrder> touched = new HashMap<>();
-        for (ScheduleOperation op : scheduleOperationRepository.findByPlanVersionId(pv.getId())) {
-            OrderOperation oo = opById.get(op.getOperationId());
-            if (oo != null) {
-                productionOrderRepository.findById(oo.getOrderId()).ifPresent(o -> touched.put(o.getId(), o));
-            }
-        }
-        for (ProductionOrder order : touched.values()) {
-            if ("WAITING".equals(order.getStatus())) {
-                order.setStatus("SCHEDULED");
-                productionOrderRepository.save(order);
-            }
-        }
-        auditService.record("PLAN_PUBLISH", "plan_version", pv.getId(), pv.getVersionCode());
-        log.info("plan version {} published, superseded {}", pv.getVersionCode(),
-                currentPublished.stream().map(PlanVersion::getVersionCode).toList());
-        return toSummary(pv);
-    }
-
-    private void assertNotStale(PlanVersion pv) {
-        if (pv.getParentId() != null) {
-            PlanVersion parent = planVersionRepository.findById(pv.getParentId()).orElse(null);
-            if (parent == null
-                    || (!PlanStateMachine.PUBLISHED.equals(parent.getStatus())
-                            && !PlanStateMachine.EXECUTING.equals(parent.getStatus()))) {
-                throw BizException.planStale("基准版本已被取代，请基于当前生效版本重新调度");
-            }
-        }
-        if (pv.getTaskId() != null) {
-            InputSnapshot snapshot = inputSnapshotRepository.findByTaskId(pv.getTaskId()).orElse(null);
-            if (snapshot != null && eventRepository.existsByRecordedAtAfter(snapshot.getCreatedAt())) {
-                throw BizException.planStale("快照之后发生新扰动，计划已过期");
-            }
-        }
+    public PlanVersionSummaryResponse rollback(String idOrCode, RollbackRequest req) {
+        return planRollbackService.rollback(idOrCode, req);
     }
 }

@@ -30,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -106,7 +107,7 @@ class SnapshotBuilderTest {
         when(calendarIntervalRepository.findByCalendarIdOrderByStartAt("CAL1"))
                 .thenReturn(List.of(interval("CAL1", "WORK",
                         "2026-09-16T08:00:00+08:00", "2026-09-16T16:00:00+08:00")));
-        when(eventRepository.findAll()).thenReturn(List.of(breakdown("M1",
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of(breakdown("M1",
                 "2026-09-16T10:00:00+08:00", "2026-09-16T11:00:00+08:00")));
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
 
@@ -133,7 +134,7 @@ class SnapshotBuilderTest {
                                 "2026-09-16T16:00:00+08:00"),
                         interval("CAL1", "MAINTENANCE", "2026-09-16T12:00:00+08:00",
                                 "2026-09-16T13:00:00+08:00")));
-        when(eventRepository.findAll()).thenReturn(List.of());
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of());
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
 
         Map<String, Object> request = snapshotBuilder.buildSolveRequest("BASELINE", null, null,
@@ -152,7 +153,7 @@ class SnapshotBuilderTest {
         when(machineRepository.findAll()).thenReturn(List.of(
                 machine("M1", "ACTIVE", null),
                 machine("M2", "DISABLED", null)));
-        when(eventRepository.findAll()).thenReturn(List.of());
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of());
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
 
         Map<String, Object> request = snapshotBuilder.buildSolveRequest("BASELINE", null, null,
@@ -191,7 +192,7 @@ class SnapshotBuilderTest {
         when(seedService.defaultAlgorithmParams()).thenAnswer(inv -> new LinkedHashMap<>(
                 Map.of("timeLimitSeconds", 60)));
         when(machineRepository.findAll()).thenReturn(List.of());
-        when(eventRepository.findAll()).thenReturn(List.of());
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of());
         when(scheduleOperationRepository.findByPlanVersionId("PV-OLD")).thenReturn(List.of(
                 oldOp("OP-DONE", "2026-09-16T08:00:00+08:00", "2026-09-16T08:30:00+08:00"),
                 oldOp("OP-RUN", "2026-09-16T08:30:00+08:00", "2026-09-16T09:30:00+08:00"),
@@ -213,15 +214,16 @@ class SnapshotBuilderTest {
                 orderOp("OP-DONE", 1), orderOp("OP-RUN", 2),
                 orderOp("OP-FROZEN", 3), orderOp("OP-SOFT", 4)));
         when(eventImpactRepository.findByEventId("EVT-1")).thenReturn(List.of());
-        when(executionRecordRepository.existsByOperationIdAndStatus("OP-DONE", "COMPLETED"))
-                .thenReturn(true);
+        ExecutionRecord completedRecord = new ExecutionRecord();
+        completedRecord.setOperationId("OP-DONE");
+        completedRecord.setStatus("COMPLETED");
         ExecutionRecord runningRecord = new ExecutionRecord();
+        runningRecord.setOperationId("OP-RUN");
+        runningRecord.setStatus("RUNNING");
         // 实际开工（09:45）晚于计划完工（09:30）——触发 actualStartAtMinutes 传递
         runningRecord.setActualStartAt(OffsetDateTime.parse("2026-09-16T09:45:00+08:00"));
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-RUN", "RUNNING")).thenReturn(Optional.of(runningRecord));
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-FROZEN", "RUNNING")).thenReturn(Optional.empty());
+        when(executionRecordRepository.findByOperationIdIn(any()))
+                .thenReturn(List.of(completedRecord, runningRecord));
 
         Event event = new Event();
         event.setId("EVT-1");
@@ -265,7 +267,7 @@ class SnapshotBuilderTest {
         when(seedService.defaultAlgorithmParams()).thenAnswer(inv -> new LinkedHashMap<>(
                 Map.of("timeLimitSeconds", 60)));
         when(machineRepository.findAll()).thenReturn(List.of());
-        when(eventRepository.findAll()).thenReturn(List.of());
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of());
         when(scheduleOperationRepository.findByPlanVersionId("PV-OLD")).thenReturn(List.of());
         when(orderOperationRepository.findAll()).thenReturn(List.of());
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());

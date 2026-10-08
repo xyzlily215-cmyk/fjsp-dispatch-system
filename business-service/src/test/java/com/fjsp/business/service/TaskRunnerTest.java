@@ -37,6 +37,8 @@ class TaskRunnerTest {
     private InputSnapshotRepository snapshotRepository;
     @Mock
     private AlgorithmClient algorithmClient;
+    @Mock
+    private com.fjsp.business.metrics.FjspMetrics metrics;
 
     @InjectMocks
     private TaskRunner taskRunner;
@@ -51,6 +53,7 @@ class TaskRunnerTest {
 
     @Test
     void run_happyPath_marksRunningThenSolvesThenHandles() throws Exception {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         JsonNode resp = JSON.readTree("{\"status\": \"SUCCESS\", \"feasibleSolution\": true}");
         when(algorithmClient.solve(any())).thenReturn(resp);
@@ -67,6 +70,7 @@ class TaskRunnerTest {
 
     @Test
     void run_solveTimeout_schedulesRetry() {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new ResourceAccessException("I/O error on POST request: Read timed out"));
@@ -82,6 +86,7 @@ class TaskRunnerTest {
 
     @Test
     void run_serviceUnavailable_schedulesRetry() {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new ResourceAccessException("I/O error on POST request: Connection refused"));
@@ -96,6 +101,7 @@ class TaskRunnerTest {
 
     @Test
     void run_handleResultTransient_schedulesRetry() throws Exception {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         JsonNode resp = JSON.readTree("{\"status\": \"SUCCESS\", \"feasibleSolution\": true}");
         when(algorithmClient.solve(any())).thenReturn(resp);
@@ -110,6 +116,7 @@ class TaskRunnerTest {
 
     @Test
     void run_nonTransientError_marksFailed() {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.of(snapshot()));
         when(algorithmClient.solve(any()))
                 .thenThrow(new NestedRuntimeException("500 Internal Server Error") {
@@ -123,6 +130,7 @@ class TaskRunnerTest {
 
     @Test
     void run_snapshotMissing_marksFailed() {
+        when(taskService.markRunning("t1")).thenReturn(true);
         when(snapshotRepository.findByTaskId("t1")).thenReturn(Optional.empty());
 
         taskRunner.run("t1");
@@ -130,6 +138,19 @@ class TaskRunnerTest {
         verify(taskService).markRunning("t1");
         verify(taskService).markFailed(eq("t1"), argThat(msg -> msg.contains("IllegalStateException")));
         verify(algorithmClient, never()).solve(any());
+        verify(taskService, never()).scheduleRetryOrFail(anyString(), any());
+    }
+
+    @Test
+    void run_markRunningRejected_abortsWithoutSideEffects() {
+        // 任务在派发前被取消（或已被其他线程抢占）：markRunning 原子更新失败，直接放弃执行
+        when(taskService.markRunning("t1")).thenReturn(false);
+
+        taskRunner.run("t1");
+
+        verify(algorithmClient, never()).solve(any());
+        verify(taskService, never()).handleSolveResult(anyString(), any());
+        verify(taskService, never()).markFailed(anyString(), any());
         verify(taskService, never()).scheduleRetryOrFail(anyString(), any());
     }
 }

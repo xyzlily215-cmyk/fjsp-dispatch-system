@@ -7,5 +7,6 @@ public record OrderUpsertRequest(
         String arrivalAt,
         String dueAt,
         Integer priority,
-        String templateId) {
+        String templateId,
+        String remark) {
 }

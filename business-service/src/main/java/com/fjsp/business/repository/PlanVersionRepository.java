@@ -7,7 +7,6 @@ import com.fjsp.business.entity.PlanVersion;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
 
 public interface PlanVersionRepository extends JpaRepository<PlanVersion, String> {
     Optional<PlanVersion> findByVersionCode(String versionCode);
@@ -17,7 +16,4 @@ public interface PlanVersionRepository extends JpaRepository<PlanVersion, String
     List<PlanVersion> findAllByOrderByCreatedAtDesc();
 
     Page<PlanVersion> findAllBy(Pageable pageable);
-
-    @Query("select max(p.versionCode) from PlanVersion p")
-    String findMaxVersionCode();
 }

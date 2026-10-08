@@ -97,6 +97,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | `fjsp.auth.jwt-secret` | string ≥32 字节 | 无（`@NotNull`+`@Size(min=32)` 强制） | 默认/prod：必须设 `FJSP_JWT_SECRET`；local：dev-only 演示值；test：固定测试值 |
 | `fjsp.auth.token-ttl` | Duration | 8h | JWT 有效期 |
 | `fjsp.cors.allowed-origins` | list | 空（不允许跨域） | local：`http://localhost:8082`、`http://127.0.0.1:8082` |
+| `fjsp.demo.enabled` | bool | `false` | `/demo/reset` 开关；local profile 显式置 `true`，禁用时返回 403 `E_FORBIDDEN` |
 | `fjsp.freeze-window` | Duration | 30m | 重调度冻结窗口（API 入参 `freezeWindowMinutes` 仍为分钟，可覆盖） |
 | `fjsp.idempotency-ttl` | Duration | 24h | 幂等记录有效期 |
 
@@ -120,7 +121,33 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 
 ## 认证与角色
 
-除 `POST /api/v1/auth/login` 外全部接口要求 `Authorization: Bearer <token>`（JWT，HS256，默认 8h）。未认证 401 `E_UNAUTHORIZED`，角色不足 403 `E_FORBIDDEN`。
+除 `POST /api/v1/auth/login` 与 `/actuator/health/**`、`/actuator/info` 外全部接口要求 `Authorization: Bearer <token>`（JWT，HS256，默认 8h）。未认证 401 `E_UNAUTHORIZED`，角色不足 403 `E_FORBIDDEN`。
+
+## 健康检查与业务指标（Actuator）
+
+| 端点 | 认证 | 内容 |
+|---|---|---|
+| `GET /actuator/health/liveness` | 匿名 | 仅 JVM 存活（livenessState），不含外部依赖 |
+| `GET /actuator/health/readiness` | 匿名 | readinessState + db（PostgreSQL）+ flyway（迁移完成；Boot 3.3 移除了内置 flyway 探针，此处为自定义 `FlywayMigrationHealthIndicator`，存在失败迁移即 DOWN）；启动脚本以此为就绪判据 |
+| `GET /actuator/health` | 匿名仅聚合状态；携带 JWT 可见组件明细 | 全量健康，含 `algorithmService` 组件（UP/DOWN + version/algorithmVersion） |
+| `GET /actuator/metrics`、`/actuator/prometheus` | **需认证**（不放行，避免指标暴露面扩大） | Micrometer 指标 / Prometheus 抓取格式 |
+
+`algorithmService` 健康指示器以独立 2s 短超时调用算法服务 `GET /health`，**不加入 readiness 分组**——算法服务宕机时业务服务保持 UP（仅 /actuator/health 全量视图中该组件 DOWN、整体 503），任务走既有 RETRY_WAIT 重试策略。
+
+业务指标（`com.fjsp.business.metrics.FjspMetrics` 注册，HikariCP 连接池指标 `hikaricp.connections.*` 由 micrometer 自动采集）：
+
+| 指标 | 类型 | 标签 | 埋点位置 |
+|---|---|---|---|
+| `fjsp.tasks.total` | Gauge | status（TaskStatus 全部取值） | ScheduleTaskRepository count supplier（scrape 时实时 count） |
+| `fjsp.tasks.queue` | Gauge | — | PENDING + RETRY_WAIT count supplier |
+| `fjsp.algorithm.solve.duration` | Timer | mode（BASELINE/LOCAL_RESCHEDULE/FULL_RESCHEDULE） | TaskRunner 包裹 /solve 调用（成功与瞬时失败均记录） |
+| `fjsp.tasks.retries` | Counter | — | ScheduleTaskStateService 退避重投 + ScheduleTaskCommandService 人工重试 |
+| `fjsp.tasks.result` | Counter | result（终态 SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED/CANCELLED） | ScheduleResultAssembler 终态落库 + ScheduleTaskStateService applyFailed/applyCancelled |
+| `fjsp.sse.connections` | Gauge | — | TaskEventService 当前 emitter 总数 |
+
+实时失效：JWT 携带 `tv`（tokenVersion）claim；过滤器每次请求按 username 查 `app_user`，用户被删除/停用或 `tv` 不一致（停用、改角色、重置密码时递增）即视为未认证，角色始终以数据库当前值为准（即时生效）。
+
+SSE 例外：`GET /schedule-tasks/{id}/events` 不接受 Bearer 头（EventSource 无法自定义请求头），改用一次性 stream ticket——先 `POST /schedule-tasks/{id}/events/ticket`（正常 Bearer 鉴权）换取 60 秒有效、一次性、绑定任务的 ticket，再以 `?ticket=` 建立连接；`?access_token=` 已不再接受。
 
 角色-端点矩阵（GET 查询类端点任何已认证角色均可；ADMIN 拥有全部权限）：
 
@@ -134,7 +161,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | 基础数据写端点、demo/reset | | | | ✓ |
 | 审计检索 audit-logs | | | | ✓ |
 
-种子账号（**仅本地演示**，密码均为 `Fj@123456`，见 `db/migration/V3__auth.sql` 与 `auth/UserSeedRunner`）：
+种子账号（**仅本地演示**，密码均为 `Fj@123456`，见 `db/migration/V3__auth.sql` 与 `auth/UserSeedRunner`。**生产部署后必须立即修改全部种子账号密码**；`prod` profile 下 `UserSeedRunner` 禁止使用内置演示密码，初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失即启动失败；登录连续失败 5 次会临时锁定 10 分钟，返回 429 `E_LOGIN_LOCKED`）：
 
 | 用户名 | 角色 | 显示名 |
 |---|---|---|
@@ -170,13 +197,13 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | POST | `/plan-versions/{id}/publish` | {version} 乐观锁发布；发布前做过期校验（基准版本须 PUBLISHED/EXECUTING、快照后无新事件，否则 E_PLAN_STALE）与完整性复核（E_INTEGRITY_VIOLATION），旧版本转 SUPERSEDED |
 | POST | `/operations/{operationId}/execution` | 执行反馈 RUNNING/COMPLETED |
 | GET | `/machines` `/orders` `/process-templates` `/dashboard` | 基础数据与聚合看板 |
-| POST | `/demo/reset` | 清空业务数据并重新 seed |
+| POST | `/demo/reset` | 清空业务数据并重新 seed（`audit_log` 保留不清空；`fjsp.demo.enabled=false` 时 403，默认禁用、仅 local profile 开启） |
 | GET | `/audit-logs?page=&size=&objectType=&objectId=&operator=&requestId=` | 审计检索（分页+过滤），**仅 ADMIN** |
 
 ## 关键设计
 
 - **统一响应**：`{requestId, timestamp, code, message, data}`；`requestId` 经 MDC 贯穿日志。
-- **认证与审计身份**：Spring Security 无状态 JWT（`JwtAuthenticationFilter` 解析 Bearer，签名/过期失败视为未认证）；`RequestContext.operator()` 只从 SecurityContext 取登录用户名（未认证 HTTP 请求记 anonymous，异步/启动恢复等无请求场景记 system），客户端自报的 `X-Operator-Id` 头不再可信、已忽略。`X-Source`（默认 api）、`X-AGH-Session-Id` 仍作为来源/会话标签透传审计。reviewedBy/publishedBy 自动落真实登录用户。`RequestIdFilter` 以最高优先级排在安全过滤器链之前，401/403 响应同样带 requestId 与统一 JSON 包络。
+- **认证与审计身份**：Spring Security 无状态 JWT（`JwtAuthenticationFilter` 解析 Bearer，签名/过期失败视为未认证；每次请求查 `app_user` 校验启用状态并比对 `tv` tokenVersion，停用/改角色/重置密码即时失效，角色以数据库为准）；`RequestContext.operator()` 只从 SecurityContext 取登录用户名（未认证 HTTP 请求记 anonymous，异步/启动恢复等无请求场景记 system），客户端自报的 `X-Operator-Id` 头不再可信、已忽略。`X-Source`（默认 api）、`X-AGH-Session-Id` 仍作为来源/会话标签透传审计。reviewedBy/publishedBy 自动落真实登录用户。`RequestIdFilter` 以最高优先级排在安全过滤器链之前，401/403 响应同样带 requestId 与统一 JSON 包络。
 - **幂等**：写接口校验 `Idempotency-Key`，同键同摘要 24h 内返回原结果，同键不同摘要返回 `E_DUPLICATE`；任务另有输入快照指纹（snapshotHash+mode 的 SHA-256）唯一约束。
 - **异步任务**：任务落库提交事务后才触发异步求解（afterCommit），后台流程：/solve → /validate 复核 → 创建 DRAFT 计划版本 + schedule_operation 行；不可行保存冲突明细，异常标记 `FAILED`（resultStatus=FAILED，errorMessage 记录摘要）。任务状态机（`TaskStatus` 枚举，字符串列存取）：PENDING→RUNNING→SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED；瞬时失败转 RETRY_WAIT 等待重投；PENDING/RETRY_WAIT/RUNNING 可取消转 CANCELLED。终态：SUCCESS/TIME_LIMIT/INFEASIBLE/FAILED/CANCELLED。
 - **任务重试（瞬时失败）**：算法服务调用异常（`RestClientException`：连接拒绝/读超时/5xx）走重试策略——retryCount+1，未超 maxRetries（默认 3）转 RETRY_WAIT，nextRetryAt = now + min(30s×2^(retryCount-1), 600s)（`TaskRetryPolicy`），审计 `TASK_RETRY_SCHEDULED`；超过后转 FAILED 终态（死信），审计 `TASK_FAILED`。INFEASIBLE、validate 复核失败、完整性违规属业务性失败，不重试。FAILED/CANCELLED 任务释放输入指纹（置 null），相同输入可重新创建任务；进行中与成功终态仍按指纹去重（409 `E_DUPLICATE`）。

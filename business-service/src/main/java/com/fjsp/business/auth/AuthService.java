@@ -18,6 +18,7 @@ public class AuthService {
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final LoginRateLimiter rateLimiter = new LoginRateLimiter();
 
     public AuthService(AppUserRepository userRepository,
                        PasswordEncoder passwordEncoder,
@@ -31,12 +32,17 @@ public class AuthService {
         if (username == null || username.isBlank() || password == null) {
             throw unauthorized();
         }
+        if (rateLimiter.isLocked(username)) {
+            throw locked();
+        }
         AppUser user = userRepository.findByUsername(username).orElse(null);
         // 用户不存在 / 已禁用 / 密码错误统一 401，不泄露具体原因
         if (user == null || !Boolean.TRUE.equals(user.getEnabled())
                 || !passwordEncoder.matches(password, user.getPasswordHash())) {
+            rateLimiter.onFailure(username);
             throw unauthorized();
         }
+        rateLimiter.onSuccess(username);
         String token = jwtService.generateToken(user);
         Jws<Claims> jws = jwtService.parse(token);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -60,5 +66,10 @@ public class AuthService {
 
     private static BizException unauthorized() {
         return new BizException("E_UNAUTHORIZED", "用户名或密码错误", HttpStatus.UNAUTHORIZED);
+    }
+
+    private static BizException locked() {
+        return new BizException("E_LOGIN_LOCKED", "连续登录失败次数过多，账号已临时锁定，请稍后再试",
+                HttpStatus.TOO_MANY_REQUESTS);
     }
 }

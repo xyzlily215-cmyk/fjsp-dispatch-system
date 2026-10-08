@@ -15,3 +15,6 @@ fjsp:
     allowed-origins:
       - http://localhost:8082
       - http://127.0.0.1:8082
+  demo:
+    # 本地演示依赖 /demo/reset（scripts/reset-demo.sh、run-smoke-test.sh、run-e2e.sh）；默认关闭，仅 local 显式开启
+    enabled: true

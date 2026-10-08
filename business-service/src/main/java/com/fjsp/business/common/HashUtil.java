@@ -18,9 +18,13 @@ public final class HashUtil {
     }
 
     public static String sha256(String text) {
+        return sha256Hex(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static String sha256Hex(byte[] bytes) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(bytes);
             StringBuilder sb = new StringBuilder(hash.length * 2);
             for (byte b : hash) {
                 sb.append(Character.forDigit((b >> 4) & 0xF, 16));

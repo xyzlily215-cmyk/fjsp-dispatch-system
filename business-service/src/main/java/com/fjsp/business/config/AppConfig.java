@@ -1,7 +1,5 @@
 package com.fjsp.business.config;
 
-import java.time.OffsetDateTime;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -32,9 +30,5 @@ public class AppConfig {
         executor.setThreadNamePrefix("schedule-task-");
         executor.initialize();
         return executor;
-    }
-
-    public static OffsetDateTime parseIso(String value) {
-        return OffsetDateTime.parse(value);
     }
 }

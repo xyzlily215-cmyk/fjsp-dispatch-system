@@ -4,5 +4,6 @@ public record ExecutionRequest(
         String status,
         String actualStartAt,
         String actualEndAt,
+        String reasonCode,
         String remark) {
 }

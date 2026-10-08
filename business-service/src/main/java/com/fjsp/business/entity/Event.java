@@ -14,6 +14,12 @@ public class Event {
     public static final String TYPE_NEW_ORDER = "NEW_ORDER";
     public static final String TYPE_BREAKDOWN = "BREAKDOWN";
 
+    /** 生命周期状态机（系统设计说明书 §5.2）：CREATED -> CONFIRMED -> USED_FOR_SOLVE -> CLOSED。 */
+    public static final String STATUS_CREATED = "CREATED";
+    public static final String STATUS_CONFIRMED = "CONFIRMED";
+    public static final String STATUS_USED_FOR_SOLVE = "USED_FOR_SOLVE";
+    public static final String STATUS_CLOSED = "CLOSED";
+
     @Id
     private String id;
 
@@ -48,6 +54,11 @@ public class Event {
     private String status = "CREATED";
 
     private String revisionOf;
+
+    @Column(length = 1000)
+    private String revisionReason;
+
+    private OffsetDateTime closedAt;
 
     @Column(unique = true)
     private String fingerprint;
@@ -162,6 +173,22 @@ public class Event {
 
     public void setRevisionOf(String revisionOf) {
         this.revisionOf = revisionOf;
+    }
+
+    public String getRevisionReason() {
+        return revisionReason;
+    }
+
+    public void setRevisionReason(String revisionReason) {
+        this.revisionReason = revisionReason;
+    }
+
+    public OffsetDateTime getClosedAt() {
+        return closedAt;
+    }
+
+    public void setClosedAt(OffsetDateTime closedAt) {
+        this.closedAt = closedAt;
     }
 
     public String getFingerprint() {

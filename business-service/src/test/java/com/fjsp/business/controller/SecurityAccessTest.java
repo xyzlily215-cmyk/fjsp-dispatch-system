@@ -4,10 +4,17 @@ import java.util.Map;
 
 import com.fjsp.business.auth.JwtAuthenticationFilter;
 import com.fjsp.business.auth.JwtService;
+import com.fjsp.business.auth.StreamTicketService;
 import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.config.SecurityConfig;
 import com.fjsp.business.entity.AppUser;
+import com.fjsp.business.repository.AppUserRepository;
+import com.fjsp.business.dto.PlanVersionSummaryResponse;
 import com.fjsp.business.service.DemoService;
+import com.fjsp.business.service.PlanDiffService;
+import com.fjsp.business.service.PlanPublishService;
+import com.fjsp.business.service.PlanReviewService;
+import com.fjsp.business.service.PlanRollbackService;
 import com.fjsp.business.service.PlanVersionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,15 +59,35 @@ class SecurityAccessTest {
     @MockBean
     private PlanVersionService planVersionService;
     @MockBean
+    private PlanReviewService planReviewService;
+    @MockBean
+    private PlanPublishService planPublishService;
+    @MockBean
+    private PlanRollbackService planRollbackService;
+    @MockBean
+    private PlanDiffService planDiffService;
+    @MockBean
     private DemoService demoService;
     @MockBean
     private com.fjsp.business.service.AuditService auditService;
+    @MockBean
+    private AppUserRepository userRepository;
+    @MockBean
+    private StreamTicketService streamTicketService;
 
     private String token(String username, String role) {
+        // 过滤器实时查库校验启用状态与 tokenVersion：返回与 JWT tv claim（默认 0）一致的启用用户
         AppUser user = new AppUser();
         user.setUsername(username);
         user.setRole(role);
+        org.mockito.Mockito.when(userRepository.findByUsername(username))
+                .thenReturn(java.util.Optional.of(user));
         return jwtService.generateToken(user);
+    }
+
+    private PlanVersionSummaryResponse planSummary(String status) {
+        return new PlanVersionSummaryResponse(null, null, null, null, null, status, null, null, null,
+                null, null, null, null, null, null);
     }
 
     @Test
@@ -142,7 +169,8 @@ class SecurityAccessTest {
 
     @Test
     void manager_publish_allowed() throws Exception {
-        when(planVersionService.publish(anyString(), any())).thenReturn(Map.of("status", "PUBLISHED"));
+        when(planPublishService.publish(anyString(), any()))
+                .thenReturn(planSummary("PUBLISHED"));
         mvc.perform(post("/api/v1/plan-versions/pv-1/publish")
                         .header("Authorization", "Bearer " + token("manager", "PRODUCTION_MANAGER"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"version\":1}"))
@@ -161,7 +189,8 @@ class SecurityAccessTest {
 
     @Test
     void reviewer_review_allowed() throws Exception {
-        when(planVersionService.review(anyString(), any())).thenReturn(Map.of("status", "REVIEWED"));
+        when(planReviewService.review(anyString(), any()))
+                .thenReturn(planSummary("REVIEWED"));
         mvc.perform(post("/api/v1/plan-versions/pv-1/review")
                         .header("Authorization", "Bearer " + token("reviewer", "REVIEWER"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -188,7 +217,8 @@ class SecurityAccessTest {
 
     @Test
     void admin_inheritsAllPermissions() throws Exception {
-        when(planVersionService.publish(anyString(), any())).thenReturn(Map.of("status", "PUBLISHED"));
+        when(planPublishService.publish(anyString(), any()))
+                .thenReturn(planSummary("PUBLISHED"));
         mvc.perform(post("/api/v1/plan-versions/pv-1/publish")
                         .header("Authorization", "Bearer " + token("admin", "ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"version\":1}"))

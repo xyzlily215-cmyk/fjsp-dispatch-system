@@ -38,6 +38,14 @@ public class ProductionOrder {
 
     private String templateId;
 
+    /** 基础字段（非工艺字段）：随时可改，不受修订控制约束。 */
+    @Column(length = 500)
+    private String remark;
+
+    /** 已发生的工艺字段修订次数（order_revision 的最大 revisionNo），0 = 从未修订。 */
+    @Column(nullable = false)
+    private Integer revisionNo = 0;
+
     @Column(nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
@@ -111,6 +119,22 @@ public class ProductionOrder {
 
     public void setTemplateId(String templateId) {
         this.templateId = templateId;
+    }
+
+    public String getRemark() {
+        return remark;
+    }
+
+    public void setRemark(String remark) {
+        this.remark = remark;
+    }
+
+    public Integer getRevisionNo() {
+        return revisionNo;
+    }
+
+    public void setRevisionNo(Integer revisionNo) {
+        this.revisionNo = revisionNo;
     }
 
     public OffsetDateTime getCreatedAt() {

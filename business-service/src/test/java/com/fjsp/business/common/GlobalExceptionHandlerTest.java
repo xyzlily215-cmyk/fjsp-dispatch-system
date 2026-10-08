@@ -8,7 +8,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class GlobalExceptionHandlerTest {
 
@@ -87,6 +86,7 @@ class GlobalExceptionHandlerTest {
         ResponseEntity<ApiResponse<Void>> response = handler.handleOther(new RuntimeException("boom"));
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertEquals("E_INTERNAL", response.getBody().getCode());
-        assertNotNull(response.getBody().getMessage());
+        // 固定文案，不泄露内部异常信息
+        assertEquals("服务器内部错误，请稍后重试", response.getBody().getMessage());
     }
 }

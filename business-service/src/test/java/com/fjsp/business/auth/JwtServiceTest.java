@@ -41,6 +41,7 @@ class JwtServiceTest {
 
         assertEquals("dispatcher", jws.getPayload().getSubject());
         assertEquals("DISPATCHER", jws.getPayload().get("role", String.class));
+        assertEquals(0, jws.getPayload().get("tv", Integer.class), "tokenVersion 应作为 tv claim 携带");
         assertNotNull(service.expiresAt(jws));
         assertTrue(service.expiresAt(jws).isAfter(java.time.OffsetDateTime.now().plusHours(7)));
     }

@@ -5,7 +5,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.fjsp.business.common.BizException;
 import com.fjsp.business.config.FjspProperties;
+import com.fjsp.business.dto.ImpactSummaryResponse;
+import com.fjsp.business.dto.ReschedulePreviewResponse;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.EventImpact;
 import com.fjsp.business.entity.ExecutionRecord;
@@ -122,8 +125,10 @@ class ImpactCalculatorTest {
         // OP-1 计划区间 09:30-10:30 与维修区间 [10:00, 11:00) 重叠，且正在执行
         stubPublishedPlan(List.of(planOp("OP-1", "M1", "2026-09-16T09:30:00+08:00",
                 "2026-09-16T10:30:00+08:00")));
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-1", "RUNNING")).thenReturn(Optional.of(new ExecutionRecord()));
+        ExecutionRecord running = new ExecutionRecord();
+        running.setOperationId("OP-1");
+        running.setStatus("RUNNING");
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(running));
         when(orderOperationRepository.findById("OP-1"))
                 .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
@@ -148,8 +153,7 @@ class ImpactCalculatorTest {
     void computeBreakdownImpacts_overlappingRepairWindow_notRunning_adjustable() {
         stubPublishedPlan(List.of(planOp("OP-1", "M1", "2026-09-16T09:30:00+08:00",
                 "2026-09-16T10:30:00+08:00")));
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-1", "RUNNING")).thenReturn(Optional.empty());
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
         when(orderOperationRepository.findById("OP-1"))
                 .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
@@ -205,8 +209,10 @@ class ImpactCalculatorTest {
         stubPublishedPlan(List.of(
                 planOp("OP-1", "M1", "2026-09-16T12:00:00+08:00", "2026-09-16T13:00:00+08:00"),
                 planOp("OP-2", "M2", "2026-09-16T10:00:00+08:00", "2026-09-16T11:00:00+08:00")));
-        when(executionRecordRepository.existsByOperationIdAndStatus("OP-1", "COMPLETED"))
-                .thenReturn(true);
+        ExecutionRecord completed = new ExecutionRecord();
+        completed.setOperationId("OP-1");
+        completed.setStatus("COMPLETED");
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(completed));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
 
@@ -229,8 +235,7 @@ class ImpactCalculatorTest {
         stubPublishedPlan(List.of(
                 planOp("OP-1", "M1", "2026-09-16T09:30:00+08:00", "2026-09-16T10:30:00+08:00"),
                 planOp("OP-2", "M2", "2026-09-16T14:00:00+08:00", "2026-09-16T15:00:00+08:00")));
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-1", "RUNNING")).thenReturn(Optional.empty());
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
         when(orderOperationRepository.findById("OP-1"))
                 .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
@@ -298,12 +303,108 @@ class ImpactCalculatorTest {
         EventImpact c = new EventImpact();
         c.setImpactType(ImpactCalculator.SUCCESSOR);
 
-        Map<String, Object> summary = impactCalculator.summarize(List.of(a, b, c));
+        ImpactSummaryResponse summary = impactCalculator.summarize(List.of(a, b, c));
 
-        assertEquals(3, summary.get("total"));
-        @SuppressWarnings("unchecked")
-        Map<String, Long> byType = (Map<String, Long>) summary.get("byType");
-        assertEquals(2L, byType.get(ImpactCalculator.SAME_MACHINE_CONFLICT));
-        assertEquals(1L, byType.get(ImpactCalculator.SUCCESSOR));
+        assertEquals(3, summary.total());
+        assertEquals(2L, summary.byType().get(ImpactCalculator.SAME_MACHINE_CONFLICT));
+        assertEquals(1L, summary.byType().get(ImpactCalculator.SUCCESSOR));
+    }
+
+    // ---- reschedulePreview（F-08 影响范围预览） ----
+
+    private EventImpact impact(String opId, String lockType) {
+        EventImpact impact = new EventImpact();
+        impact.setId("IMP-" + opId);
+        impact.setEventId("EVT-1");
+        impact.setOperationId(opId);
+        impact.setImpactType(ImpactCalculator.MACHINE_BREAKDOWN);
+        impact.setLockType(lockType);
+        return impact;
+    }
+
+    private static ReschedulePreviewResponse.ModeEstimate modeEstimates(
+            ReschedulePreviewResponse preview, String mode) {
+        return preview.modeEstimates().get(mode);
+    }
+
+    @Test
+    void reschedulePreview_computesLockCountsAndModeEstimates() {
+        // OP-1 加工中（硬锁定）；OP-2 在冻结窗口内且未受影响（硬锁定）；
+        // OP-3 受影响且未开始（局部可调）；OP-4 未受影响未开始（软锁定）；OP-9 为新订单工序（不在原计划内）
+        stubPublishedPlan(List.of(
+                planOp("OP-1", "M1", "2026-09-16T09:00:00+08:00", "2026-09-16T10:30:00+08:00"),
+                planOp("OP-2", "M2", "2026-09-16T10:10:00+08:00", "2026-09-16T11:00:00+08:00"),
+                planOp("OP-3", "M2", "2026-09-16T12:00:00+08:00", "2026-09-16T13:00:00+08:00"),
+                planOp("OP-4", "M3", "2026-09-16T14:00:00+08:00", "2026-09-16T15:00:00+08:00")));
+        ExecutionRecord running = new ExecutionRecord();
+        running.setOperationId("OP-1");
+        running.setStatus("RUNNING");
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(running));
+        when(eventImpactRepository.findByEventId("EVT-1"))
+                .thenReturn(List.of(impact("OP-3", "ADJUSTABLE"), impact("OP-9", "ADJUSTABLE")));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-3", "ORD-1", 2), orderOp("OP-9", "ORD-2", 1)));
+
+        ReschedulePreviewResponse preview = impactCalculator.reschedulePreview(breakdownEvent(60), null, null);
+
+        assertEquals("PV-1", preview.planVersionId());
+        assertEquals(30, preview.freezeWindowMinutes());
+        assertEquals(2, preview.hardLockedCount());
+        assertEquals(1, preview.softLockedCount());
+        assertEquals(2, preview.impactedOperationCount());
+        assertEquals(List.of("ORD-1", "ORD-2"), preview.impactedOrders());
+        assertEquals(2, preview.impactedOrderCount());
+        // 局部：影响集合内未开始工序 OP-3 + 新订单 OP-9
+        assertEquals(2, modeEstimates(preview, "LOCAL_RESCHEDULE").estimatedOperationCount());
+        // 完全：局部可调 + 软锁定 OP-4
+        assertEquals(3, modeEstimates(preview, "FULL_RESCHEDULE").estimatedOperationCount());
+    }
+
+    @Test
+    void reschedulePreview_zeroFreezeWindow_unfreezesFutureOps() {
+        stubPublishedPlan(List.of(
+                planOp("OP-2", "M2", "2026-09-16T10:10:00+08:00", "2026-09-16T11:00:00+08:00")));
+        when(eventImpactRepository.findByEventId("EVT-1")).thenReturn(List.of());
+
+        ReschedulePreviewResponse preview = impactCalculator.reschedulePreview(breakdownEvent(60), null, 0);
+
+        assertEquals(0, preview.hardLockedCount());
+        assertEquals(1, preview.softLockedCount());
+        assertEquals(0, modeEstimates(preview, "LOCAL_RESCHEDULE").estimatedOperationCount());
+        assertEquals(1, modeEstimates(preview, "FULL_RESCHEDULE").estimatedOperationCount());
+    }
+
+    @Test
+    void reschedulePreview_explicitPlanVersion_used() {
+        when(planVersionRepository.findById("PV-1")).thenReturn(Optional.of(publishedPlan()));
+        when(scheduleOperationRepository.findByPlanVersionId("PV-1")).thenReturn(List.of());
+        when(eventImpactRepository.findByEventId("EVT-1")).thenReturn(List.of());
+
+        ReschedulePreviewResponse preview = impactCalculator.reschedulePreview(breakdownEvent(60), "PV-1", null);
+
+        assertEquals("PV-1", preview.planVersionId());
+        assertEquals(0, preview.hardLockedCount());
+    }
+
+    @Test
+    void reschedulePreview_noPublishedPlan_stateConflict() {
+        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(List.of());
+
+        BizException e = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                () -> impactCalculator.reschedulePreview(breakdownEvent(60), null, null));
+
+        assertEquals("E_STATE_CONFLICT", e.getCode());
+    }
+
+    @Test
+    void reschedulePreview_freezeWindowOutOfRange_rejected() {
+        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(List.of(publishedPlan()));
+
+        BizException e = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                () -> impactCalculator.reschedulePreview(breakdownEvent(60), null, 1441));
+
+        assertEquals("E_VALIDATION", e.getCode());
     }
 }

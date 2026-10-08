@@ -31,6 +31,12 @@ public class AppUser {
     @Column(nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
+    /** JWT 失效版本号：停用/改角色/重置密码时递增，过滤器比对 JWT 中的 tv claim。
+     *  @ColumnDefault 让 ddl-auto=update 向非空表加列时带上 DEFAULT（否则 NOT NULL 加列失败）。 */
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private Integer tokenVersion = 0;
+
     public String getId() {
         return id;
     }
@@ -85,5 +91,13 @@ public class AppUser {
 
     public void setCreatedAt(OffsetDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Integer getTokenVersion() {
+        return tokenVersion != null ? tokenVersion : 0;
+    }
+
+    public void setTokenVersion(Integer tokenVersion) {
+        this.tokenVersion = tokenVersion;
     }
 }

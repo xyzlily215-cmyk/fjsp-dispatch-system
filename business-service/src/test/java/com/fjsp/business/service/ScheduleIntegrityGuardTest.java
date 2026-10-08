@@ -2,7 +2,6 @@ package com.fjsp.business.service;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.config.FjspProperties;
@@ -24,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /** 执行中（in_progress）工序的完整性校验：窗口以实际上报的开始时间为锚。 */
@@ -76,10 +76,10 @@ class ScheduleIntegrityGuardTest {
 
     private void runningRecord(String opId, OffsetDateTime actualStartAt) {
         ExecutionRecord record = new ExecutionRecord();
+        record.setOperationId(opId);
+        record.setStatus("RUNNING");
         record.setActualStartAt(actualStartAt);
-        when(executionRecordRepository.existsByOperationIdAndStatus(opId, "COMPLETED")).thenReturn(false);
-        when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(opId, "RUNNING"))
-                .thenReturn(Optional.of(record));
+        when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(record));
     }
 
     @Test

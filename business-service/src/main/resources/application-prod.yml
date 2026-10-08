@@ -13,3 +13,6 @@ spring:
 fjsp:
   auth:
     jwt-secret: ${FJSP_JWT_SECRET}
+  demo:
+    # 生产禁用 /demo/reset（防止清空业务数据）；Java 默认值已为 false，此处显式声明意图
+    enabled: false

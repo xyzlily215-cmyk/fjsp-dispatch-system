@@ -28,6 +28,12 @@ public class ExecutionRecord {
 
     private OffsetDateTime actualEndAt;
 
+    private OffsetDateTime occurredAt;
+
+    private String reasonCode;
+
+    private Integer deviationMinutes;
+
     @Column(length = 1000)
     private String remark;
 
@@ -83,6 +89,30 @@ public class ExecutionRecord {
 
     public void setActualEndAt(OffsetDateTime actualEndAt) {
         this.actualEndAt = actualEndAt;
+    }
+
+    public OffsetDateTime getOccurredAt() {
+        return occurredAt;
+    }
+
+    public void setOccurredAt(OffsetDateTime occurredAt) {
+        this.occurredAt = occurredAt;
+    }
+
+    public String getReasonCode() {
+        return reasonCode;
+    }
+
+    public void setReasonCode(String reasonCode) {
+        this.reasonCode = reasonCode;
+    }
+
+    public Integer getDeviationMinutes() {
+        return deviationMinutes;
+    }
+
+    public void setDeviationMinutes(Integer deviationMinutes) {
+        this.deviationMinutes = deviationMinutes;
     }
 
     public String getRemark() {
