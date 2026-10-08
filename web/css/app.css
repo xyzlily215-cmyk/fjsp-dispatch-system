@@ -10,6 +10,7 @@ button { cursor:pointer; }
 .menu { padding:10px 0 22px; }
 .menu-section { padding:14px 20px 6px; color:#69758a; font-size:12px; }
 .menu-item, .menu-parent { min-height:42px; display:flex; align-items:center; gap:10px; padding:0 20px; border-left:3px solid transparent; color:#c0c4cc; user-select:none; }
+a.menu-item { text-decoration:none; }
 .menu-item:hover, .menu-parent:hover { background:var(--nav-hover); color:#fff; }
 .menu-item.active { border-left-color:var(--blue); background:#1f2e46; color:#fff; }
 .menu-parent { justify-content:space-between; cursor:pointer; }
