@@ -56,6 +56,26 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 ./scripts/smoke-test.sh                            # 全流程冒烟测试
 ```
 
+## 测试矩阵
+
+`mvn test` 一次运行全部测试：Mockito 单元测试 + `@WebMvcTest` 安全矩阵 + Testcontainers 集成测试（`*IT`，真实 PostgreSQL 容器，Flyway 真实执行 V1-V4）。
+
+> 前提：本机 Docker 可用，且 postgres:16 镜像已在本地（Testcontainers 无法访问 Docker Hub 时无法拉取）。本仓库在 `src/test/resources/docker-java.properties` 固定 docker-java API 版本（Docker Desktop 最低支持 1.40，docker-java 默认 1.24），并在 surefire 配置中禁用 Ryuk（适配无法访问 Docker Hub 的环境，JVM 退出时 shutdown hook 仍会清理容器）。
+
+评审 15 个集成场景的覆盖对照：
+
+| # | 场景 | 覆盖位置 |
+|---|---|---|
+| 1-5 | 创建事件 → 影响计算 → 生成任务 → 生成计划 → 提交审核 | smoke-test.sh §2-6、e2e-api-check.mjs §4-9 |
+| 6-8 | 驳回并修订 → 再提交 → 审核通过 | smoke-test.sh §15-17 |
+| 9-11 | 发布计划 → 执行反馈 → 事件触发重调度 | smoke-test.sh §4-8、e2e §7-10 |
+| 12 | 并发发布同一计划 | smoke-test.sh §9（API 层）、`ConcurrentPublishIT`（真实 DB 乐观锁） |
+| 13 | 幂等键重复请求 | smoke-test.sh §2b/2c、`TransactionRollbackIT`（唯一约束真实生效） |
+| 14 | 事务中途失败回滚 | `TransactionRollbackIT` |
+| 15 | 服务重启后任务恢复 | `TaskRecoveryIT`（真实库残留 RUNNING 转重试、PENDING 重投递） |
+
+另有 `FlywaySchemaIT`（迁移脚本与实体映射回归：4 条迁移全 success、18 张表、V4 索引存在）和 `JsonbMappingIT`（jsonb 读写往返、分页 total 正确性）。
+
 ## 配置项（FjspProperties，@Validated 启动校验）
 
 默认值的唯一来源是 `config/FjspProperties.java` 的字段初始值；YAML 只做覆盖。Duration 类型支持 `30s`/`15m`/`8h` 写法。
