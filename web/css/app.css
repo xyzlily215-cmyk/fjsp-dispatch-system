@@ -4,7 +4,8 @@ body { margin:0; color:var(--ink); background:var(--bg); font:14px/1.5 -apple-sy
 button,input,select { font:inherit; }
 button { cursor:pointer; }
 .app { display:flex; min-height:100vh; }
-.sidebar { width:220px; background:var(--nav); color:#c0c4cc; flex:none; height:100vh; overflow-y:auto; position:sticky; top:0; }
+.sidebar { width:220px; background:var(--nav); color:#c0c4cc; flex:none; height:100vh; overflow-y:auto; position:sticky; top:0; scrollbar-width:none; }
+.sidebar::-webkit-scrollbar { display:none; }
 .brand { height:64px; display:flex; align-items:center; gap:11px; color:#fff; padding:0 18px; border-bottom:1px solid rgba(255,255,255,.08); font-size:15px; font-weight:600; }
 .brand-mark { display:grid; place-items:center; width:28px; height:28px; color:#fff; font-size:16px; border-radius:4px; background:var(--blue); }
 .menu { padding:10px 0 22px; }
@@ -23,6 +24,7 @@ a.menu-item { text-decoration:none; }
 .submenu .menu-item { min-height:38px; padding-left:49px; font-size:13px; }
 .main { min-width:0; flex:1; }
 .topbar { height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:#fff; border-bottom:1px solid var(--line); }
+.topbar-left { display:flex; align-items:center; gap:12px; }
 .crumb { color:#606266; }.crumb b { color:#303133; font-weight:500; }.crumb span { margin:0 8px; color:#c0c4cc; }
 .top-actions { display:flex; align-items:center; gap:16px; color:#606266; }.top-link { border:0; background:transparent; color:#606266; padding:6px; }.avatar { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:#d9ecff; color:#409eff; font-size:12px; }.operator { display:flex; align-items:center; gap:7px; }
 .content { padding:20px 24px 34px; max-width:1780px; margin:auto; }

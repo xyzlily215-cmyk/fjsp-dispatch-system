@@ -2,19 +2,31 @@
 const Pages = {};           // pageId -> { meta: [section, title], render(el, params) }
 let currentPage = null;
 let currentParams = null;
+const navHistory = [];      // 返回按钮用的页面历史栈（仅前进导航入栈）
 
 function registerPage(id, meta, render) { Pages[id] = { meta, render }; }
 
-function goTo(page, params) {
+function goTo(page, params, viaBack) {
   if (!Pages[page]) { toast('页面不存在：' + page, 'error'); return; }
+  if (currentPage && currentPage !== page && !viaBack) {
+    navHistory.push({ page: currentPage, params: currentParams });
+  }
   currentPage = page; currentParams = params || null;
   document.querySelectorAll('.page-panel').forEach(p => p.classList.remove('active'));
   document.getElementById(page).classList.add('active');
   document.querySelectorAll('.menu-item').forEach(i => i.classList.toggle('active', i.dataset.page === page));
   const m = Pages[page].meta;
   document.getElementById('breadcrumb').innerHTML = '<b>' + esc(m[0]) + '</b><span>/</span>' + esc(m[1]);
+  // 调度看板是首页，不显示返回按钮
+  document.getElementById('backBtn').style.display = page === 'board' ? 'none' : '';
   window.scrollTo({ top: 0 });
   renderCurrent();
+}
+
+function goBack() {
+  const prev = navHistory.pop();
+  if (prev && Pages[prev.page]) goTo(prev.page, prev.params, true);
+  else goTo('board');
 }
 
 function renderCurrent() {
@@ -84,6 +96,7 @@ const App = {
       document.querySelectorAll('.menu-parent').forEach(p => {
         p.addEventListener('click', () => p.classList.toggle('collapsed'));
       });
+      document.getElementById('backBtn').addEventListener('click', goBack);
       this.listenersBound = true;
     }
     Auth.renderUserBadge();
