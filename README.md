@@ -1,6 +1,6 @@
 # 动态柔性车间生产调度与仿真决策系统
 
-这是一个面向比赛演示的动态柔性车间生产调度与仿真决策系统，包含：
+这是本科毕业设计项目「动态柔性车间生产调度与仿真决策系统」，包含：
 
 - `algorithm-service/`：Python/FastAPI 调度算法服务；
 - `business-service/`：Java/Spring Boot 业务服务，负责数据、事件、计划版本、审核发布和执行反馈；
@@ -32,6 +32,12 @@ cp .env.example .env
 FJSP_START_AGH=0 ./scripts/start-demo.sh
 ```
 
+不经脚本单独操作 PostgreSQL 的 Compose 配置时，需显式指定 env 文件（`deploy/docker-compose.yml` 中数据库名/用户/密码为 `:?` 必填变量，缺失会直接报错；端口仅绑定到 127.0.0.1）：
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
+```
+
 ## 验证与证据
 
 ```bash
@@ -41,8 +47,18 @@ FJSP_START_AGH=0 ./scripts/start-demo.sh
 # 业务全流程冒烟测试
 ./scripts/run-smoke-test.sh
 
-# 前端依赖的 API 字段契约检查
+# ⚠️ 前端依赖的 API 字段契约检查；会先调用 POST /demo/reset 清空并重建演示数据，
+#    请勿在含手工录入数据的环境运行
 ./scripts/run-e2e.sh
+
+# 核心 SQL 性能基线：对关键查询跑 EXPLAIN ANALYZE，输出扫描方式与耗时，用于对比索引生效前后
+./scripts/perf-baseline.sh
+
+# 基础数据写接口冒烟（正例 + 负例校验）
+bash web/scripts/crud-check.sh
+
+# 前端（8082）跨域访问业务服务（8081）的 CORS 检查
+bash web/scripts/ui-check.sh
 
 # 采集健康检查、核心接口和服务头信息；默认输出到 /tmp
 ./scripts/collect-evidence.sh
@@ -63,13 +79,17 @@ FJSP_START_AGH=0 ./scripts/start-demo.sh
 | 用户名 | 角色 | 权限要点 |
 |---|---|---|
 | dispatcher | DISPATCHER 调度员 | 创建/重试/取消任务、登记事件、提交审核 |
-| reviewer | REVIEWER 审核员 | 审核/驳回计划版本 |
+| reviewer | REVIEWER 审核员 | 审核/驳回计划版本、回滚已替代（SUPERSEDED）历史版本 |
 | manager | PRODUCTION_MANAGER 生产主管 | 发布计划版本、执行反馈 |
 | admin | ADMIN 管理员 | 全部权限（含基础数据维护、demo/reset） |
 
 JWT 密钥走 `FJSP_JWT_SECRET`（见 `.env.example`，不设置时使用仅开发用默认值，有效期默认 8h）。角色-端点完整矩阵见 [`business-service/README.md`](business-service/README.md)。
 
+> ⚠️ 上述种子账号密码与 Flyway V3 迁移写入生产库的初始密码是同一个（`Fj@123456`），生产部署后必须立即改密。`prod` profile 下 `UserSeedRunner` 不再使用内置演示密码：初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失则启动失败。登录接口有防爆破保护：同一账号连续失败 5 次锁定 10 分钟，锁定期内返回 429。
+
 ## 配置与安全
+
+`POST /api/v1/demo/reset` 由配置项 `fjsp.demo.enabled` 控制（默认 `false`，`application-local.yml` 中显式开启供本地演示与脚本使用，关闭时返回 403）；重置只清空业务表并重新导入种子数据，`audit_log` 审计日志保留。
 
 不要把 `.env`、数据库密码或 AGH API Key 提交到 Git。复制 `.env.example` 后填写本地值；`scripts/check-env.sh` 会拒绝使用示例密码，并且不会打印密码或 API Key。
 
