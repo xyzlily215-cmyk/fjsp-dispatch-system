@@ -10,7 +10,7 @@ load_demo_env
 require_command curl
 require_command docker
 require_command python3
-wait_for_url "$FJSP_API_BASE/machines" "业务服务" 30
+wait_for_readiness "$FJSP_READINESS_URL" "业务服务" 30
 demo_auth_login
 
 OUT_DIR="${1:-${TMPDIR:-/tmp}/fjsp-evidence-$(date +%Y%m%d-%H%M%S)}"

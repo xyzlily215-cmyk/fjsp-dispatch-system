@@ -1,13 +1,14 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16.15
     container_name: fjsp-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${FJSP_DB_NAME:?FJSP_DB_NAME is required}
       POSTGRES_USER: ${FJSP_DB_USER:?FJSP_DB_USER is required}
       POSTGRES_PASSWORD: ${FJSP_DB_PASSWORD:?FJSP_DB_PASSWORD is required}
     ports:
-      - "${FJSP_DB_PORT:-5432}:5432"
+      - "127.0.0.1:${FJSP_DB_PORT:-5432}:5432"
     volumes:
       - fjsp-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +16,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+      start_period: 10s
 
 volumes:
   fjsp-pgdata:

@@ -16,14 +16,19 @@ require_command docker
 PG_CONTAINER="${PG_CONTAINER:-fjsp-postgres}"
 LABEL="${1:-baseline}"
 
+if [[ "$(docker inspect -f '{{.State.Running}}' "$PG_CONTAINER" 2>/dev/null || true)" != "true" ]]; then
+  printf '容器 %s 未运行，请先执行 ./scripts/start-demo.sh 启动演示环境。\n' "$PG_CONTAINER" >&2
+  exit 1
+fi
+
 PV_SQL="(SELECT id FROM plan_version ORDER BY created_at DESC LIMIT 1)"
 
 explain() {
   local name="$1" sql="$2" out scan time
   out="$(docker exec "$PG_CONTAINER" psql -U "$FJSP_DB_USER" -d "$FJSP_DB_NAME" -At \
     -c "${PG_FORCE_INDEX:+SET enable_seqscan=off;} EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF) $sql")"
-  scan="$(printf '%s\n' "$out" | grep -oE '(Seq Scan|Index Scan|Index Only Scan|Bitmap Heap Scan)( backward)?( using [a-z0-9_]+)?' | head -1)"
-  time="$(printf '%s\n' "$out" | grep -oE 'Execution Time: [0-9.]+ ms' | head -1 | sed 's/Execution Time: //')"
+  scan="$(printf '%s\n' "$out" | awk 'match($0, /(Seq Scan|Index Scan|Index Only Scan|Bitmap Heap Scan)( backward)?( using [a-z0-9_]+)?/) { print substr($0, RSTART, RLENGTH); exit }')"
+  time="$(printf '%s\n' "$out" | awk '/Execution Time:/ { sub(/Execution Time: /, ""); print; exit }')"
   printf '| %s | %s | %s |\n' "$name" "${scan:-?}" "${time:-?}"
 }
 

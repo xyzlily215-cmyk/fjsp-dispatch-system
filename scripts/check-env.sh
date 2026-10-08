@@ -30,6 +30,18 @@ if [[ "${FJSP_DB_PASSWORD}" == "change-this-password" ]]; then
   exit 1
 fi
 
+# 生产 profile（SPRING_PROFILES_ACTIVE=prod）下 JWT 密钥强制来自环境变量且不得为开发默认值
+if [[ "${SPRING_PROFILES_ACTIVE:-}" == "prod" ]]; then
+  if [[ -z "${FJSP_JWT_SECRET:-}" ]]; then
+    printf 'SPRING_PROFILES_ACTIVE=prod 时必须设置 FJSP_JWT_SECRET。\n' >&2
+    exit 1
+  fi
+  if [[ "$FJSP_JWT_SECRET" == "dev-only-insecure-jwt-secret-do-not-use-in-prod" ]]; then
+    printf 'FJSP_JWT_SECRET 仍为 application-local.yml 的开发默认值，prod 环境必须使用独立密钥。\n' >&2
+    exit 1
+  fi
+fi
+
 printf '环境变量检查通过。\n'
 printf '数据库: %s@%s:%s/%s\n' \
   "${FJSP_DB_USER:-fjsp}" \

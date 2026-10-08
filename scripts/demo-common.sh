@@ -22,6 +22,7 @@ load_demo_env() {
   export FJSP_ALGORITHM_PORT="${FJSP_ALGORITHM_PORT:-8101}"
   export FJSP_ALGORITHM_BASE_URL="${FJSP_ALGORITHM_BASE_URL:-http://localhost:${FJSP_ALGORITHM_PORT}}"
   export FJSP_API_BASE="${FJSP_API_BASE:-http://localhost:8081/api/v1}"
+  export FJSP_READINESS_URL="${FJSP_READINESS_URL:-${FJSP_API_BASE%/api/v1}/actuator/health/readiness}"
   export FJSP_WEB_PORT="${FJSP_WEB_PORT:-8082}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
   export FJSP_START_AGH="${FJSP_START_AGH:-1}"
@@ -38,6 +39,7 @@ require_command() {
 
 pid_file() { printf '%s/%s.pid' "$RUNTIME_DIR" "$1"; }
 log_file() { printf '%s/%s.log' "$RUNTIME_DIR" "$1"; }
+compose_marker_file() { printf '%s/compose.started' "$RUNTIME_DIR"; }
 
 process_command() {
   ps -p "$1" -o command= 2>/dev/null || true
@@ -102,6 +104,24 @@ wait_for_url() {
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$url" 2>/dev/null || true)"
     # 2xx/3xx 就绪；401 同样说明服务已在响应（认证层拦截，属正常就绪信号）
     if [[ "$code" =~ ^[23][0-9][0-9]$ ]] || [[ "$code" == "401" ]]; then
+      printf '[就绪] %s: %s\n' "$label" "$url"
+      return 0
+    fi
+    sleep 1
+  done
+  printf '[超时] %s 未就绪: %s\n' "$label" "$url" >&2
+  return 1
+}
+
+# 业务服务就绪判断：轮询 /actuator/health/readiness，要求 HTTP 200 且聚合 status=UP
+# （readiness 分组含 db/flyway，就绪即代表迁移完成、数据库可连接）
+wait_for_readiness() {
+  local url="$1" label="$2" timeout="${3:-60}"
+  local end=$((SECONDS + timeout))
+  while (( SECONDS < end )); do
+    if curl -fsS --max-time 3 "$url" 2>/dev/null \
+        | python3 -c 'import sys,json; sys.exit(0 if json.load(sys.stdin).get("status") == "UP" else 1)' \
+            2>/dev/null; then
       printf '[就绪] %s: %s\n' "$label" "$url"
       return 0
     fi

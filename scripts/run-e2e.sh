@@ -9,6 +9,7 @@ load_demo_env
 
 "$SCRIPT_DIR/check-env.sh"
 require_command node
-wait_for_url "$FJSP_API_BASE/machines" "业务服务" 30
+require_command python3
+wait_for_readiness "$FJSP_READINESS_URL" "业务服务" 30
 export FJSP_API="$FJSP_API_BASE"
 exec node "$ROOT_DIR/web/scripts/e2e-api-check.mjs"
