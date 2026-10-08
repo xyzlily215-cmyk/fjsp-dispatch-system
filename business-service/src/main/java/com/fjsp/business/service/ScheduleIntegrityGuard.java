@@ -106,9 +106,15 @@ public class ScheduleIntegrityGuard {
                 ExecutionRecord record = running.get();
                 if (cand == null) {
                     violations.add(opId + "(执行中工序被移除)");
-                } else if (!old.getMachineId().equals(cand.getMachineId())
-                        || !sameInstant(old.getStartAt(), cand.getStartAt())) {
-                    violations.add(opId + "(执行中工序的机台/开始时间被修改)");
+                } else if (!old.getMachineId().equals(cand.getMachineId())) {
+                    violations.add(opId + "(执行中工序的机台被修改)");
+                } else if (record.getActualStartAt() != null
+                        && !sameInstant(record.getActualStartAt(), cand.getStartAt())) {
+                    // 实际开工即事实：候选窗口必须以实际上报的开始时间为锚
+                    violations.add(opId + "(执行中工序的开始时间与实际上报不一致)");
+                } else if (record.getActualStartAt() == null
+                        && !sameInstant(old.getStartAt(), cand.getStartAt())) {
+                    violations.add(opId + "(执行中工序的开始时间被修改)");
                 } else if (record.getActualStartAt() != null
                         && cand.getEndAt().isBefore(record.getActualStartAt())) {
                     violations.add(opId + "(执行中工序的结束时间早于实际开始时间)");

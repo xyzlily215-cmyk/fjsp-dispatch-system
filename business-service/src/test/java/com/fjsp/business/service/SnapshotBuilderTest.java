@@ -215,8 +215,11 @@ class SnapshotBuilderTest {
         when(eventImpactRepository.findByEventId("EVT-1")).thenReturn(List.of());
         when(executionRecordRepository.existsByOperationIdAndStatus("OP-DONE", "COMPLETED"))
                 .thenReturn(true);
+        ExecutionRecord runningRecord = new ExecutionRecord();
+        // 实际开工（09:45）晚于计划完工（09:30）——触发 actualStartAtMinutes 传递
+        runningRecord.setActualStartAt(OffsetDateTime.parse("2026-09-16T09:45:00+08:00"));
         when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
-                "OP-RUN", "RUNNING")).thenReturn(Optional.of(new ExecutionRecord()));
+                "OP-RUN", "RUNNING")).thenReturn(Optional.of(runningRecord));
         when(executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(
                 "OP-FROZEN", "RUNNING")).thenReturn(Optional.empty());
 
@@ -239,6 +242,8 @@ class SnapshotBuilderTest {
         assertEquals("completed", byOp.get("OP-DONE").get("lockType"));
         // 执行中工序锁定，不能越过冻结窗口
         assertEquals("in_progress", byOp.get("OP-RUN").get("lockType"));
+        // 执行中工序携带实际开工时间，供算法锚定窗口
+        assertEquals(105L, byOp.get("OP-RUN").get("actualStartAtMinutes"));
         // 冻结窗口内开工的工序被冻结
         assertEquals("frozen", byOp.get("OP-FROZEN").get("lockType"));
         // 窗口外工序软锁定（允许微调）

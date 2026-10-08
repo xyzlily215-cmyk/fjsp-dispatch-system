@@ -68,6 +68,8 @@ class LockingIn(BaseModel):
     endAtMinutes: Optional[int] = None
     startAt: Optional[datetime] = None
     endAt: Optional[datetime] = None
+    # in_progress 专用：实际开工时间（分钟）。实际开工是事实，锁定窗口以此为锚
+    actualStartAtMinutes: Optional[int] = None
     changeoverMinutes: int = Field(default=0, ge=0)
     softLocked: Optional[bool] = None
 

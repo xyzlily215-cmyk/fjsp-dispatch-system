@@ -178,6 +178,33 @@ hasFields(diff.summary, ['comparedOperations', 'addedOperations', 'removedOperat
 hasFields(diff.operations[0], ['operationId', 'timeShiftMinutes', 'machineChanged', 'sequenceChanged',
   'oldMachineId', 'newMachineId', 'oldStartAt', 'newStartAt', 'frozen', 'reasonCode', 'impactType'], 'diff.operations[0]');
 
+// 10b. 回归：实际开工晚于计划完工的执行中工序，重调度必须成功且窗口锚定实际开工
+// （用 FULL_RESCHEDULE：迟到开工意味着旧计划局部已失真，LOCAL 模式的等值固定会与顺延窗口冲突）
+console.log('== 回归：迟到开工的 in_progress 重调度 ==');
+const opLate = pvOps[1];
+const lateActualStart = new Date(new Date(opLate.endAt).getTime() + 10 * 60000);
+await call(`/operations/${encodeURIComponent(opLate.operationId)}/execution`, {
+  method: 'POST', body: { status: 'RUNNING', actualStartAt: lateActualStart.toISOString() },
+});
+const bd2Machine = ['M-01', 'M-02', 'M-04', 'M-05', 'M-06', 'M-07', 'M-08']
+  .find(m => m !== opLate.machineId);
+const bd2 = await call('/events/breakdowns', {
+  method: 'POST',
+  body: { machineId: bd2Machine, occurredAt: relIso(26 * 60), repairDurationMinutes: 60, source: 'e2e', note: 'e2e 回归故障' },
+});
+const rs2 = await call('/schedule-tasks', {
+  method: 'POST',
+  body: { mode: 'FULL_RESCHEDULE', oldPlanVersionId: pvId, eventId: bd2.eventId },
+});
+const rs2Task = await waitTask(rs2.taskId, '回归重调度任务');
+assert(rs2Task.status === 'SUCCESS', `迟到开工场景重调度成功（实际 ${rs2Task.status}）`);
+const rs2Ops = await call(`/plan-versions/${rs2Task.planVersionId}/operations?size=5000`);
+const lateOp = rs2Ops.items.find(o => o.operationId === opLate.operationId);
+assert(lateOp, '新方案含迟到工序');
+assert(new Date(lateOp.startAt).getTime() === lateActualStart.getTime(),
+  `迟到工序 start 锚定实际开工（实际 ${lateOp.startAt}，期望 ${lateActualStart.toISOString()}）`);
+assert(new Date(lateOp.endAt) > lateActualStart, '迟到工序 end 晚于实际开工');
+
 // 11. 插单事件
 console.log('== 插单事件 ==');
 const io = await call('/events/new-orders', {

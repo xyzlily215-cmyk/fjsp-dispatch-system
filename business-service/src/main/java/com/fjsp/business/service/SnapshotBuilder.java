@@ -111,8 +111,9 @@ public class SnapshotBuilder {
             for (ScheduleOperation op : oldOps) {
                 String opId = op.getOperationId();
                 boolean completed = executionRecordRepository.existsByOperationIdAndStatus(opId, "COMPLETED");
-                boolean inProgress = !completed && executionRecordRepository
-                        .findFirstByOperationIdAndStatusAndActualEndAtIsNull(opId, "RUNNING").isPresent();
+                var running = completed ? java.util.Optional.<ExecutionRecord>empty()
+                        : executionRecordRepository.findFirstByOperationIdAndStatusAndActualEndAtIsNull(opId, "RUNNING");
+                boolean inProgress = running.isPresent();
                 boolean frozen = !completed && !inProgress && !affected.contains(opId)
                         && !op.getStartAt().isBefore(freezeStart)
                         && op.getStartAt().isBefore(freezeStart.plusMinutes(freezeWindowMinutes));
@@ -124,6 +125,9 @@ public class SnapshotBuilder {
                     lock.put("startAtMinutes", minutesBetween(simStart, op.getStartAt()));
                     lock.put("endAtMinutes", minutesBetween(simStart, op.getEndAt()));
                     lock.put("changeoverMinutes", op.getChangeoverMinutes());
+                    if (inProgress && running.get().getActualStartAt() != null) {
+                        lock.put("actualStartAtMinutes", minutesBetween(simStart, running.get().getActualStartAt()));
+                    }
                 } else if (!affected.contains(opId)) {
                     lock.put("lockType", "soft");
                     lock.put("softLocked", true);

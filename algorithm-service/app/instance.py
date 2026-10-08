@@ -253,6 +253,15 @@ def build_problem(req, conflicts):
                 "suggestion": "硬锁定工序必须提供 machineId 与固定起止时间",
             })
             continue
+        if lt == "in_progress" and lk.actualStartAtMinutes is not None:
+            # 实际开工即事实：窗口锚定到 actualStart，结束时间按剩余工时顺延。
+            # 剩余工时 = 计划加工时长 - 已进行时长；假设迟到反馈≈刚开工，elapsed 近似进度；
+            # 超期仍在加工的至少保留 1 分钟余量。
+            actual = lk.actualStartAtMinutes
+            planned_proc = max(0, end - start)
+            elapsed = max(0, actual - start)
+            remaining = max(1, planned_proc - elapsed)
+            start, end = actual, actual + remaining
         hard_locks[lk.operationId] = (lk.machineId, start, end, lk.changeoverMinutes, lt)
 
     if any(c["severity"] == "ERROR" for c in conflicts):
@@ -272,6 +281,9 @@ def build_problem(req, conflicts):
             existing = hard_locks.get(op.operation_id)
             if existing is None:
                 hard_locks[op.operation_id] = (machine, start, end, co, "frozen")
+            elif existing[4] == "in_progress":
+                # 执行中工序的窗口以 actualStart 锚定，允许与旧计划不同
+                continue
             elif existing[0] != machine or existing[1] != start or existing[2] != end:
                 conflicts.append({
                     "rule": "LOCKING_INCONSISTENT",
