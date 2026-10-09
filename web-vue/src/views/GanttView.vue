@@ -1,7 +1,6 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载计划版本…</div></div>
-  <ErrorBox v-else-if="error" :error="error" :title="errorTitle" />
-  <div v-else-if="!versions.length">
+  <AsyncPage :loading="loading" :error="error" :error-title="errorTitle" loading-text="正在加载计划版本…" :empty="!versions.length">
+    <template #empty>
     <div class="page-header">
       <div><h1>甘特图</h1><p>按设备或订单查看计划版本的工序排布</p></div>
     </div>
@@ -10,8 +9,7 @@
         <button class="btn primary" @click="router.push({ name: 'baseline' })">去创建基线排程</button>
       </EmptyScreen>
     </section>
-  </div>
-  <div v-else>
+    </template>
     <div class="page-header">
       <div><h1>甘特图</h1><p>资源视图按设备行渲染，订单视图按订单工艺链渲染；点击工序条可在两视图间联动定位</p></div>
       <div class="buttons">
@@ -43,7 +41,7 @@
         :dash="dash" :view="view" :focus-op="focusOp" @op-click="onOpClick" />
       <EmptyScreen v-else title="该版本没有工序明细" />
     </section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

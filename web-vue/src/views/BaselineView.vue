@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载订单…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="订单加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="订单加载失败" loading-text="正在加载订单…">
     <div class="page-header">
       <div><h1>基线排程</h1><p>选择待排订单并配置算法参数，创建 BASELINE 求解任务</p></div>
     </div>
@@ -55,7 +53,7 @@
         </div>
       </section>
     </div>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

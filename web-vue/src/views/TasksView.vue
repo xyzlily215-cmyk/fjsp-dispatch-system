@@ -1,7 +1,6 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载任务列表…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="任务列表加载失败" />
-  <template v-else-if="emptyAll">
+  <AsyncPage :loading="loading" :error="error" error-title="任务列表加载失败" loading-text="正在加载任务列表…" :empty="emptyAll">
+    <template #empty>
     <div class="page-header">
       <div><h1>调度任务</h1><p>算法求解任务的进度与结果</p></div>
     </div>
@@ -10,8 +9,7 @@
         <button class="btn primary" @click="goBaseline">去创建基线排程</button>
       </EmptyScreen>
     </section>
-  </template>
-  <template v-else>
+    </template>
     <div class="page-header">
       <div><h1>调度任务</h1><p>算法求解任务的进度与结果，进行中的任务经 SSE 实时推送，断线自动回退 3 秒轮询</p></div>
       <div class="buttons">
@@ -101,7 +99,7 @@
         </template>
       </section>
     </div>
-  </template>
+  </AsyncPage>
 </template>
 
 <script setup>

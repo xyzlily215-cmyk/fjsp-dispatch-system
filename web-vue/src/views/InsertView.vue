@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载工艺模板…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="工艺模板加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="工艺模板加载失败" loading-text="正在加载工艺模板…">
     <div class="page-header">
       <div>
         <h1>{{ reviseFrom ? '修订插单事件' : '订单插单' }}</h1>
@@ -74,7 +72,7 @@
         <p v-else class="muted">提交事件后在此展示影响集合摘要与重调度入口。</p>
       </div></section>
     </div>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

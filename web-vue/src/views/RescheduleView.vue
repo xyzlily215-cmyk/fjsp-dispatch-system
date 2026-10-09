@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载计划版本与事件…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="向导数据加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="向导数据加载失败" loading-text="正在加载计划版本与事件…">
     <div class="page-header">
       <div><h1>重调度向导</h1>
         <p>基于原计划与事件生成候选重调度方案；已完成、加工中与冻结窗口内工序硬锁定不可变更</p></div>
@@ -51,9 +49,8 @@
             @change="wizard.freezeWindowMinutes = $event.target.value">
           <button class="btn small" @click="reloadPreview">重新预览</button>
         </div>
-        <div v-if="previewLoading" class="loading-block"><div class="spin"></div><div>正在计算影响范围…</div></div>
-        <ErrorBox v-else-if="previewError" :error="previewError" title="影响范围预览失败" />
-        <template v-else-if="wizard.preview">
+        <AsyncPage :loading="previewLoading" :error="previewError" error-title="影响范围预览失败"
+          loading-text="正在计算影响范围…" :empty="!wizard.preview">
           <div class="impact-kpis">
             <div class="impact-kpi"><span>硬锁定工序</span><b>{{ wizard.preview.hardLockedCount ?? 0 }}</b></div>
             <div class="impact-kpi"><span>软锁定工序</span><b>{{ wizard.preview.softLockedCount ?? 0 }}</b></div>
@@ -81,7 +78,7 @@
               </tbody>
             </table>
           </div>
-        </template>
+        </AsyncPage>
       </div>
 
       <!-- 第 4 步：模式与参数 -->
@@ -136,33 +133,24 @@
         <button v-show="wizard.step < WIZARD_STEPS.length - 1" class="btn primary" @click="next">下一步 &rarr;</button>
       </div>
     </div></section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Api } from '../api';
 import { toast } from '../utils/ui';
 import { fmtDateTime, statusTagInfo, impactText, reasonText } from '../utils/format';
 import { useSharedStore } from '../stores/shared';
+import { useRescheduleStore } from '../stores/reschedule';
+import AsyncPage from '../components/AsyncPage.vue';
 import ErrorBox from '../components/ErrorBox.vue';
 
 const WIZARD_STEPS = ['选择原计划', '选择事件', '影响范围预览', '模式与参数', '确认提交'];
 
-/* 模块级向导状态：跨页面访问保留步骤/模式/参数（对齐旧版 pages-events.js 的 Wizard 单例） */
-const wizard = reactive({
-  step: 0,
-  planVersionId: null,
-  eventId: null,
-  preview: null,
-  previewDetail: null,
-  previewKey: '',
-  mode: 'BOTH',
-  freezeWindowMinutes: '',
-  timeLimitSeconds: 30,
-  weights: { weightedTardiness: 0.4, makespan: 0.3, deltaPlan: 0.2, machineChange: 0.1 },
-});
+/* 向导状态在 Pinia（src/stores/reschedule.js）：跨页面访问保留步骤/模式/参数，生命周期同旧模块级单例 */
+const { wizard } = useRescheduleStore();
 
 const route = useRoute();
 const router = useRouter();

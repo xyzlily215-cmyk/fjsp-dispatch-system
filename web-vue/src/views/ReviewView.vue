@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载审核队列…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="版本列表加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="版本列表加载失败" loading-text="正在加载审核队列…">
     <div class="page-header">
       <div><h1>待审核方案</h1><p>审核候选计划版本并发布为车间执行计划</p></div>
       <div class="buttons"><button class="btn" @click="load">&#8635; 刷新队列</button></div>
@@ -63,7 +61,7 @@
         <div v-else class="empty-screen">没有需要处理的方案</div>
       </section>
     </div>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

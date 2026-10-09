@@ -1,7 +1,6 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载当前执行计划…</div></div>
-  <ErrorBox v-else-if="error" :error="error" :title="errorTitle" />
-  <div v-else-if="!dashboard.currentPlan">
+  <AsyncPage :loading="loading" :error="error" :error-title="errorTitle" loading-text="正在加载当前执行计划…" :empty="!dashboard.currentPlan">
+    <template #empty>
     <div class="page-header">
       <div><h1>实际执行反馈</h1><p>对当前发布计划的工序提交实际执行状态</p></div>
     </div>
@@ -10,8 +9,7 @@
         <button class="btn primary" @click="router.push({ name: 'review' })">去审核发布</button>
       </EmptyScreen>
     </section>
-  </div>
-  <div v-else>
+    </template>
     <div class="page-header">
       <div><h1>实际执行反馈</h1><p>当前执行计划 {{ plan.versionCode }} 的工序执行状态反馈</p></div>
       <div class="buttons"><button class="btn" @click="load">&#8635; 刷新</button></div>
@@ -87,7 +85,7 @@
         </template>
       </div>
     </section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

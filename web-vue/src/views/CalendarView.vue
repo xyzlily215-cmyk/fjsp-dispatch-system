@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载设备日历…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="加载失败" loading-text="正在加载设备日历…">
     <div class="page-header">
       <div><h1>设备日历</h1><p>{{ withCal.length ? '班次（WORK）定义可用时间；不可用区间从可用时间中扣除；任何变更生成新版本，历史版本不改写' : '设备日历与不可用区间维护' }}</p></div>
       <div v-if="withCal.length" class="buttons">
@@ -109,7 +107,7 @@
         <button class="btn primary" :disabled="addDlg.busy" @click="saveInterval">保存</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

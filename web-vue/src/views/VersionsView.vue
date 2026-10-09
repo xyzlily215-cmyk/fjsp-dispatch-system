@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载版本…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="版本列表加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="版本列表加载失败" loading-text="正在加载版本…">
     <div class="page-header">
       <div><h1>计划版本</h1><p>不可变版本账本</p></div>
       <div class="buttons"><button class="btn" @click="load">&#8635; 刷新</button></div>
@@ -34,7 +32,7 @@
         </table>
       </div>
     </section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

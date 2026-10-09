@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载用户…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="用户列表加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="用户列表加载失败" loading-text="正在加载用户…">
     <div class="page-header">
       <div><h1>用户管理</h1><p>账号新增 / 编辑 / 启停 / 重置密码；停用后账号无法再登录</p></div>
       <div class="buttons">
@@ -86,7 +84,7 @@
         <button class="btn primary" :disabled="resetDlg.busy" @click="resetPassword">重置</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载设备…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="设备加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="设备加载失败" loading-text="正在加载设备…">
     <div class="page-header">
       <div>
         <h1>{{ reviseFrom ? '修订故障事件' : '设备故障' }}</h1>
@@ -100,7 +98,7 @@
       </div>
       <Pager :page="eventsPage" @change="onPage" />
     </section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

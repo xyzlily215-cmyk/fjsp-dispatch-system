@@ -1,11 +1,9 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载版本列表…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="版本列表加载失败" />
-  <div v-else-if="!versions.length">
+  <AsyncPage :loading="loading" :error="error" error-title="版本列表加载失败" loading-text="正在加载版本列表…" :empty="!versions.length">
+    <template #empty>
     <div class="page-header"><div><h1>方案对比</h1><p>对比两个计划版本的逐工序差异</p></div></div>
     <section class="card"><EmptyScreen title="暂无计划版本" text="先创建基线排程。" /></section>
-  </div>
-  <div v-else>
+    </template>
     <div class="page-header">
       <div><h1>方案对比</h1><p>基准版本与候选版本的 KPI 与逐工序差异</p></div>
       <div class="buttons">
@@ -102,7 +100,7 @@
         </div>
       </template>
     </section>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载配置…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="配置加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="配置加载失败" loading-text="正在加载配置…">
     <div class="page-header">
       <div><h1>基础字典维护</h1><p>键值型系统配置；每次修改生成新配置版本并即时生效，全程留审计</p></div>
       <div class="buttons"><button class="btn" @click="load">&#8635; 刷新</button></div>
@@ -42,7 +40,7 @@
         <button class="btn primary" :disabled="dlg.busy" @click="save">保存</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

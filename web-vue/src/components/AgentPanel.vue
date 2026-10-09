@@ -19,22 +19,14 @@
   </section>
 </template>
 
-<script>
+<script setup>
 /* 悬浮气泡 + 可移动/可调大小面板，iframe 嵌入 AGH（默认 4177，可用 ?agh= 覆盖）。
    气泡位置、面板尺寸、面板手动位置、开关状态均存 localStorage。
    面板位置策略：手动拖过 → 记住手动位置；未拖过 → 锚定气泡（上方优先，不够则下方）；
-   双击标题栏清除手动位置、恢复跟随气泡。 */
-import { reactive } from 'vue';
-
-export const agentPanel = reactive({ open: false });
-export function toggleAgentPanel(force) {
-  agentPanel.open = force !== undefined ? force : !agentPanel.open;
-  localStorage.setItem('fjsp.agentPanel.open', agentPanel.open ? '1' : '0');
-}
-</script>
-
-<script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+   双击标题栏清除手动位置、恢复跟随气泡。
+   开关状态单例 agentPanel / toggleAgentPanel 在 src/stores/agentPanel.js。 */
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { agentPanel, toggleAgentPanel } from '../stores/agentPanel';
 
 const base = (new URLSearchParams(location.search).get('agh')) || 'http://127.0.0.1:4177/';
 const open = computed(() => agentPanel.open);

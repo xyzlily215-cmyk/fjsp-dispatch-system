@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载设备…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="设备加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="设备加载失败" loading-text="正在加载设备…">
     <div class="page-header">
       <div><h1>设备管理</h1><p>车间设备清单与能力（新增 / 编辑 / 启停，停用后不进入新任务候选集）</p></div>
       <div class="buttons">
@@ -62,7 +60,7 @@
         <button class="btn primary" :disabled="dlg.busy" @click="save">{{ dlg.editing ? '保存' : '创建' }}</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

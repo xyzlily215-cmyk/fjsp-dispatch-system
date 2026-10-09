@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载订单…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="订单加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="订单加载失败" loading-text="正在加载订单…">
     <div class="page-header">
       <div><h1>订单管理</h1><p>生产订单与工序明细；已排程订单的工艺字段需走修订流程（原因必填，需重新排程生效）</p></div>
       <div class="buttons">
@@ -173,7 +171,7 @@
         <button class="btn primary" @click="revsDlg.visible = false">关闭</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

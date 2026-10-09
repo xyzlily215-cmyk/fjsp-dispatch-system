@@ -122,7 +122,6 @@ import ErrorBox from '../components/ErrorBox.vue';
 import EmptyScreen from '../components/EmptyScreen.vue';
 
 const BOARD_FILTERS_KEY = 'fjsp.board.filters';
-let boardCache = null; // { dash, versions } 最近一次成功响应（模块级，跨挂载保留，对齐旧版）
 
 function loadBoardFilters() {
   try {
@@ -172,7 +171,7 @@ async function load() {
     versions.value = v;
     // 指定版本时 Shared 保留全局"当前发布计划"语义，避免其他页面误读选中版本
     if (!filters.planVersionId) shared.dashboard = d;
-    boardCache = { dash: d, versions: v };
+    shared.boardCache = { dash: d, versions: v };
   } catch (e) {
     // 持久化选中的计划版本已被重置/删除：回退到当前发布计划并重试
     if (filters.planVersionId && e && e.code === 'E_NOT_FOUND') {
@@ -181,10 +180,10 @@ async function load() {
       loading.value = false;
       return load();
     }
-    if (boardCache) {
+    if (shared.boardCache) {
       // 超时/失败：保留最近一次成功数据
-      dash.value = boardCache.dash;
-      versions.value = boardCache.versions;
+      dash.value = shared.boardCache.dash;
+      versions.value = shared.boardCache.versions;
       loadError.value = e;
     } else {
       fatalError.value = e;

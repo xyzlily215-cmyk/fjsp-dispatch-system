@@ -54,7 +54,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, roleText } from '../stores/auth';
 import { useSharedStore } from '../stores/shared';
 import { esc } from '../utils/format';
-import AgentPanel, { toggleAgentPanel } from '../components/AgentPanel.vue';
+import AgentPanel from '../components/AgentPanel.vue';
+import { toggleAgentPanel } from '../stores/agentPanel';
 
 const route = useRoute();
 const router = useRouter();

@@ -1,7 +1,5 @@
 <template>
-  <div v-if="loading" class="loading-block"><div class="spin"></div><div>正在加载工艺模板…</div></div>
-  <ErrorBox v-else-if="error" :error="error" title="工艺模板加载失败" />
-  <div v-else>
+  <AsyncPage :loading="loading" :error="error" error-title="工艺模板加载失败" loading-text="正在加载工艺模板…">
     <div class="page-header">
       <div><h1>工艺模板</h1><p>产品族工艺路线与候选设备；启用前校验工序完整性</p></div>
       <div class="buttons">
@@ -73,7 +71,7 @@
         <button class="btn primary" :disabled="dlg.busy" @click="save">创建并启用</button>
       </template>
     </el-dialog>
-  </div>
+  </AsyncPage>
 </template>
 
 <script setup>

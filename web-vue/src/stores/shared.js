@@ -5,6 +5,7 @@ import { Api } from '../api';
 export const useSharedStore = defineStore('shared', {
   state: () => ({
     dashboard: null,          // 当前发布计划、看板缓存
+    boardCache: null,         // 看板页最近一次成功响应 { dash, versions }（跨挂载保留，自 BoardView 模块级迁入）
     ganttVersionId: null,     // 甘特预选版本
     ganttView: null,          // 甘特视图：resource / order
     ganttFocusOp: null,       // 跨视图联动定位的目标工序
