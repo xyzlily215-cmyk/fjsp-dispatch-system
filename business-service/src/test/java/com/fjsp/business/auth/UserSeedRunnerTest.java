@@ -68,6 +68,21 @@ class UserSeedRunnerTest {
     }
 
     @Test
+    void prod_withEnvPassword_existingUsersSkipped() {
+        // prod 下账号已存在（如首次 seed 后重启）时按 username 幂等跳过，
+        // 环境变量密码只用于首次创建，不覆盖已有账号
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty(UserSeedRunner.SEED_PASSWORD_ENV, "prod-initial-password");
+        environment.setActiveProfiles("prod");
+        when(userRepository.existsByUsername(anyString())).thenReturn(true);
+
+        runner(environment).run(null);
+
+        verify(userRepository, times(4)).existsByUsername(anyString());
+        verifyNoInteractions(passwordEncoder);
+    }
+
+    @Test
     void existingUser_skipped() {
         MockEnvironment environment = new MockEnvironment();
         when(userRepository.existsByUsername(anyString())).thenReturn(true);

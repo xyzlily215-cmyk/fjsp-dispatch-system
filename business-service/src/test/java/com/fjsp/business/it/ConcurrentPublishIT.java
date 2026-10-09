@@ -73,6 +73,37 @@ class ConcurrentPublishIT extends AbstractPostgresIT {
         assertEquals(PlanStateMachine.SUPERSEDED, p.getStatus(), "基准版本应被取代");
     }
 
+    @Test
+    void concurrentBaselinePublish_atMostOneActive() throws Exception {
+        // 基线计划（parentId IS NULL）没有父版本过期校验兜底，两个并发基线发布
+        // 由 uq_plan_version_single_active 收敛：败者 409 E_STATE_CONFLICT；
+        // 若两事务串行执行，则后到者正常取代先到者（均 OK），最终仍只有一个生效版本
+        PlanVersion candA = saveVersion("PV-IT-BL-A", PlanStateMachine.REVIEWED, null);
+        PlanVersion candB = saveVersion("PV-IT-BL-B", PlanStateMachine.REVIEWED, null);
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<String> fa = pool.submit(() -> publishOne(candA.getId(), ready, go));
+        Future<String> fb = pool.submit(() -> publishOne(candB.getId(), ready, go));
+        assertTrue(ready.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        go.countDown();
+        String ra = fa.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        String rb = fb.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertTrue(List.of(ra, rb).contains("OK"), "应有一个发布成功: " + ra + "/" + rb);
+        for (String r : List.of(ra, rb)) {
+            assertTrue("OK".equals(r) || "E_STATE_CONFLICT".equals(r),
+                    "并发败者应被唯一生效约束拒绝: " + r);
+        }
+        long active = planVersionRepository.findAll().stream()
+                .filter(v -> PlanStateMachine.PUBLISHED.equals(v.getStatus())
+                        || PlanStateMachine.EXECUTING.equals(v.getStatus()))
+                .count();
+        assertEquals(1, active, "恰好一个生效计划版本");
+    }
+
     private String publishOne(String id, CountDownLatch ready, CountDownLatch go) {
         try {
             ready.countDown();

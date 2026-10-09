@@ -7,7 +7,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * 集成测试基类：真实 PostgreSQL（Testcontainers 独立容器，全 IT 类共享单例），
- * Flyway 真实执行 V1-V4 迁移 + Hibernate validate（test profile）。
+ * Flyway 真实执行全部迁移（V1-V13）+ Hibernate validate（test profile）。
  * 需要本机 Docker 且 postgres:16 镜像已在本地；容器随 JVM 退出由 shutdown hook 销毁。
  *
  * 注意：不能用 @Testcontainers + static @Container——该模式下容器在每个测试类

@@ -41,7 +41,7 @@ set -a; source ../.env; set +a
 SPRING_PROFILES_ACTIVE=local mvn spring-boot:run          # 或 mvn -DskipTests package && SPRING_PROFILES_ACTIVE=local java -jar target/business-service-1.0.0.jar
 ```
 
-> **Profile 与 schema 管理**：本地开发使用 `local` profile——Flyway 关闭、`ddl-auto=update`，Hibernate 自动同步表结构；不设 `SPRING_PROFILES_ACTIVE` 时为默认（生产姿态）——Flyway 执行 `src/main/resources/db/migration/` 下的迁移脚本（基线 `V1__baseline_schema.sql`），`ddl-auto=validate` 仅做一致性校验。存量库首次以默认 profile 启动会自动 baseline 到版本 1；schema 变更请新增 `V<n>__*.sql` 迁移脚本。`scripts/start-demo.sh` 已默认带上 local profile。
+> **Profile 与 schema 管理**：本地开发使用 `local` profile——Flyway 关闭、`ddl-auto=update`，Hibernate 自动同步表结构；不设 `SPRING_PROFILES_ACTIVE` 时为默认（生产姿态）——Flyway 执行 `src/main/resources/db/migration/` 下的迁移脚本（基线 `V1__baseline_schema.sql`），`ddl-auto=validate` 仅做一致性校验。存量库首次以默认 profile 启动会自动 baseline 到版本 1；schema 变更请新增 `V<n>__*.sql` 迁移脚本，不要改动已应用的脚本（唯一例外：`V3__auth.sql` 在系统未上线前做过一次性修正——种子账号插入移至 `UserSeedRunner`，仅删除数据插入语句、表结构不变；个别已应用旧版 V3 的存量库需 `flyway repair` 或重建，local profile 不跑 Flyway、不受影响）。`scripts/start-demo.sh` 已默认带上 local profile。
 >
 > **三个命名 profile**：`local`（本地开发，含 dev-only 密钥与 CORS localhost 白名单）、`test`（集成测试，datasource 由 Testcontainers 注入）、`prod`（所有连接与密钥强制环境变量，无默认值，缺失即启动失败）。默认（不带 profile）即生产姿态。
 
@@ -58,7 +58,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 
 ## 测试矩阵
 
-`mvn test` 一次运行全部测试：Mockito 单元测试 + `@WebMvcTest` 安全矩阵 + Testcontainers 集成测试（`*IT`，真实 PostgreSQL 容器，Flyway 真实执行 V1-V4）。
+`mvn test` 一次运行全部测试：Mockito 单元测试 + `@WebMvcTest` 安全矩阵 + Testcontainers 集成测试（`*IT`，真实 PostgreSQL 容器，Flyway 真实执行 V1-V13）。
 
 > 前提：本机 Docker 可用，且 postgres:16 镜像已在本地（Testcontainers 无法访问 Docker Hub 时无法拉取）。本仓库在 `src/test/resources/docker-java.properties` 固定 docker-java API 版本（Docker Desktop 最低支持 1.40，docker-java 默认 1.24），并在 surefire 配置中禁用 Ryuk（适配无法访问 Docker Hub 的环境，JVM 退出时 shutdown hook 仍会清理容器）。
 
@@ -74,7 +74,7 @@ curl http://localhost:8081/api/v1/machines        # 应返回 8 台设备
 | 14 | 事务中途失败回滚 | `TransactionRollbackIT` |
 | 15 | 服务重启后任务恢复 | `TaskRecoveryIT`（真实库残留 RUNNING 转重试、PENDING 重投递） |
 
-另有 `FlywaySchemaIT`（迁移脚本与实体映射回归：4 条迁移全 success、18 张表、V4 索引存在）和 `JsonbMappingIT`（jsonb 读写往返、分页 total 正确性）。
+另有 `FlywaySchemaIT`（迁移脚本与实体映射回归：13 条迁移全 success、21 张表、V4/V13 索引存在）和 `JsonbMappingIT`（jsonb 读写往返、分页 total 正确性）。
 
 ## 配置项（FjspProperties，@Validated 启动校验）
 
@@ -161,7 +161,7 @@ SSE 例外：`GET /schedule-tasks/{id}/events` 不接受 Bearer 头（EventSourc
 | 基础数据写端点、demo/reset | | | | ✓ |
 | 审计检索 audit-logs | | | | ✓ |
 
-种子账号（**仅本地演示**，密码均为 `Fj@123456`，见 `db/migration/V3__auth.sql` 与 `auth/UserSeedRunner`。**生产部署后必须立即修改全部种子账号密码**；`prod` profile 下 `UserSeedRunner` 禁止使用内置演示密码，初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失即启动失败；登录连续失败 5 次会临时锁定 10 分钟，返回 429 `E_LOGIN_LOCKED`）：
+种子账号（由 `auth/UserSeedRunner` 在所有 profile 下按 username 幂等创建；Flyway `V3__auth.sql` 只建 `app_user` 表、不再插入账号）。密码按 profile 区分：`local`/`test`/默认 profile 用内置演示密码 `Fj@123456`（**仅本地演示**）；`prod` profile 禁止使用内置演示密码，初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失即启动失败（该密码仅用于首次创建，已有账号不会被覆盖，部署后请立即通过改密接口更换）。登录连续失败 5 次会临时锁定 10 分钟，返回 429 `E_LOGIN_LOCKED`：
 
 | 用户名 | 角色 | 显示名 |
 |---|---|---|
@@ -215,7 +215,7 @@ SSE 例外：`GET /schedule-tasks/{id}/events` 不接受 Bearer 头（EventSourc
 - **计划硬约束完整性（ScheduleIntegrityGuard）**：在任务结果落库（创建计划版本前，违规则任务 FAILED、resultStatus=INTEGRITY_VIOLATION、审计 TASK_INTEGRITY_VIOLATION、不建版本）与发布时各校验一次。规则（重调度候选 vs 父版本）：已完成工序（execution_record COMPLETED）machineId/startAt/endAt 完全不可变；执行中工序（存在未关闭 RUNNING 记录）machineId 固定，actualStartAt 非空时候选 startAt 必须等于实际上报开工时间、endAt 不得早于 actualStartAt（actualStartAt 为空时退化为 startAt 与旧计划一致）；冻结窗口内工序（startAt ∈ [freezeStart, freezeStart+freezeWindowMinutes)，freezeStart 取事件 occurredAt 否则仿真起点，且非事件受影响）machineId/startAt/endAt 不可变。违规返回 409 `E_INTEGRITY_VIOLATION`。
 - **执行中工序的锁定协议（actualStartAtMinutes）**：SnapshotBuilder 对 in_progress 锁定项额外携带 `actualStartAtMinutes`；算法侧以此为锚重算窗口（start=actualStart，end=actualStart+剩余工时，剩余=计划加工时长-已进行时长，至少 1 分钟），避免"实际开工晚于计划完工"时重调度必然不可行/被完整性守卫拒绝。业务侧守卫同步以 actualStartAt 为校验基准（见上条）。
 - **冻结窗口**：SnapshotBuilder 将 `freezeWindowMinutes` 放入求解请求（并随 InputSnapshot 持久化）；算法服务对窗口内且不在 affectedOperationIds 的 oldPlan 工序独立自动冻结为硬锁，与调用方锁集合不一致时返回 LOCKING_INCONSISTENT 冲突。
-- **发布并发**：乐观锁 `version`（submit-review/review/revise/publish 均需携带当前 version，不匹配返回 409 `E_VERSION_STALE`），两个 REVIEWED 候选并发发布时只有一个成功，另一个收到 `E_VERSION_STALE`。
+- **发布并发**：乐观锁 `version`（submit-review/review/revise/publish 均需携带当前 version，不匹配返回 409 `E_VERSION_STALE`），两个 REVIEWED 候选并发发布时只有一个成功，另一个收到 `E_VERSION_STALE`。数据库层另有 V13 部分唯一索引 `uq_plan_version_single_active`（status ∈ PUBLISHED/EXECUTING 时全库唯一）兜底：基线计划（parentId 为空、无父版本过期校验）并发双发布时，后者被唯一索引拒绝，publish 捕获后返回 409 `E_STATE_CONFLICT`。
 - **发布过期校验（E_PLAN_STALE）**：发布时在状态/版本校验之后、状态变更之前检查——父版本（parentId）必须仍为 PUBLISHED/EXECUTING，否则 409 `E_PLAN_STALE`「基准版本已被取代」；任务输入快照 createdAt 之后若登记了任何新事件，返回 409 `E_PLAN_STALE`「快照之后发生新扰动」。
 - **时间**：数据库 timestamptz 存 UTC，接口 ISO 8601。
 - **审计**：关键写操作写 `audit_log`（action/objectType/objectId/operator/source/sessionId/requestId/时间）；plan_version 记录 reviewedBy/reviewedAt/publishedBy/publishedAt 与 reviewComment，并在版本摘要/详情 JSON 中返回。

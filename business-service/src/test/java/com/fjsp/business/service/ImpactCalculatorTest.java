@@ -129,8 +129,8 @@ class ImpactCalculatorTest {
         running.setOperationId("OP-1");
         running.setStatus("RUNNING");
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(running));
-        when(orderOperationRepository.findById("OP-1"))
-                .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1), orderOp("OP-2", "ORD-1", 2)));
 
@@ -154,8 +154,8 @@ class ImpactCalculatorTest {
         stubPublishedPlan(List.of(planOp("OP-1", "M1", "2026-09-16T09:30:00+08:00",
                 "2026-09-16T10:30:00+08:00")));
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
-        when(orderOperationRepository.findById("OP-1"))
-                .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
@@ -171,8 +171,8 @@ class ImpactCalculatorTest {
         // OP-1 计划区间 12:00-13:00 在维修区间之后且远离冻结窗口
         stubPublishedPlan(List.of(planOp("OP-1", "M1", "2026-09-16T12:00:00+08:00",
                 "2026-09-16T13:00:00+08:00")));
-        when(orderOperationRepository.findById("OP-1"))
-                .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
@@ -190,8 +190,8 @@ class ImpactCalculatorTest {
         // 维修 15 分钟（10:00-10:15），冻结窗口到 10:30；OP-1 计划 10:20 开工，落在冻结窗口内
         stubPublishedPlan(List.of(planOp("OP-1", "M1", "2026-09-16T10:20:00+08:00",
                 "2026-09-16T11:00:00+08:00")));
-        when(orderOperationRepository.findById("OP-1"))
-                .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
@@ -236,8 +236,8 @@ class ImpactCalculatorTest {
                 planOp("OP-1", "M1", "2026-09-16T09:30:00+08:00", "2026-09-16T10:30:00+08:00"),
                 planOp("OP-2", "M2", "2026-09-16T14:00:00+08:00", "2026-09-16T15:00:00+08:00")));
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
-        when(orderOperationRepository.findById("OP-1"))
-                .thenReturn(Optional.of(orderOp("OP-1", "ORD-1", 1)));
+        when(orderOperationRepository.findAllById(any()))
+                .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
         when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1), orderOp("OP-2", "ORD-1", 2)));
 

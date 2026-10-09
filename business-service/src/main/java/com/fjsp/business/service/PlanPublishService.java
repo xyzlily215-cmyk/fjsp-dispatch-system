@@ -23,6 +23,7 @@ import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -83,12 +84,22 @@ public class PlanPublishService {
         for (PlanVersion old : currentPublished) {
             planStateMachine.assertTransition(old.getStatus(), PlanStateMachine.SUPERSEDED);
             old.setStatus(PlanStateMachine.SUPERSEDED);
-            planVersionRepository.save(old);
+        }
+        // 先落库旧版本的取代，再发布新版本：同一 flush 内更新顺序不可控，
+        // uq_plan_version_single_active 可能在"新 PUBLISHED 先于旧 SUPERSEDED 落库"时误报冲突
+        if (!currentPublished.isEmpty()) {
+            planVersionRepository.saveAllAndFlush(currentPublished);
         }
         pv.setStatus(PlanStateMachine.PUBLISHED);
         pv.setPublishedAt(OffsetDateTime.now());
         pv.setPublishedBy(RequestContext.operator());
-        planVersionRepository.saveAndFlush(pv);
+        try {
+            // saveAndFlush 让 uq_plan_version_single_active 部分唯一索引在事务内即刻校验：
+            // 两个并发基线发布（parentId 为空，无父版本过期校验兜底）只有一个成功，另一个转 409
+            planVersionRepository.saveAndFlush(pv);
+        } catch (DataIntegrityViolationException e) {
+            throw BizException.stateConflict("已有其他生效的计划版本，请刷新后重试");
+        }
 
         // orders covered by this plan become SCHEDULED（批量查询，避免全表扫 + 逐条 findById 的 N+1）
         List<ScheduleOperation> planOps = scheduleOperationRepository.findByPlanVersionId(pv.getId());

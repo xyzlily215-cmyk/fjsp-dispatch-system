@@ -125,9 +125,14 @@ public class ImpactCalculator {
         }
 
         // set 3: all successors of impacted ops within the same order
+        // 一次性批量取回受影响工序的订单工序行，替代逐条 findById 的 N+1
+        List<String> impactedIds = new ArrayList<>(impacted.keySet());
+        Map<String, OrderOperation> impactedOrderOps = impactedIds.isEmpty() ? Map.of()
+                : orderOperationRepository.findAllById(impactedIds).stream()
+                        .collect(Collectors.toMap(OrderOperation::getId, oo -> oo));
         Map<String, List<OrderOperation>> opsByOrder = new LinkedHashMap<>();
-        for (String opId : new ArrayList<>(impacted.keySet())) {
-            OrderOperation oo = orderOperationRepository.findById(opId).orElse(null);
+        for (String opId : impactedIds) {
+            OrderOperation oo = impactedOrderOps.get(opId);
             if (oo == null) {
                 continue;
             }

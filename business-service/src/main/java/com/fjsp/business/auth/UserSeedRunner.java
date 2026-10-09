@@ -15,16 +15,17 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * 启动时补齐 4 个种子账号（按 username 幂等）。
- * 生产路径由 Flyway V3 建表+插入；local profile（Flyway 关闭）由本 runner 保证账号存在。
- * 密码仅用于本地演示，见 README。
+ * 启动时补齐 4 个种子账号（按 username 幂等），是所有 profile 下账号种子的唯一来源
+ * （Flyway V3 只建 app_user 表，不再插入账号）。
+ * 密码按 profile 区分：local/test/默认 profile 用内置演示密码（见 README）；
+ * prod profile 强制从环境变量 FJSP_SEED_ADMIN_PASSWORD 读取，缺失即启动失败。
  */
 @Component
 public class UserSeedRunner implements ApplicationRunner {
 
     /**
-     * 与 Flyway V3__auth.sql 种子账号密码 hash 对应同一明文（Fj@123456，BCrypt cost 10），
-     * 仅用于本地/demo 演示。生产环境部署后必须立即修改全部种子账号密码。
+     * 内置演示密码（Fj@123456），仅 local/test/默认 profile 的种子账号使用；
+     * prod profile 禁止使用（见 {@link #resolveSeedPassword()}）。
      */
     public static final String SEED_PASSWORD = "Fj@123456";
 
@@ -68,7 +69,7 @@ public class UserSeedRunner implements ApplicationRunner {
             user.setDisplayName(seed.displayName());
             user.setEnabled(true);
             userRepository.save(user);
-            log.info("seeded demo user {} ({})", seed.username(), seed.role());
+            log.info("seeded initial user {} ({})", seed.username(), seed.role());
         }
     }
 

@@ -1,6 +1,11 @@
--- V3: auth — app_user table + 4 seed accounts (demo password for all: Fj@123456, BCrypt cost 10).
--- IF NOT EXISTS / ON CONFLICT keeps this migration safe on databases where ddl-auto=update
--- already created the table or UserSeedRunner already inserted the accounts (dev profile).
+-- V3: auth — app_user table only; seed accounts are owned by auth/UserSeedRunner.
+-- 历史上本脚本同时插入 4 个演示账号（弱口令 Fj@123456 的 BCrypt hash），prod 也跑 Flyway，
+-- 导致迁移即写入弱口令账号、UserSeedRunner 的 FJSP_SEED_ADMIN_PASSWORD 检查成为死代码。
+-- 上线前一次性修正：种子插入从迁移移至 UserSeedRunner（按 profile 选密码，prod 强制环境变量）。
+-- 注意 checksum 变化只影响已应用过旧版 V3 的库——本项目尚无生产库，local profile 不跑 Flyway，
+-- Testcontainers 库均为临时库；若有个别存量默认 profile 库，需 flyway repair 或重建。
+-- IF NOT EXISTS keeps this migration safe on databases where ddl-auto=update
+-- already created the table (local profile).
 
 CREATE TABLE IF NOT EXISTS public.app_user (
     id character varying(255) NOT NULL,
@@ -14,27 +19,3 @@ CREATE TABLE IF NOT EXISTS public.app_user (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_app_user_username ON public.app_user (username);
-
-INSERT INTO public.app_user (id, username, password_hash, role, display_name, enabled, created_at)
-SELECT 'seed-user-dispatcher', 'dispatcher',
-       '$2y$10$lXaipc3FWD.njKwQ8CRXIO3.k/mo3ApVqhfDDd6HHmf17y1xV.jRe',
-       'DISPATCHER', '调度员', true, now()
-WHERE NOT EXISTS (SELECT 1 FROM public.app_user WHERE username = 'dispatcher');
-
-INSERT INTO public.app_user (id, username, password_hash, role, display_name, enabled, created_at)
-SELECT 'seed-user-reviewer', 'reviewer',
-       '$2y$10$lXaipc3FWD.njKwQ8CRXIO3.k/mo3ApVqhfDDd6HHmf17y1xV.jRe',
-       'REVIEWER', '审核员', true, now()
-WHERE NOT EXISTS (SELECT 1 FROM public.app_user WHERE username = 'reviewer');
-
-INSERT INTO public.app_user (id, username, password_hash, role, display_name, enabled, created_at)
-SELECT 'seed-user-manager', 'manager',
-       '$2y$10$lXaipc3FWD.njKwQ8CRXIO3.k/mo3ApVqhfDDd6HHmf17y1xV.jRe',
-       'PRODUCTION_MANAGER', '生产主管', true, now()
-WHERE NOT EXISTS (SELECT 1 FROM public.app_user WHERE username = 'manager');
-
-INSERT INTO public.app_user (id, username, password_hash, role, display_name, enabled, created_at)
-SELECT 'seed-user-admin', 'admin',
-       '$2y$10$lXaipc3FWD.njKwQ8CRXIO3.k/mo3ApVqhfDDd6HHmf17y1xV.jRe',
-       'ADMIN', '管理员', true, now()
-WHERE NOT EXISTS (SELECT 1 FROM public.app_user WHERE username = 'admin');

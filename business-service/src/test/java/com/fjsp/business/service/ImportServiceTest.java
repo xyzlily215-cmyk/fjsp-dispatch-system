@@ -16,6 +16,7 @@ import com.fjsp.business.dto.MachineUpsertRequest;
 import com.fjsp.business.entity.ImportBatch;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
+import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.repository.ImportBatchRepository;
 import com.fjsp.business.repository.MachineRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
@@ -211,7 +212,9 @@ class ImportServiceTest {
     @Test
     void preview_orderRowErrors_reportedWithCodeFieldValue() {
         when(codeGenerator.next("IMP")).thenReturn("IMP-000002");
-        when(productionOrderRepository.existsByOrderCode("PO-DUP")).thenReturn(true);
+        ProductionOrder dup = new ProductionOrder();
+        dup.setOrderCode("PO-DUP");
+        when(productionOrderRepository.findByOrderCodeIn(any())).thenReturn(List.of(dup));
         stubOrderTemplateOk("轴类");
         byte[] content = ordersCsv(
                 // 行2：编号与库中重复

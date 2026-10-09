@@ -23,6 +23,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -107,7 +108,24 @@ class PlanPublishServiceTest {
         assertEquals("SUPERSEDED", old.getStatus());
         assertEquals("SCHEDULED", order.getStatus());
         verify(productionOrderRepository).save(order);
+        verify(planVersionRepository).saveAllAndFlush(List.of(old));
         verify(planVersionRepository).saveAndFlush(pv);
+    }
+
+    @Test
+    void publish_singleActiveIndexViolation_stateConflict() {
+        // 两个并发基线发布（无父版本过期校验兜底）：uq_plan_version_single_active 在 flush 时拒绝后者，
+        // 服务层把数据库约束冲突转为 409 业务异常
+        PlanVersion pv = plan("P1", "REVIEWED", 2L);
+        when(planVersionRepository.findById("P1")).thenReturn(Optional.of(pv));
+        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(List.of());
+        when(planVersionRepository.saveAndFlush(pv))
+                .thenThrow(new DataIntegrityViolationException("uq_plan_version_single_active"));
+
+        BizException e = assertThrows(BizException.class,
+                () -> planPublishService.publish("P1", new PublishRequest(2L)));
+        assertEquals("E_STATE_CONFLICT", e.getCode());
     }
 
     @Test

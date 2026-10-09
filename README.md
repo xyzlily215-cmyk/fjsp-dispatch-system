@@ -13,6 +13,16 @@
 
 > 本地演示会启动或复用 PostgreSQL、算法服务、业务服务和前端服务。脚本不会删除数据库卷；`start-demo.sh` 也不会自动重置业务数据。业务服务默认以 `local` profile 运行。
 
+从零 clone 后需先完成一次性前置准备（脚本不会自动安装依赖或构建前端）：
+
+```bash
+# 算法服务 Python 依赖（建议使用 venv）
+pip install -r algorithm-service/requirements.txt
+
+# 构建前端产物 web-vue/dist（start-demo.sh 直接托管该目录，缺失会报错退出）
+cd web-vue && npm install && npm run build && cd ..
+```
+
 ```bash
 cp .env.example .env
 # 编辑 .env，至少把 FJSP_DB_PASSWORD 改成当前本地数据库使用的密码
@@ -100,7 +110,7 @@ bash scripts/ui-check.sh
 
 JWT 密钥走 `FJSP_JWT_SECRET`（见 `.env.example`，不设置时使用仅开发用默认值，有效期默认 8h）。角色-端点完整矩阵见 [`business-service/README.md`](business-service/README.md)。
 
-> ⚠️ 上述种子账号密码与 Flyway V3 迁移写入生产库的初始密码是同一个（`Fj@123456`），生产部署后必须立即改密。`prod` profile 下 `UserSeedRunner` 不再使用内置演示密码：初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失则启动失败。登录接口有防爆破保护：同一账号连续失败 5 次锁定 10 分钟，锁定期内返回 429。
+> ⚠️ 种子账号由业务服务 `UserSeedRunner` 在所有 profile 下创建（Flyway V3 只建表、不再插入账号）：`local`/默认 profile 用上述演示密码；`prod` profile 禁止使用内置演示密码，初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失则启动失败（仅用于首次创建，已有账号不覆盖），生产部署后应立即改密。登录接口有防爆破保护：同一账号连续失败 5 次锁定 10 分钟，锁定期内返回 429。
 
 ## 配置与安全
 
@@ -116,7 +126,7 @@ AGH 的审核发布流程要求显式审批：计划必须先提交审核，审�
 
 ## 数据库 schema 管理（Flyway + ddl-auto 分环境）
 
-- 迁移脚本位于 `business-service/src/main/resources/db/migration/`，基线为 `V1__baseline_schema.sql`（17 张业务表）；schema 变更一律新增 `V<n>__*.sql`，不要改动已应用的脚本。
+- 迁移脚本位于 `business-service/src/main/resources/db/migration/`，基线为 `V1__baseline_schema.sql`（17 张业务表）；schema 变更一律新增 `V<n>__*.sql`，不要改动已应用的脚本（唯一例外：`V3__auth.sql` 在未上线前做过一次性修正——种子账号插入移至 `UserSeedRunner`，表结构不变；已应用旧版 V3 的存量库需 `flyway repair` 或重建，local profile 不跑 Flyway、不受影响）。
 - **本地开发（local profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=local` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构。
 - **默认 profile（生产姿态）**：Flyway 启用并执行迁移，`ddl-auto=validate` 仅校验实体与库表一致，不再自动改表。存量库首次启动会自动 baseline 到版本 1（`baseline-on-migrate`），全新空库则执行 V1 建表。
 - 手动启动时通过环境变量选择：`SPRING_PROFILES_ACTIVE=local java -jar ...` 为本地开发模式；不设该变量即为生产姿态。`prod` profile 下所有连接与密钥强制来自环境变量（无默认值，缺失即启动失败）；`test` profile 预留给 Testcontainers 集成测试。

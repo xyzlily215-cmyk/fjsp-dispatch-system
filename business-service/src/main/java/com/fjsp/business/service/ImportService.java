@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.common.HashUtil;
@@ -23,6 +24,7 @@ import com.fjsp.business.dto.OrderUpsertRequest;
 import com.fjsp.business.entity.ImportBatch;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
+import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.repository.ImportBatchRepository;
 import com.fjsp.business.repository.MachineRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
@@ -295,6 +297,13 @@ public class ImportService {
     private List<ImportRowError> validateOrderRows(List<Map<String, String>> rows) {
         List<ImportRowError> errors = new ArrayList<>();
         Set<String> seenCodes = new HashSet<>();
+        // 一次性批量查回文件内订单编号在库中的存在情况，替代逐行 existsByOrderCode 的 N+1
+        List<String> orderCodes = rows.stream().map(row -> row.get("orderCode"))
+                .filter(code -> !code.isEmpty()).distinct().toList();
+        Set<String> existingCodes = orderCodes.isEmpty() ? Set.of()
+                : productionOrderRepository.findByOrderCodeIn(orderCodes).stream()
+                        .map(ProductionOrder::getOrderCode)
+                        .collect(Collectors.toSet());
         for (Map<String, String> row : rows) {
             int rowNo = rowNo(row);
             String orderCode = row.get("orderCode");
@@ -303,7 +312,7 @@ public class ImportService {
             } else if (!seenCodes.add(orderCode)) {
                 errors.add(new ImportRowError(rowNo, "E_DUPLICATE", "orderCode", orderCode,
                         "订单编号在文件内重复，请去重"));
-            } else if (productionOrderRepository.existsByOrderCode(orderCode)) {
+            } else if (existingCodes.contains(orderCode)) {
                 errors.add(new ImportRowError(rowNo, "E_DUPLICATE", "orderCode", orderCode,
                         "订单编号已存在，请更换编号或删除该行"));
             }

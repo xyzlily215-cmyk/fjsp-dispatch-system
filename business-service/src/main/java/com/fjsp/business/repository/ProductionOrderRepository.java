@@ -1,6 +1,7 @@
 package com.fjsp.business.repository;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -10,6 +11,9 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface ProductionOrderRepository extends JpaRepository<ProductionOrder, String> {
     boolean existsByOrderCode(String orderCode);
+
+    /** 导入校验批量查重：一次取回文件内订单编号在库中的命中行，替代逐行 exists 的 N+1。 */
+    List<ProductionOrder> findByOrderCodeIn(Collection<String> orderCodes);
 
     Optional<ProductionOrder> findByOrderCode(String orderCode);
 

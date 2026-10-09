@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Flyway 迁移与实体映射的真实回归：V1-V12 在空库执行成功、validate 通过、索引存在。 */
+/** Flyway 迁移与实体映射的真实回归：V1-V13 在空库执行成功、validate 通过、索引存在。 */
 class FlywaySchemaIT extends AbstractPostgresIT {
 
     @Autowired
@@ -20,8 +20,8 @@ class FlywaySchemaIT extends AbstractPostgresIT {
         List<String> versions = jdbcTemplate.queryForList(
                 "SELECT version || ':' || type || ':' || success FROM flyway_schema_history ORDER BY installed_rank",
                 String.class);
-        // 空库：V1-V12 全部以 SQL 迁移执行（无 baseline 行），全部 success
-        assertEquals(12, versions.size());
+        // 空库：V1-V13 全部以 SQL 迁移执行（无 baseline 行），全部 success
+        assertEquals(13, versions.size());
         assertTrue(versions.get(0).startsWith("1:SQL:true"));
         assertTrue(versions.stream().allMatch(v -> v.endsWith(":SQL:true")), "全部迁移成功: " + versions);
     }
@@ -120,6 +120,24 @@ class FlywaySchemaIT extends AbstractPostgresIT {
         for (String expected : List.of("created_at", "change_note")) {
             assertTrue(calendarColumns.contains(expected), "缺少 work_calendar 列 " + expected);
         }
+    }
+
+    @Test
+    void v13SingleActivePlanIndex_present() {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM pg_indexes WHERE schemaname='public'"
+                        + " AND indexname = 'uq_plan_version_single_active'",
+                Integer.class);
+        assertEquals(1, count, "缺少 plan_version 唯一生效计划的部分唯一索引");
+    }
+
+    @Test
+    void v3SeedInsertsRemoved_seedAccountsOwnedByRunner() {
+        // V3 只建 app_user 表，不再插入 id='seed-user-*' 的弱口令演示账号；
+        // 账号种子由 UserSeedRunner 以随机 UUID 创建（prod 强制 FJSP_SEED_ADMIN_PASSWORD）
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM public.app_user WHERE id LIKE 'seed-user-%'", Integer.class);
+        assertEquals(0, count);
     }
 
     @Test
