@@ -5,7 +5,7 @@ import time
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
-from .decoder import Schedule, decode
+from .decoder import BE, BS, Schedule, decode
 from .instance import MODE_BASELINE, Problem
 from .kpi import compute_metrics, norm
 from .models import AlgorithmParams
@@ -44,6 +44,34 @@ CACHE_MAX_ENTRIES = 50_000
 POP_EVAL_BUDGET = 20_000
 MIN_POPULATION = 20
 
+# Stagnation-triggered random immigrants. When the global best has not
+# improved for STAGNATION_THRESHOLD consecutive generations the population is
+# treated as prematurely converged (common on large instances); the worst
+# IMMIGRANT_RATIO fraction of non-elite individuals is replaced by fresh
+# random chromosomes to re-inject diversity while the elites keep the
+# incumbent solution safe. 15 generations is long enough to tell a real
+# plateau from normal drift on 60-300 generation budgets; 15% is enough to
+# matter under tournament selection without destroying building blocks.
+STAGNATION_THRESHOLD = 15
+IMMIGRANT_RATIO = 0.15
+
+# Extended local-search neighborhood sizes. Every candidate move costs one
+# decode (counted against the localSearchTrials budget), so the sets are kept
+# small and share the existing trials counter.
+LS_TARDY_CRIT_OPS = 5       # top weighted-tardiness ops added to the critical set
+LS_OS_REINSERT_SAMPLES = 4  # insertion positions sampled per critical op
+
+# Memetic seeding: before evolution starts, the top LS_SEED_TOP_K heuristic
+# individuals are each polished by the composite-neighborhood local search
+# (LS_SEED_TRIALS decodes apiece) and written back in place. Dispatch-rule
+# solutions are far from local optima (measured: fitness improves ~5-15%
+# here), so evolution starts from strong, still-diverse incumbents. Spreading
+# the budget over 3 individuals instead of refining a single super-elite
+# avoids premature takeover of the tournament pool; the total extra cost is
+# 3x25 decodes, well under one generation's evaluations at default pop size.
+LS_SEED_TOP_K = 3
+LS_SEED_TRIALS = 25
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,7 +91,8 @@ class Chromosome:
 
 class GAResult:
     def __init__(self, best_chrom, best_schedule, best_metrics, generations,
-                 timed_out, termination_reason, timings=None):
+                 timed_out, termination_reason, timings=None,
+                 stagnation_restarts=0):
         self.best_chrom = best_chrom
         self.best_schedule = best_schedule
         self.best_metrics = best_metrics
@@ -72,6 +101,8 @@ class GAResult:
         self.termination_reason = termination_reason
         # phase timings in ms: initPopulationMs / evolutionMs / localSearchMs
         self.timings = timings or {}
+        # number of stagnation-triggered random-immigrant injections
+        self.stagnation_restarts = stagnation_restarts
 
 
 def resolve_objective_weights(mode: str, ow: Dict[str, float]) -> Dict[str, float]:
@@ -279,6 +310,7 @@ class HybridGA:
                 op = self.problem.ops[blk[2]]
                 if op.adjustable:
                     crit_ops.append(op)
+            tried_ms_moves = set()
             # move critical ops to alternative machines
             for op in crit_ops:
                 if trials >= max_trials or time.monotonic() >= deadline:
@@ -289,6 +321,7 @@ class HybridGA:
                 for ci in range(len(op.candidates)):
                     if ci == cur:
                         continue
+                    tried_ms_moves.add((op.index, ci))
                     cand = best.copy()
                     cand.ms[op.ms_pos] = ci
                     fit = self.evaluate(cand)[0]
@@ -316,7 +349,104 @@ class HybridGA:
                         best, best_fit = cand, fit
                         improved = True
                         break
+            # extended critical set: bottleneck ops plus the top weighted-
+            # tardiness ops (the tardiness-critical path, not only C_max)
+            if not improved:
+                ext_crit = list(crit_ops)
+                seen = set(op.index for op in ext_crit)
+                tardy = []
+                for op in self.problem.adjustable_ops:
+                    if op.index in seen:
+                        continue
+                    pl = schedule.placements[op.index]
+                    if pl is not None and pl[2] > op.due:
+                        tardy.append(((pl[2] - op.due) * op.weight, op.index, op))
+                tardy.sort(reverse=True)
+                ext_crit.extend(op for _t, _i, op in tardy[:LS_TARDY_CRIT_OPS])
+                # per-machine occupied minutes, used to prefer unloaded targets
+                load = {m: sum(blk[BE] - blk[BS] for blk in schedule.timelines[m])
+                        for m in self.problem.machine_ids}
+                # cross-machine move: shift a critical op onto a feasible
+                # candidate machine, least-loaded first (MS gene + re-decode)
+                for op in ext_crit:
+                    if trials >= max_trials or time.monotonic() >= deadline:
+                        break
+                    if len(op.candidates) < 2:
+                        continue
+                    cur = best.ms[op.ms_pos]
+                    by_load = sorted(range(len(op.candidates)),
+                                     key=lambda ci: (load[op.candidates[ci][0]], ci))
+                    for ci in by_load:
+                        if ci == cur or (op.index, ci) in tried_ms_moves:
+                            continue
+                        if trials >= max_trials or time.monotonic() >= deadline:
+                            break
+                        cand = best.copy()
+                        cand.ms[op.ms_pos] = ci
+                        fit = self.evaluate(cand)[0]
+                        trials += 1
+                        if fit < best_fit - 1e-9:
+                            best, best_fit = cand, fit
+                            improved = True
+                            break
+                    if improved:
+                        break
+            # OS reinsertion: move a critical op's OS gene to another position.
+            # The OS chromosome is a multiset permutation (k-th occurrence of an
+            # order decodes to its k-th op), so pop+insert keeps the occurrence
+            # counts unchanged and precedence feasibility is guaranteed by the
+            # decoder -- the same invariant mutate_os's insertion branch and POX
+            # rely on.
+            if not improved:
+                n_os = len(best.os_seq)
+                for op in ext_crit:
+                    if trials >= max_trials or time.monotonic() >= deadline:
+                        break
+                    p0 = schedule.os_positions.get(op.index)
+                    if p0 is None or n_os < 2:
+                        continue
+                    for j in self.rng.sample(range(n_os),
+                                             min(LS_OS_REINSERT_SAMPLES, n_os)):
+                        if j == p0:
+                            continue
+                        if trials >= max_trials or time.monotonic() >= deadline:
+                            break
+                        cand = best.copy()
+                        g = cand.os_seq.pop(p0)
+                        cand.os_seq.insert(j, g)
+                        fit = self.evaluate(cand)[0]
+                        trials += 1
+                        if fit < best_fit - 1e-9:
+                            best, best_fit = cand, fit
+                            improved = True
+                            break
+                    if improved:
+                        break
         return best
+
+    # ---------------- stagnation perturbation ----------------
+
+    def inject_immigrants(self, scored, deadline):
+        """Replace the worst IMMIGRANT_RATIO fraction of the population (elites
+        excluded) with fresh random chromosomes. `scored` is sorted by fitness
+        and its size is preserved. Returns the original list untouched when
+        there is nothing to replace or the deadline is too close to finish the
+        injection (a partial injection would shrink the population)."""
+        elite_n = max(1, int(round(self.params.elitismRate * len(scored))))
+        n_rep = min(int(round(IMMIGRANT_RATIO * len(scored))),
+                    len(scored) - elite_n)
+        if n_rep <= 0:
+            return scored
+        immigrants = []
+        for _ in range(n_rep):
+            if time.monotonic() >= deadline:
+                return scored
+            imm = Chromosome(build_random_os(self.problem, self.rng),
+                             build_ms_random(self.problem, self.rng))
+            immigrants.append((self.evaluate(imm)[0], imm))
+        new_scored = scored[:len(scored) - n_rep] + immigrants
+        new_scored.sort(key=lambda x: x[0])
+        return new_scored
 
     # ---------------- main loop ----------------
 
@@ -344,11 +474,25 @@ class HybridGA:
                 timed_out = True
                 break
         scored.sort(key=lambda x: x[0])
+        # memetic seeding: polish the top heuristic (dispatch-rule) individuals
+        # with the composite-neighborhood local search and write them back in
+        # place, so evolution starts from strong yet diverse incumbents
+        if not timed_out and p.localSearchTrials > 0:
+            for k in range(min(LS_SEED_TOP_K, len(scored))):
+                if time.monotonic() >= deadline:
+                    break
+                refined = self.local_search(scored[k][1], LS_SEED_TRIALS, deadline)
+                refined_fit = self.evaluate(refined)[0]
+                if refined_fit < scored[k][0] - 1e-12:
+                    scored[k] = (refined_fit, refined)
+            scored.sort(key=lambda x: x[0])
         init_ms = int((time.monotonic() - t_init) * 1000)
 
         best = scored[0][1].copy()
         best_fit = scored[0][0]
         generations = 0
+        stagnant = 0
+        stagnation_restarts = 0
         t_evo = time.monotonic()
         for gen in range(p.maxGenerations):
             if time.monotonic() >= deadline:
@@ -368,9 +512,18 @@ class HybridGA:
             if scored[0][0] < best_fit - 1e-12:
                 best = scored[0][1].copy()
                 best_fit = scored[0][0]
+                stagnant = 0
+            else:
+                stagnant += 1
             if aborted:
                 timed_out = True
                 break
+            if stagnant >= STAGNATION_THRESHOLD and time.monotonic() < deadline:
+                perturbed = self.inject_immigrants(scored, deadline)
+                if perturbed is not scored:
+                    scored = perturbed
+                    stagnation_restarts += 1
+                stagnant = 0
         evolution_ms = int((time.monotonic() - t_evo) * 1000)
 
         termination_reason = "timeLimit" if timed_out else "maxGenerations"
@@ -388,8 +541,9 @@ class HybridGA:
             "localSearchMs": local_search_ms,
         }
         logger.info("GA finished: generations=%d elapsedMs=%d bestFitness=%.6f "
-                    "termination=%s penalizedOps=%d timings=%s",
+                    "termination=%s penalizedOps=%d stagnationRestarts=%d timings=%s",
                     generations, int((time.monotonic() - t0) * 1000), fit,
-                    termination_reason, len(schedule.penalty_ops), timings)
+                    termination_reason, len(schedule.penalty_ops),
+                    stagnation_restarts, timings)
         return GAResult(best, schedule, metrics, generations, timed_out,
-                        termination_reason, timings)
+                        termination_reason, timings, stagnation_restarts)

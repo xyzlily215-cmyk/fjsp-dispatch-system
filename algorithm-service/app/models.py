@@ -264,6 +264,8 @@ class SolveMetaOut(BaseModel):
     seed: int
     algorithmVersion: str
     terminationReason: Optional[str] = None
+    # 停滞扰动（随机移民）触发次数；补充字段，不改变 terminationReason 语义
+    stagnationRestarts: Optional[int] = None
     # 计时项随求解路径增减（buildProblemMs / 各 GA 阶段 / validateMs），
     # 键集合不固定，保留开放字典
     timings: Optional[Dict[str, int]] = None

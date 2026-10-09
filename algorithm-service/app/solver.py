@@ -64,6 +64,7 @@ def solve(req: SolveRequest) -> dict:
                                     seed, build_problem_ms)
         resp["meta"]["generations"] = result.generations
         resp["meta"]["terminationReason"] = result.termination_reason
+        resp["meta"]["stagnationRestarts"] = result.stagnation_restarts
         resp["meta"]["timings"].update(result.timings)
         return resp
 
@@ -130,6 +131,7 @@ def solve(req: SolveRequest) -> dict:
             "seed": seed,
             "algorithmVersion": ALGORITHM_VERSION,
             "terminationReason": result.termination_reason,
+            "stagnationRestarts": result.stagnation_restarts,
             "timings": {
                 "buildProblemMs": build_problem_ms,
                 **result.timings,
