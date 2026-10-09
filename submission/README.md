@@ -20,8 +20,8 @@
 使用 `submission/build-zip.sh` 一键打包：
 
 ```bash
-bash submission/build-zip.sh <组别> <参赛编号> <队伍名称> <队长姓名>
-# 例：bash submission/build-zip.sh 本科组 A001 示例队 张三
+bash submission/build-zip.sh 本科生组 U019 暴躁的兔子 熊英孜
+# 生成：本科生组-U019-暴躁的兔子-熊英孜.zip
 ```
 
 脚本行为：
