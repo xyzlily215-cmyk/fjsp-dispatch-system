@@ -126,8 +126,15 @@ class HybridGA:
         key = chrom.key()
         hit = self.cache.get(key)
         if hit is not None and hit[0] == self.bases_version:
+            schedule = hit[3]
+            if keep_solution and schedule is None:
+                # the entry was cached with keep_solution=False; decoding is
+                # deterministic, so backfill the schedule into the cache entry
+                # instead of making every caller re-decode on its own
+                schedule = decode(self.problem, chrom.os_seq, chrom.ms)
+                self.cache[key] = (hit[0], hit[1], hit[2], schedule)
             self.cache.move_to_end(key)
-            return hit[1], hit[2], hit[3]
+            return hit[1], hit[2], schedule
         schedule = decode(self.problem, chrom.os_seq, chrom.ms)
         metrics = compute_metrics(self.problem, schedule)
         fit = self.fitness_of(metrics, schedule.penalty_ops, schedule.overflow)
@@ -259,8 +266,6 @@ class HybridGA:
         while improved and trials < max_trials and time.monotonic() < deadline:
             improved = False
             _fit, _m, schedule = self.evaluate(best, keep_solution=True)
-            if schedule is None:
-                schedule = decode(self.problem, best.os_seq, best.ms)
             # bottleneck machine: machine of the operation ending at C_max
             cmax_end, cmax_machine = -1, None
             for m in self.problem.machine_ids:
@@ -377,9 +382,6 @@ class HybridGA:
         local_search_ms = int((time.monotonic() - t_ls) * 1000)
 
         fit, metrics, schedule = self.evaluate(best, keep_solution=True)
-        if schedule is None:
-            schedule = decode(self.problem, best.os_seq, best.ms)
-            metrics = compute_metrics(self.problem, schedule)
         timings = {
             "initPopulationMs": init_ms,
             "evolutionMs": evolution_ms,

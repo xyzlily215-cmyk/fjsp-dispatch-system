@@ -87,3 +87,32 @@ def test_solve_meta_reports_termination_reason():
     req["algorithm"]["timeLimitSeconds"] = 60
     r = client.post("/solve", json=req)
     assert r.json()["meta"]["terminationReason"] == "localSearch"
+
+
+def test_objective_weights_negative_rejected():
+    req = tiny_request()
+    req["objectiveWeights"] = {"makespan": -0.1, "weightedTardiness": 0.4}
+    r = client.post("/solve", json=req)
+    assert r.status_code == 422
+
+
+def test_validate_mode_invalid_rejected():
+    r = client.post("/validate", json=_validate_request(mode="NOPE"))
+    assert r.status_code == 422
+
+
+def test_validate_mode_valid_accepted():
+    r = client.post("/validate", json=_validate_request(mode="BASELINE"))
+    assert r.status_code == 200
+
+
+def test_validate_negative_planned_minutes_rejected():
+    req = _validate_request()
+    req["operations"][0]["startAtMinutes"] = -1
+    r = client.post("/validate", json=req)
+    assert r.status_code == 422
+
+    req = _validate_request()
+    req["operations"][0]["endAtMinutes"] = -1
+    r = client.post("/validate", json=req)
+    assert r.status_code == 422

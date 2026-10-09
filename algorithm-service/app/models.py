@@ -136,6 +136,15 @@ class SolveRequest(BaseModel):
                     raise ValueError("changeoverMatrix.%s 不能为负" % k)
         return v
 
+    @field_validator("objectiveWeights")
+    @classmethod
+    def _check_objective_weights(cls, v):
+        # 负权重会让 GA 朝"更差"的方向优化，属于调用方配错，直接拒绝
+        for k, val in v.items():
+            if val < 0:
+                raise ValueError("objectiveWeights.%s 不能为负" % k)
+        return v
+
     @field_validator("deltaPlanWeights")
     @classmethod
     def _check_delta_weights(cls, v):
@@ -171,8 +180,8 @@ class SolveRequest(BaseModel):
 class PlannedOpIn(BaseModel):
     operationId: str
     machineId: str
-    startAtMinutes: Optional[int] = None
-    endAtMinutes: Optional[int] = None
+    startAtMinutes: Optional[int] = Field(default=None, ge=0)
+    endAtMinutes: Optional[int] = Field(default=None, ge=0)
     startAt: Optional[datetime] = None
     endAt: Optional[datetime] = None
     changeoverMinutes: int = Field(default=0, ge=0)
@@ -213,3 +222,97 @@ class ValidateRequest(BaseModel):
         if v.tzinfo is None:
             raise ValueError("simulationStartAt must carry a timezone offset")
         return v
+
+    @field_validator("mode")
+    @classmethod
+    def _check_mode(cls, v):
+        # mode 在 /validate 中是可选的（缺省按基线规则校验），
+        # 但一旦给出就必须是合法模式，与 SolveRequest 保持一致
+        if v is not None and v not in MODES:
+            raise ValueError("mode must be one of %s" % (",".join(MODES)))
+        return v
+
+
+# ---------------- 响应模型 ----------------
+# /solve 与 /validate 的响应是跨服务契约（business-service 依赖这些字段名），
+# 这里只做形式化：字段名/结构与 solver.solve、api.validate_endpoint 现有产出
+# 一一对应，不改变任何线上行为。
+
+
+class ConflictOut(BaseModel):
+    # 与 conflicts.make_conflict 产出的结构一致
+    rule: str
+    objects: List[str]
+    severity: str
+    suggestion: str
+
+
+class OperationOut(BaseModel):
+    operationId: str
+    machineId: str
+    setupStartAt: str
+    setupStartAtMinutes: int
+    processStartAt: str
+    processStartAtMinutes: int
+    startAt: str
+    startAtMinutes: int
+    endAt: str
+    endAtMinutes: int
+    changeoverMinutes: int
+    frozen: bool
+    affected: bool
+    reasonCode: Optional[str] = None
+
+
+class DeltaPlanKpiOut(BaseModel):
+    startTimeShiftRate: float
+    machineChangeRate: float
+    sequenceChangeRate: float
+    deltaPlan: float
+    nMachineChange: int
+    weights: Dict[str, float]
+
+
+class KpiOut(BaseModel):
+    cMaxMinutes: int
+    weightedTardinessMinutes: int
+    nTardy: int
+    utilizationByMachine: Dict[str, float]
+    loadImbalance: float
+    deltaPlan: Optional[DeltaPlanKpiOut] = None
+
+
+class ConstraintCheckOut(BaseModel):
+    passed: bool
+    conflicts: List[ConflictOut]
+
+
+class SolveMetaOut(BaseModel):
+    generations: int
+    elapsedMs: int
+    seed: int
+    algorithmVersion: str
+    terminationReason: Optional[str] = None
+    # 计时项随求解路径增减（buildProblemMs / 各 GA 阶段 / validateMs），
+    # 键集合不固定，保留开放字典
+    timings: Optional[Dict[str, int]] = None
+
+
+class SolveResponse(BaseModel):
+    status: str        # SUCCESS | TIME_LIMIT | INFEASIBLE
+    resultStatus: str  # FEASIBLE | INFEASIBLE
+    feasibleSolution: bool
+    operations: List[OperationOut]
+    kpi: Optional[KpiOut]
+    constraintCheck: ConstraintCheckOut
+    meta: SolveMetaOut
+
+
+class ValidateMetaOut(BaseModel):
+    elapsedMs: int
+
+
+class ValidateResponse(BaseModel):
+    passed: bool
+    conflicts: List[ConflictOut]
+    meta: ValidateMetaOut

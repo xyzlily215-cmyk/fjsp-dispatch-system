@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from . import ALGORITHM_VERSION, __version__
 from .conflicts import make_conflict
 from .instance import _resolve_minutes, build_problem
-from .models import SolveRequest, ValidateRequest
+from .models import SolveRequest, SolveResponse, ValidateRequest, ValidateResponse
 from .solver import solve
 from .validator import validate_plan
 
@@ -48,7 +48,7 @@ async def health():
     return {"status": "UP", "version": __version__, "algorithmVersion": ALGORITHM_VERSION}
 
 
-@app.post("/solve")
+@app.post("/solve", response_model=SolveResponse)
 def solve_endpoint(req: SolveRequest):
     logger.info("solve request: mode=%s machines=%d orders=%d ops=%d lockings=%d",
                 req.mode, len(req.machines), len(req.orders),
@@ -58,7 +58,7 @@ def solve_endpoint(req: SolveRequest):
         return solve(req)
 
 
-@app.post("/validate")
+@app.post("/validate", response_model=ValidateResponse)
 def validate_endpoint(req: ValidateRequest):
     logger.info("validate request: machines=%d orders=%d ops=%d placements=%d",
                 len(req.machines), len(req.orders),
