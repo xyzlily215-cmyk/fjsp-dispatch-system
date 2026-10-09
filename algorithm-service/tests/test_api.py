@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api import app
-from tests.conftest import tiny_request
+from conftest import tiny_request
 
 client = TestClient(app)
 

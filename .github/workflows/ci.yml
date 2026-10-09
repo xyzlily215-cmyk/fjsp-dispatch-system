@@ -15,11 +15,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: algorithm-service/requirements.txt
+          cache-dependency-path: |
+            algorithm-service/requirements.txt
+            algorithm-service/requirements-dev.txt
       - name: Run pytest
         run: |
           cd algorithm-service
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
           python -m pytest tests/ -q
 
   business-test:

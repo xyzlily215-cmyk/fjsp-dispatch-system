@@ -3,7 +3,7 @@ import copy
 from app.decoder import decode
 from app.instance import build_problem
 from app.models import SolveRequest
-from tests.conftest import tiny_request
+from conftest import tiny_request
 
 
 def _shrinking_local_problem():

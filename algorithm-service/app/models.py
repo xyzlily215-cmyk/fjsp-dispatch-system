@@ -112,8 +112,7 @@ class AlgorithmParams(BaseModel):
         return v
 
 
-class SolveRequest(BaseModel):
-    mode: str
+class BaseSchedulingRequest(BaseModel):
     simulationStartAt: datetime
     machines: List[MachineIn] = Field(min_length=1, max_length=MAX_MACHINES)
     orders: List[OrderIn] = Field(min_length=1, max_length=MAX_ORDERS)
@@ -123,9 +122,6 @@ class SolveRequest(BaseModel):
     freezeWindowMinutes: Optional[int] = Field(default=None, ge=0)
     changeoverDefault: int = Field(default=20, ge=0)
     changeoverMatrix: Optional[Dict[str, int]] = Field(default=None, max_length=10000)
-    objectiveWeights: Dict[str, float] = Field(default_factory=dict, max_length=16)
-    deltaPlanWeights: Optional[Dict[str, float]] = Field(default=None, max_length=16)
-    algorithm: AlgorithmParams = Field(default_factory=AlgorithmParams)
 
     @field_validator("changeoverMatrix")
     @classmethod
@@ -135,6 +131,28 @@ class SolveRequest(BaseModel):
                 if val < 0:
                     raise ValueError("changeoverMatrix.%s 不能为负" % k)
         return v
+
+    @field_validator("simulationStartAt")
+    @classmethod
+    def _check_tz(cls, v):
+        if v.tzinfo is None:
+            raise ValueError("simulationStartAt must carry a timezone offset")
+        return v
+
+    @model_validator(mode="after")
+    def _check_total_operations(self):
+        # 订单数 x 单订单工序数的乘积上限太松（2000x200），这里卡总量
+        total = sum(len(o.operations) for o in self.orders)
+        if total > MAX_TOTAL_OPERATIONS:
+            raise ValueError("工序总数 %d 超过上限 %d" % (total, MAX_TOTAL_OPERATIONS))
+        return self
+
+
+class SolveRequest(BaseSchedulingRequest):
+    mode: str
+    objectiveWeights: Dict[str, float] = Field(default_factory=dict, max_length=16)
+    deltaPlanWeights: Optional[Dict[str, float]] = Field(default=None, max_length=16)
+    algorithm: AlgorithmParams = Field(default_factory=AlgorithmParams)
 
     @field_validator("objectiveWeights")
     @classmethod
@@ -154,27 +172,12 @@ class SolveRequest(BaseModel):
                     raise ValueError("deltaPlanWeights.%s 不能为负" % k)
         return v
 
-    @field_validator("simulationStartAt")
-    @classmethod
-    def _check_tz(cls, v):
-        if v.tzinfo is None:
-            raise ValueError("simulationStartAt must carry a timezone offset")
-        return v
-
     @field_validator("mode")
     @classmethod
     def _check_mode(cls, v):
         if v not in MODES:
             raise ValueError("mode must be one of %s" % (",".join(MODES)))
         return v
-
-    @model_validator(mode="after")
-    def _check_total_operations(self):
-        # 订单数 x 单订单工序数的乘积上限太松（2000x200），这里卡总量
-        total = sum(len(o.operations) for o in self.orders)
-        if total > MAX_TOTAL_OPERATIONS:
-            raise ValueError("工序总数 %d 超过上限 %d" % (total, MAX_TOTAL_OPERATIONS))
-        return self
 
 
 class PlannedOpIn(BaseModel):
@@ -187,41 +190,9 @@ class PlannedOpIn(BaseModel):
     changeoverMinutes: int = Field(default=0, ge=0)
 
 
-class ValidateRequest(BaseModel):
-    simulationStartAt: datetime
-    machines: List[MachineIn] = Field(min_length=1, max_length=MAX_MACHINES)
-    orders: List[OrderIn] = Field(min_length=1, max_length=MAX_ORDERS)
+class ValidateRequest(BaseSchedulingRequest):
     operations: List[PlannedOpIn] = Field(min_length=1, max_length=MAX_TOTAL_OPERATIONS)
-    changeoverDefault: int = Field(default=20, ge=0)
-    changeoverMatrix: Optional[Dict[str, int]] = Field(default=None, max_length=10000)
-    oldPlan: Optional[List[OldPlanOpIn]] = Field(default=None, max_length=MAX_TOTAL_OPERATIONS)
-    lockings: Optional[List[LockingIn]] = Field(default=None, max_length=MAX_TOTAL_OPERATIONS)
     mode: Optional[str] = None
-    affectedOperationIds: Optional[List[str]] = Field(default=None, max_length=MAX_TOTAL_OPERATIONS)
-    freezeWindowMinutes: Optional[int] = Field(default=None, ge=0)
-
-    @model_validator(mode="after")
-    def _check_total_operations(self):
-        total = sum(len(o.operations) for o in self.orders)
-        if total > MAX_TOTAL_OPERATIONS:
-            raise ValueError("工序总数 %d 超过上限 %d" % (total, MAX_TOTAL_OPERATIONS))
-        return self
-
-    @field_validator("changeoverMatrix")
-    @classmethod
-    def _check_changeover_matrix(cls, v):
-        if v is not None:
-            for k, val in v.items():
-                if val < 0:
-                    raise ValueError("changeoverMatrix.%s 不能为负" % k)
-        return v
-
-    @field_validator("simulationStartAt")
-    @classmethod
-    def _check_tz(cls, v):
-        if v.tzinfo is None:
-            raise ValueError("simulationStartAt must carry a timezone offset")
-        return v
 
     @field_validator("mode")
     @classmethod

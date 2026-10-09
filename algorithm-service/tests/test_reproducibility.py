@@ -1,6 +1,6 @@
 from app.models import SolveRequest
 from app.solver import solve
-from tests.conftest import tiny_request
+from conftest import tiny_request
 
 
 def test_same_seed_reproducible():

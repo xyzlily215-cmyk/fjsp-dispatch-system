@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.api import app
 from app.models import SolveRequest
 from app.solver import solve
-from tests.conftest import tiny_request
+from conftest import tiny_request
 
 client = TestClient(app)
 

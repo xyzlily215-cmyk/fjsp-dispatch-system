@@ -1,7 +1,7 @@
 from app.instance import build_problem
 from app.models import SolveRequest
 from app.validator import validate_plan
-from tests.conftest import tiny_request
+from conftest import tiny_request
 
 FEASIBLE_PLAN = {
     "A1-10": ("M1", 0, 25, 0),

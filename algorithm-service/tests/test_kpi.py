@@ -1,7 +1,7 @@
 from app.instance import build_problem
 from app.kpi import compute_metrics
 from app.models import SolveRequest
-from tests.conftest import make_schedule
+from conftest import make_schedule
 
 KPI_ORDERS = [
     {"orderId": "A1", "productFamily": "F1", "quantity": 10,
