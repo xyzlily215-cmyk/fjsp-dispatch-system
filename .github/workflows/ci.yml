@@ -34,6 +34,21 @@ jobs:
       - name: Run Maven tests
         run: cd business-service && mvn -B test
 
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web-vue/package-lock.json
+      - name: Build web-vue
+        run: |
+          cd web-vue
+          npm ci
+          npm run build
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:
@@ -42,3 +57,5 @@ jobs:
         run: sudo apt-get install -y shellcheck
       - name: Check shell scripts
         run: shellcheck -S error scripts/*.sh
+      - name: Validate docker compose config
+        run: docker compose --env-file .env.example -f deploy/docker-compose.yml config -q

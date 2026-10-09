@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # crud-check.sh — 新增基础数据写接口冒烟（正例 + 负例校验）
-# 用法: bash web/scripts/crud-check.sh
+# 用法: bash scripts/crud-check.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/../../scripts/demo-common.sh"
+source "$SCRIPT_DIR/demo-common.sh"
 load_demo_env
 API="${FJSP_API:-$FJSP_API_BASE}"
 FAIL=0

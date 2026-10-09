@@ -21,7 +21,3 @@ agh-integration/.agh-session-id
 agh-integration/evidence/
 agh-integration/agh-trace-*.zip
 agh-integration/agnes-harness/
-
-# Environment leftovers (broken template dirs)
-{{pkgetc}}/
-{{etc}}/
