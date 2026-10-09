@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # 每日 03:17 UTC nightly（避开整点），跑集成测试 job
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 jobs:
   algorithm-test:
@@ -42,7 +46,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # vite 7 要求 Node ^20.19 || >=22.12，固定到 22 LTS 避免解析到旧 20.x
+          node-version: "22"
           cache: npm
           cache-dependency-path: web-vue/package-lock.json
       - name: Build web-vue
@@ -61,3 +66,61 @@ jobs:
         run: shellcheck -S error scripts/*.sh
       - name: Validate docker compose config
         run: docker compose --env-file .env.example -f deploy/docker-compose.yml config -q
+
+  # 全链路集成测试：真实启动 PostgreSQL + 算法服务 + 业务服务，
+  # 复用 scripts/start-demo.sh 编排，随后跑业务冒烟与 API 字段契约检查。
+  # 全量链路（Maven 打包 + 前端构建 + 多轮调度任务轮询）约 10 分钟量级，
+  # 不适合 push/PR 全量跑，故仅在 nightly schedule 与手动 workflow_dispatch 时运行。
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    env:
+      # CI 不启动 AGH 工作台（需要额外构建 agh-integration CLI）
+      FJSP_START_AGH: "0"
+      # 服务日志落到工作区内，便于失败时上传 artifact（避免隐藏目录被 upload-artifact 跳过）
+      FJSP_RUNTIME_DIR: ${{ github.workspace }}/logs/fjsp-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: algorithm-service/requirements.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          # 与 web-build job 一致：vite 7 要求 Node ^20.19 || >=22.12
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-vue/package-lock.json
+      - name: Generate CI-only database password
+        # check-env.sh 要求 FJSP_DB_PASSWORD 非空且不得为 .env.example 示例值；
+        # CI 专用一次性库，生成随机密码即可（local profile 的 JWT 密钥用开发默认值，无需注入）
+        run: echo "FJSP_DB_PASSWORD=ci-$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+      - name: Install algorithm-service dependencies
+        run: pip install -r algorithm-service/requirements.txt
+      - name: Build web-vue static assets
+        # start-demo.sh 第 4 步要求 $FJSP_WEB_DIR（默认 web-vue/dist）存在 index.html
+        run: cd web-vue && npm ci && npm run build
+      - name: Start PostgreSQL + algorithm + business services
+        # 复用 start-demo.sh：docker compose 起 postgres（container_name=fjsp-postgres，
+        # smoke-test.sh 的审计校验依赖 docker exec 该容器）、uvicorn 起算法服务、
+        # mvn package 后以 SPRING_PROFILES_ACTIVE=local 起业务服务并等待 readiness
+        run: ./scripts/start-demo.sh
+      - name: Run business smoke test
+        run: ./scripts/run-smoke-test.sh
+      - name: Run API field-contract E2E check
+        # 会调 POST /demo/reset 清空重建演示数据，CI 专用库无所谓
+        run: ./scripts/run-e2e.sh
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ github.run_id }}
+          path: logs/fjsp-runtime/*.log
+          if-no-files-found: warn
