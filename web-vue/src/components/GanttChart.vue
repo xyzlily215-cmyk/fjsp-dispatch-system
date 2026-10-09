@@ -119,7 +119,8 @@ function buildOrderRows() {
 const criticalOf = (rows) => (rows.length ? rows.reduce((a, b) => (b.endMs > a.endMs ? b : a)) : null);
 
 const rows = computed(() => (props.view === 'order' ? buildOrderRows() : props.machines));
-const chartH = computed(() => Math.max(rows.value.length * 44 + 130, 360));
+// 底部 +160：grid top 64 + x 轴 slider dataZoom/说明文字区 ~64 + 边距
+const chartH = computed(() => Math.max(rows.value.length * 44 + 160, 360));
 
 /* ---------------- ECharts option 构建 ---------------- */
 function buildOption() {
@@ -272,9 +273,10 @@ function buildOption() {
     return r.machineId + (util !== null && util !== undefined ? '  ' + fmtPct(util, 0) : '');
   };
 
-  const noteText = isOrder
+  const noteText = (isOrder
     ? '灰线 = 工艺顺序连线   ┆ 交期线 / 红实框 = 拖期工序   金框 = 关键路径（近似：完工最晚订单的工序链）   ✓ 已完成'
-    : '❄ 冻结工序   红虚框 = 受事件影响   红虚块 = 维修区间   点击工序条可切换到另一视图定位';
+    : '❄ 冻结工序   红虚框 = 受事件影响   红虚块 = 维修区间   点击工序条可切换到另一视图定位')
+    + '   ┆ 滚轮=时间缩放 拖拽=平移 底部/右侧滑块=缩放窗口';
 
   return {
     title: {
@@ -294,11 +296,44 @@ function buildOption() {
       type: 'text', left: 12, bottom: 6,
       style: { text: noteText, fill: '#909399', fontSize: 11 },
     }],
-    grid: { left: 10, right: 26, top: 64, bottom: 34, containLabel: true },
+    grid: { left: 10, right: 44, top: 64, bottom: 64, containLabel: true },
     tooltip: {
       trigger: 'item', confine: true,
       formatter: (p) => (p.data && p.data.op) ? opTipHtml(p.data.op) : '',
     },
+    /* 缩放/平移：x 轴（time 轴）滚轮缩放 + 拖拽平移 + 底部 slider；y 轴（类目轴）拖拽平移 + 右侧 slider。
+       x 用 weakFilter：跨窗口边缘的工序条（start/end 分居窗口两侧）不会被整条过滤，
+       出界部分仍由 renderItem 内 clipRectByRect 裁掉；dataZoom 只改轴范围，renderItem 会自动重跑，
+       标签阈值（rect.width > 16 / 32）随缩放重新判定。 */
+    dataZoom: [
+      {
+        type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter',
+        zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false,
+        minValueSpan: HOUR,
+      },
+      {
+        type: 'slider', xAxisIndex: 0, filterMode: 'weakFilter',
+        bottom: 24, height: 18, minValueSpan: HOUR,
+        borderColor: '#dcdfe6', fillerColor: 'rgba(64,158,255,.15)',
+        handleStyle: { color: '#409eff' }, moveHandleStyle: { color: '#409eff' },
+        textStyle: { color: '#909399', fontSize: 10 },
+        dataBackground: {
+          lineStyle: { color: '#c0c4cc' },
+          areaStyle: { color: '#e4e7ed', opacity: 0.5 },
+        },
+      },
+      {
+        type: 'inside', yAxisIndex: 0,
+        zoomOnMouseWheel: false, moveOnMouseMove: true, moveOnMouseWheel: false,
+      },
+      {
+        type: 'slider', yAxisIndex: 0,
+        right: 6, width: 14,
+        borderColor: '#dcdfe6', fillerColor: 'rgba(64,158,255,.15)',
+        handleStyle: { color: '#409eff' }, moveHandleStyle: { color: '#409eff' },
+        textStyle: { color: '#909399', fontSize: 10 },
+      },
+    ],
     xAxis: {
       type: 'time', min: ws, max: we,
       axisLabel: { color: '#909399', fontSize: 11, formatter: (v) => tickLabel(v), hideOverlap: true },

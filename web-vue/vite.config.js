@@ -17,9 +17,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          /* vue 全家桶拆 vendor；element-plus/echarts 不指定——element-plus 按需引入后由
-             rollup 归入主包/路由 chunk，echarts 随甘特路由懒加载 chunk 走。
-             （若给 element-plus 强制成组会把整库拉进该 chunk，破坏按需 tree-shaking） */
+          /* vue 全家桶拆 vendor；element-plus 不指定——按需引入后由 rollup 归入主包/路由 chunk
+             （若给 element-plus 强制成组会把整库拉进该 chunk，破坏按需 tree-shaking）。
+             echarts/zrender 单独成 chunk：只有甘特路由引用它，rollup 只打包已被按需
+             tree-shaking 选中的模块，该 chunk 仍随甘特路由懒加载；独立出来是为避免
+             甘特业务代码 + echarts 合成一个超 600kB 预警线的巨型 chunk。 */
+          if (/[\\/]node_modules[\\/](echarts|zrender)[\\/]/.test(id)) return 'echarts';
           if (/[\\/]node_modules[\\/](vue|vue-router|pinia|@vue)([\\/]|$)/.test(id)) return 'vendor';
         },
       },
