@@ -1,0 +1,18 @@
+# 集成测试 profile（为 Testcontainers 准备）：datasource 由 @ServiceConnection 注入，此处不配置连接。
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+fjsp:
+  auth:
+    # test-only：固定测试密钥（>=32 字节），仅集成测试使用
+    jwt-secret: test-only-jwt-secret-for-testcontainers-0123456
+
+management:
+  endpoint:
+    health:
+      # 测试断言需要匿名读取组件明细；主配置仍为 when-authorized
+      show-details: always

@@ -1,0 +1,56 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: fjsp-business-service
+  datasource:
+    url: jdbc:postgresql://${FJSP_DB_HOST:localhost}:${FJSP_DB_PORT:5432}/${FJSP_DB_NAME:fjsp}
+    username: ${FJSP_DB_USER:fjsp}
+    password: ${FJSP_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  servlet:
+    multipart:
+      # F-05 批量导入：文件上限 2MB（与 ImportService.MAX_FILE_BYTES 一致），请求留 multipart 开销余量
+      max-file-size: 2MB
+      max-request-size: 3MB
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId}] %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # metrics/prometheus 需认证访问（SecurityConfig 未放行）；health/info 匿名可读
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # 匿名仅见聚合状态；携带有效 JWT 可见组件明细（含 algorithmService 版本号）
+      show-details: when-authorized
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # readiness 不含 algorithmService：算法服务宕机不应把业务服务判为不可用
+        readiness:
+          include: readinessState,db,flyway
+
+fjsp:
+  algorithm:
+    base-url: ${FJSP_ALGORITHM_BASE_URL:http://localhost:8101}
+  auth:
+    # 无默认值：缺失即启动失败（local/test profile 各自覆盖为演示/测试值）
+    jwt-secret: ${FJSP_JWT_SECRET}

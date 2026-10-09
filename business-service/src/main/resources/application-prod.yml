@@ -1,0 +1,18 @@
+# 生产 profile：所有连接与密钥强制来自环境变量（无默认值），缺失即启动失败。
+spring:
+  datasource:
+    url: jdbc:postgresql://${FJSP_DB_HOST}:${FJSP_DB_PORT}:${FJSP_DB_NAME}
+    username: ${FJSP_DB_USER}
+    password: ${FJSP_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+fjsp:
+  auth:
+    jwt-secret: ${FJSP_JWT_SECRET}
+  demo:
+    # 生产禁用 /demo/reset（防止清空业务数据）；Java 默认值已为 false，此处显式声明意图
+    enabled: false
