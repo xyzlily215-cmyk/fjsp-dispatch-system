@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- Java 17、Spring Boot 3.3.5、Spring Data JPA + Flyway（local profile 下 ddl-auto=update，默认 profile 下 validate）
+- Java 17、Spring Boot 3.5.16、Spring Data JPA + Flyway（local profile 下 ddl-auto=update，默认 profile 下 validate）
 - PostgreSQL 16（jsonb 快照字段）、RestClient（算法服务通信，超时 620s）
 - 演示规模：20 订单 / 8 设备 / 3 产品族工艺模板
 

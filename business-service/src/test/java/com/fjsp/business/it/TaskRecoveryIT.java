@@ -13,7 +13,7 @@ import com.fjsp.business.service.TaskRunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -31,7 +31,7 @@ class TaskRecoveryIT extends AbstractPostgresIT {
     @Autowired
     private TaskRecoveryRunner recoveryRunner;
 
-    @MockBean
+    @MockitoBean
     private TaskRunner taskRunner;
 
     @AfterEach

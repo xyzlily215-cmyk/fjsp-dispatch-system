@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -56,13 +56,13 @@ class AdminSecurityAccessTest {
     private MockMvc mvc;
     @Autowired
     private JwtService jwtService;
-    @MockBean
+    @MockitoBean
     private AdminUserService adminUserService;
-    @MockBean
+    @MockitoBean
     private ConfigService configService;
-    @MockBean
+    @MockitoBean
     private AppUserRepository userRepository;
-    @MockBean
+    @MockitoBean
     private StreamTicketService streamTicketService;
 
     private String token(String username, String role) {

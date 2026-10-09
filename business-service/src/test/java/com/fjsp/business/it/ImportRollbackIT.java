@@ -13,7 +13,7 @@ import com.fjsp.business.service.ImportService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -34,7 +34,7 @@ class ImportRollbackIT extends AbstractPostgresIT {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
-    @MockBean
+    @MockitoBean
     private AuditService auditService;
 
     @AfterEach
