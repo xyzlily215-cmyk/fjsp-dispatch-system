@@ -1,5 +1,4 @@
-/* 消息提示：替代旧版 util.js 的 toast/toastErr（改用 ElMessage） */
-import { ElMessage } from 'element-plus';
+/* 消息提示：替代旧版 util.js 的 toast/toastErr（改用 ElMessage；由 unplugin-auto-import 按需注入） */
 import { errMsg } from './format';
 
 export function toast(msg, type = 'success') {

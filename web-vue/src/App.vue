@@ -1,10 +1,15 @@
 <template>
-  <router-view />
+  <!-- el-config-provider 由 unplugin-vue-components 按需引入；zh-cn 语言包保持
+       ElMessageBox 等命令式弹窗按钮文案为中文（原全量注册时的 locale 配置） -->
+  <el-config-provider :locale="zhCn">
+    <router-view />
+  </el-config-provider>
 </template>
 
 <script setup>
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import { setUnauthorizedHandler } from './api';
 import { useAuthStore } from './stores/auth';
 

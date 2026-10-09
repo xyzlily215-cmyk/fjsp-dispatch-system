@@ -106,7 +106,6 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessageBox } from 'element-plus';
 import { Api } from '../api';
 import { toast } from '../utils/ui';
 import { fmtDateTime, isoToLocalInput, localInputToIso, errMsg } from '../utils/format';

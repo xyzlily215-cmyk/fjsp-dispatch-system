@@ -1,8 +1,30 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import AutoImport from 'unplugin-auto-import/vite';
+import Components from 'unplugin-vue-components/vite';
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    /* Element Plus 按需化：<el-*> 模板组件由 Components 解析、ElMessage/ElMessageBox
+       等命令式 API 由 AutoImport 解析，样式由 resolver 按组件注入（importStyle 默认 css） */
+    AutoImport({ imports: [], resolvers: [ElementPlusResolver()], dts: false }),
+    Components({ resolvers: [ElementPlusResolver()], dts: false }),
+  ],
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          /* vue 全家桶拆 vendor；element-plus/echarts 不指定——element-plus 按需引入后由
+             rollup 归入主包/路由 chunk，echarts 随甘特路由懒加载 chunk 走。
+             （若给 element-plus 强制成组会把整库拉进该 chunk，破坏按需 tree-shaking） */
+          if (/[\\/]node_modules[\\/](vue|vue-router|pinia|@vue)([\\/]|$)/.test(id)) return 'vendor';
+        },
+      },
+    },
+  },
   server: {
     host: '127.0.0.1',
     port: 5174,

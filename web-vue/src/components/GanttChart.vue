@@ -6,7 +6,7 @@
 /* 甘特图图表组件（ECharts custom series）：资源视图（按设备行）/ 订单视图（按订单工艺链）双视图，
    支持工序条点击联动、PNG 导出（getDataURL 2x）。逻辑自旧版 web/js/pages-gantt.js 移植 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import * as echarts from 'echarts';
+import echarts from '../utils/echarts';
 import { esc, fmtDateTime, fmtHM, fmtMinutes, fmtPct, reasonText, TZ } from '../utils/format';
 import { toast } from '../utils/ui';
 

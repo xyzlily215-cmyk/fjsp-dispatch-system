@@ -178,7 +178,6 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessageBox } from 'element-plus';
 import { Api } from '../api';
 import { toast, toastErr } from '../utils/ui';
 import { errMsg, fmtDateTime, isoToLocalInput, localInputToIso } from '../utils/format';

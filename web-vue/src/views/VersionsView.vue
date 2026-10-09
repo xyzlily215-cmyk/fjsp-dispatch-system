@@ -40,7 +40,6 @@
 <script setup>
 import { computed, h, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessageBox } from 'element-plus';
 import { Api } from '../api';
 import { toast, toastErr } from '../utils/ui';
 import { fmtDateTime, fmtMinutes } from '../utils/format';
