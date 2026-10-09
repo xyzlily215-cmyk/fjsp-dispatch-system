@@ -29,7 +29,7 @@ const session = await (async () => {
     return s
   }
   await client.workspace.add(cwd).catch(() => {})
-  return client.session.new({ cwd })
+  return client.session.new({ cwd, sessionKey: process.env.AGH_SESSION_KEY })
 })()
 log(`[session] ${session.id}`)
 process.env.AGH_SESSION_ID = session.id

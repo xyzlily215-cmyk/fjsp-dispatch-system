@@ -4,7 +4,7 @@
 
 - `algorithm-service/`：Python/FastAPI 调度算法服务；
 - `business-service/`：Java/Spring Boot 业务服务，负责数据、事件、计划版本、审核发布和执行反馈；
-- `web/`：前端演示页面；
+- `web-vue/`：前端（Vue 3 + Vite + Element Plus + ECharts），构建产物为纯静态文件；
 - `agh-integration/`：Agnes Harness（AGH）工具和技能集成；
 - `deploy/`：PostgreSQL 基础设施配置（Redis 预留未启用，未来引入缓存/队列时再加回 compose）；
 - `scripts/`：本地一键启动、重置、测试和证据采集脚本。
@@ -38,6 +38,21 @@ FJSP_START_AGH=0 ./scripts/start-demo.sh
 docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ```
 
+## 前端（web-vue/）
+
+前端基于 Vue 3 + Vite + Element Plus + Pinia + ECharts，路由为 hash 模式（`/#/...`），任意静态服务器均可托管；API 地址支持 `?api=` 查询参数与 `localStorage fjsp.apiBase` 覆盖（默认 `http://localhost:8081/api/v1`）。
+
+```bash
+# 开发联调（5174 端口，内置 /api → 8081 代理，自动处理 CORS Origin）
+cd web-vue && npm install && npm run dev
+# 打开 http://127.0.0.1:5174/?api=http://127.0.0.1:5174/api/v1
+
+# 构建生产产物（纯静态，输出 web-vue/dist）
+npm run build
+```
+
+`start-demo.sh` 默认以 `web-vue/dist` 为前端目录（需先构建）；可用 `FJSP_WEB_DIR=<相对仓库根的目录>` 覆盖。
+
 ## 验证与证据
 
 ```bash
@@ -55,10 +70,10 @@ docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ./scripts/perf-baseline.sh
 
 # 基础数据写接口冒烟（正例 + 负例校验）
-bash web/scripts/crud-check.sh
+bash scripts/crud-check.sh
 
 # 前端（8082）跨域访问业务服务（8081）的 CORS 检查
-bash web/scripts/ui-check.sh
+bash scripts/ui-check.sh
 
 # 采集健康检查、核心接口和服务头信息；默认输出到 /tmp
 ./scripts/collect-evidence.sh

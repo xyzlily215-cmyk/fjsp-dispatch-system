@@ -49,8 +49,17 @@ fi
 wait_for_readiness "$FJSP_READINESS_URL" "业务服务" 120
 
 printf '\n== 4. 启动前端静态服务 ==\n'
+web_root="$ROOT_DIR/$FJSP_WEB_DIR"
+if [[ ! -f "$web_root/index.html" ]]; then
+  printf '[错误] 前端目录 %s 不存在 index.html' "$web_root" >&2
+  if [[ "$FJSP_WEB_DIR" == web-vue/* ]]; then
+    printf '（Vue 版需先构建：cd web-vue && npm install && npm run build）' >&2
+  fi
+  printf '\n' >&2
+  exit 1
+fi
 if ! curl -fsS --max-time 3 "http://127.0.0.1:${FJSP_WEB_PORT}/index.html" >/dev/null 2>&1; then
-  start_process web "http.server ${FJSP_WEB_PORT}" "$ROOT_DIR/web" "$(log_file web)" \
+  start_process web "http.server ${FJSP_WEB_PORT}" "$web_root" "$(log_file web)" \
     python3 -m http.server "$FJSP_WEB_PORT" --bind 127.0.0.1
 fi
 wait_for_url "http://127.0.0.1:${FJSP_WEB_PORT}/index.html" "前端"

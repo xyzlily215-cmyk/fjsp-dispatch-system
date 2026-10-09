@@ -24,6 +24,8 @@ load_demo_env() {
   export FJSP_API_BASE="${FJSP_API_BASE:-http://localhost:8081/api/v1}"
   export FJSP_READINESS_URL="${FJSP_READINESS_URL:-${FJSP_API_BASE%/api/v1}/actuator/health/readiness}"
   export FJSP_WEB_PORT="${FJSP_WEB_PORT:-8082}"
+  # 前端静态目录（相对仓库根）：默认 Vue 版构建产物 web-vue/dist（需先 cd web-vue && npm run build）
+  export FJSP_WEB_DIR="${FJSP_WEB_DIR:-web-vue/dist}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
   export FJSP_START_AGH="${FJSP_START_AGH:-1}"
   export FJSP_AUTH_USER="${FJSP_AUTH_USER:-admin}"

@@ -12,4 +12,4 @@ require_command node
 require_command python3
 wait_for_readiness "$FJSP_READINESS_URL" "业务服务" 30
 export FJSP_API="$FJSP_API_BASE"
-exec node "$ROOT_DIR/web/scripts/e2e-api-check.mjs"
+exec node "$ROOT_DIR/scripts/e2e-api-check.mjs"

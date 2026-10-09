@@ -132,6 +132,7 @@ P0 审批语义验证（2026-10-03，证据 `evidence/agh-verify-p0*` 与 `sessi
 ## 已知坑
 
 - AGH 内置 Agnes AI Provider 只注册中国区网关；国际站 Key 与之不通用。
+- CLI/serve 自动拉起 daemon 子进程可能失败（`daemon child exited before readiness (1)`，2026-10-08 在 macOS 上复现），而手动前台启动同一 daemon 命令完全正常。绕行：先 `nohup node agnes-harness/packages/cli/dist/local/daemon.mjs --profile local-dev --workspace <agh-integration 绝对路径> --data-dir ~/.agh/data --local-web-addr 127.0.0.1:0 --local-web-origin http://127.0.0.1:4177 > /tmp/agh-daemon.log 2>&1 &`，再跑 `scripts/start-demo.sh`（serve 会发现已有 daemon 直接复用）。此时 `stop-demo.sh` 不会停这个手动 daemon，需自行 `kill` daemon.mjs 进程。
 - 工具返回的 `structured` 含 `undefined` 字段会被 Host 判为非法 ToolResult（表现为 E_ENVELOPE / TOOL_OUTCOME_UNKNOWN）；所有输出先过一遍 JSON 序列化清洗。
 - 工具 execute 抛异常 = 「may_have_sent」→ 写工具显示 TOOL_OUTCOME_UNKNOWN 但副作用可能已发生（幂等键保护重试）。
 - `toolCall` 里读 Skill/外部内容会 taint 当前 turn，之后的写工具必须审批；无人值守的 `-p` 模式自动拒绝审批。
