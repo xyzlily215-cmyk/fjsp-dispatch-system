@@ -37,15 +37,20 @@
           <div class="compare-score"><label>计划扰动 Δ_plan</label><b>{{ deltaPlan !== null ? deltaPlan.toFixed(3) : '-' }}</b><br>
             <em>{{ summary.timeShiftedCount || 0 }} 偏移 / {{ summary.machineChangedCount || 0 }} 换机 / {{ summary.sequenceChangedCount || 0 }} 顺序</em></div>
         </div>
-        <div class="section-pad" style="border-bottom:1px solid #ebeef5">
-          <span class="muted">对比 {{ diff.baselineVersionCode }} → {{ diff.candidateVersionCode }}：共 {{ summary.comparedOperations ?? '-' }} 道工序，
+        <div class="section-pad" style="border-bottom:1px solid #ebeef5;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span class="muted" style="flex:1;min-width:280px">对比 {{ diff.baselineVersionCode }} → {{ diff.candidateVersionCode }}：共 {{ summary.comparedOperations ?? '-' }} 道工序，
             新增 {{ (summary.addedOperations || []).length }} 道，移除 {{ (summary.removedOperations || []).length }} 道，发生变化 {{ changedOps.length }} 道。</span>
           <div v-if="removedSet.size" class="error-box" style="margin:10px 0 0">移除工序：{{ [...removedSet].join('、') }}</div>
+          <select class="field" v-model="opFilter" style="width:auto">
+            <option value="smart">变化 + 冻结</option>
+            <option value="changed">仅变化</option>
+            <option value="all">全部工序</option>
+          </select>
         </div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>工序</th><th>原计划（{{ diff.baselineVersionCode }}）</th><th>候选方案（{{ diff.candidateVersionCode }}）</th><th>变更类型</th><th>影响原因</th><th>状态</th></tr></thead>
           <tbody>
-            <tr v-for="o in changedOps" :key="o.operationId">
+            <tr v-for="o in displayOps" :key="o.operationId">
               <td>
                 {{ o.operationId }}
                 <span v-if="addedSet.has(o.operationId)" class="tag green">新增</span>
@@ -65,7 +70,7 @@
                 <span v-else class="tag green">保持</span>
               </td>
             </tr>
-            <tr v-if="!changedOps.length"><td colspan="6" style="text-align:center;color:#909399">两个版本的工序计划完全一致</td></tr>
+            <tr v-if="!displayOps.length"><td colspan="6" style="text-align:center;color:#909399">当前筛选下没有符合条件的工序</td></tr>
           </tbody>
         </table></div>
 
@@ -145,6 +150,18 @@ const changedOps = computed(() => ((diff.value && diff.value.operations) || []).
   o.timeShiftMinutes || o.machineChanged || o.sequenceChanged || o.frozen || o.impactType));
 const addedSet = computed(() => new Set(summary.value.addedOperations || []));
 const removedSet = computed(() => new Set(summary.value.removedOperations || []));
+
+/* 表格筛选：smart=变化+冻结+影响（默认）；changed=仅实际变更（偏移/换机/换序/新增）；all=全部工序 */
+const opFilter = ref('smart');
+const displayOps = computed(() => {
+  if (opFilter.value === 'smart') return changedOps.value;
+  const ops = (diff.value && diff.value.operations) || [];
+  if (opFilter.value === 'changed') {
+    return ops.filter(o => o.timeShiftMinutes || o.machineChanged || o.sequenceChanged
+      || addedSet.value.has(o.operationId) || o.isAdded);
+  }
+  return ops;
+});
 
 function deltaInfo(v, invert = true) {
   if (v === null || v === undefined || v === 0) return { cls: 'good', text: '±0' };
