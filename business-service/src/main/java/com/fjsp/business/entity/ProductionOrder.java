@@ -34,7 +34,7 @@ public class ProductionOrder {
     private Integer priority;
 
     @Column(nullable = false)
-    private String status = "WAITING";
+    private String status = OrderStatus.WAITING;
 
     private String templateId;
 

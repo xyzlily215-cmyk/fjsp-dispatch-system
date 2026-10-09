@@ -25,7 +25,7 @@ public class OrderOperation {
     private Integer sequenceNo;
 
     @Column(nullable = false)
-    private String status = "NOT_STARTED";
+    private String status = OperationStatus.NOT_STARTED;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")

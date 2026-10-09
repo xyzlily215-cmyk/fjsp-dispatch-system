@@ -10,7 +10,10 @@ import com.fjsp.business.dto.ExecutionFeedbackResponse;
 import com.fjsp.business.dto.ExecutionRequest;
 import com.fjsp.business.dto.ExecutionTimelineItem;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
+import com.fjsp.business.entity.OperationStatus;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -65,11 +68,11 @@ public class ExecutionService {
             throw BizException.validation("status 必须是 RUNNING / PAUSED / RESUMED / COMPLETED / EXCEPTION");
         }
         return switch (req.status()) {
-            case "RUNNING" -> start(operationId, req);
-            case "PAUSED" -> pause(operationId, req);
-            case "RESUMED" -> resume(operationId, req);
-            case "COMPLETED" -> complete(operationId, req);
-            case "EXCEPTION" -> exception(operationId, req);
+            case ExecutionStatus.RUNNING -> start(operationId, req);
+            case ExecutionStatus.PAUSED -> pause(operationId, req);
+            case ExecutionStatus.RESUMED -> resume(operationId, req);
+            case ExecutionStatus.COMPLETED -> complete(operationId, req);
+            case ExecutionStatus.EXCEPTION -> exception(operationId, req);
             default -> throw BizException.validation("status 必须是 RUNNING / PAUSED / RESUMED / COMPLETED / EXCEPTION");
         };
     }
@@ -85,16 +88,16 @@ public class ExecutionService {
     private ExecutionFeedbackResponse start(String operationId, ExecutionRequest req) {
         FeedbackContext ctx = loadContext(operationId);
         var open = executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "RUNNING");
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.RUNNING);
         if (open.isPresent()) {
             throw BizException.stateConflict("工序已在执行中: " + operationId);
         }
-        if (executionRecordRepository.existsByOperationIdAndStatus(operationId, "COMPLETED")) {
+        if (executionRecordRepository.existsByOperationIdAndStatus(operationId, ExecutionStatus.COMPLETED)) {
             throw BizException.stateConflict("工序已完成，不能重新开始: " + operationId);
         }
         OffsetDateTime actualStart = req.actualStartAt() != null
                 ? OffsetDateTime.parse(req.actualStartAt()) : OffsetDateTime.now();
-        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), "RUNNING");
+        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), ExecutionStatus.RUNNING);
         record.setActualStartAt(actualStart);
         record.setRemark(req.remark());
         markDeviation(record, ctx.planned().getStartAt(), actualStart);
@@ -113,12 +116,12 @@ public class ExecutionService {
             planVersionRepository.save(published);
         }
         OrderOperation operation = ctx.operation();
-        operation.setStatus("RUNNING");
+        operation.setStatus(OperationStatus.RUNNING);
         orderOperationRepository.save(operation);
         ProductionOrder order = productionOrderRepository.findById(operation.getOrderId()).orElse(null);
-        if (order != null && !"RUNNING".equals(order.getStatus())
-                && !"COMPLETED".equals(order.getStatus())) {
-            order.setStatus("RUNNING");
+        if (order != null && !OrderStatus.RUNNING.equals(order.getStatus())
+                && !OrderStatus.COMPLETED.equals(order.getStatus())) {
+            order.setStatus(OrderStatus.RUNNING);
             productionOrderRepository.save(order);
         }
         auditService.record("EXECUTION_RUNNING", "order_operation", operationId,
@@ -132,13 +135,13 @@ public class ExecutionService {
         }
         FeedbackContext ctx = loadContext(operationId);
         executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "RUNNING")
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.RUNNING)
                 .orElseThrow(() -> BizException.stateConflict("工序未开工，不能暂停: " + operationId));
         if (executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "PAUSED").isPresent()) {
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.PAUSED).isPresent()) {
             throw BizException.stateConflict("工序已处于暂停中: " + operationId);
         }
-        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), "PAUSED");
+        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), ExecutionStatus.PAUSED);
         record.setOccurredAt(OffsetDateTime.now());
         record.setRemark(req.remark());
         try {
@@ -148,7 +151,7 @@ public class ExecutionService {
             throw BizException.stateConflict("工序已处于暂停中: " + operationId);
         }
         OrderOperation operation = ctx.operation();
-        operation.setStatus("PAUSED");
+        operation.setStatus(OperationStatus.PAUSED);
         orderOperationRepository.save(operation);
         auditService.record("EXECUTION_PAUSED", "order_operation", operationId,
                 "planVersion=" + ctx.published().getVersionCode() + ", reason=" + req.remark());
@@ -158,17 +161,17 @@ public class ExecutionService {
     private ExecutionFeedbackResponse resume(String operationId, ExecutionRequest req) {
         FeedbackContext ctx = loadContext(operationId);
         ExecutionRecord paused = executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "PAUSED")
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.PAUSED)
                 .orElseThrow(() -> BizException.stateConflict("工序未处于暂停中，不能恢复: " + operationId));
         OffsetDateTime now = OffsetDateTime.now();
-        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), "RESUMED");
+        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), ExecutionStatus.RESUMED);
         record.setOccurredAt(now);
         record.setRemark(req.remark());
         executionRecordRepository.save(record);
         paused.setActualEndAt(now);
         executionRecordRepository.save(paused);
         OrderOperation operation = ctx.operation();
-        operation.setStatus("RUNNING");
+        operation.setStatus(OperationStatus.RUNNING);
         orderOperationRepository.save(operation);
         auditService.record("EXECUTION_RESUMED", "order_operation", operationId,
                 "planVersion=" + ctx.published().getVersionCode());
@@ -178,10 +181,10 @@ public class ExecutionService {
     private ExecutionFeedbackResponse complete(String operationId, ExecutionRequest req) {
         FeedbackContext ctx = loadContext(operationId);
         ExecutionRecord running = executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "RUNNING")
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.RUNNING)
                 .orElseThrow(() -> BizException.stateConflict("工序必须先反馈 RUNNING 才能 COMPLETED: " + operationId));
         if (executionRecordRepository
-                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, "PAUSED").isPresent()) {
+                .findFirstByOperationIdAndStatusAndActualEndAtIsNull(operationId, ExecutionStatus.PAUSED).isPresent()) {
             throw BizException.stateConflict("工序暂停中，请先恢复再完工: " + operationId);
         }
         OffsetDateTime actualEnd = req.actualEndAt() != null
@@ -189,7 +192,7 @@ public class ExecutionService {
         if (running.getActualStartAt() != null && actualEnd.isBefore(running.getActualStartAt())) {
             throw BizException.validation("actualEndAt 不能早于 actualStartAt");
         }
-        running.setStatus("COMPLETED");
+        running.setStatus(ExecutionStatus.COMPLETED);
         running.setActualEndAt(actualEnd);
         if (req.remark() != null) {
             running.setRemark(req.remark());
@@ -198,15 +201,15 @@ public class ExecutionService {
         executionRecordRepository.save(running);
 
         OrderOperation operation = ctx.operation();
-        operation.setStatus("COMPLETED");
+        operation.setStatus(OperationStatus.COMPLETED);
         orderOperationRepository.save(operation);
         ProductionOrder order = productionOrderRepository.findById(operation.getOrderId()).orElse(null);
         if (order != null) {
             boolean allCompleted = orderOperationRepository
                     .findByOrderIdOrderBySequenceNo(order.getId()).stream()
-                    .allMatch(o -> "COMPLETED".equals(o.getStatus()));
+                    .allMatch(o -> OperationStatus.COMPLETED.equals(o.getStatus()));
             if (allCompleted) {
-                order.setStatus("COMPLETED");
+                order.setStatus(OrderStatus.COMPLETED);
                 productionOrderRepository.save(order);
             }
         }
@@ -224,10 +227,10 @@ public class ExecutionService {
             throw BizException.validation("异常反馈必须填写备注");
         }
         FeedbackContext ctx = loadContext(operationId);
-        if (executionRecordRepository.existsByOperationIdAndStatus(operationId, "COMPLETED")) {
+        if (executionRecordRepository.existsByOperationIdAndStatus(operationId, ExecutionStatus.COMPLETED)) {
             throw BizException.stateConflict("工序已完成，异常更正需管理员审批: " + operationId);
         }
-        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), "EXCEPTION");
+        ExecutionRecord record = newRecord(operationId, ctx.published().getId(), ExecutionStatus.EXCEPTION);
         record.setOccurredAt(OffsetDateTime.now());
         record.setReasonCode(req.reasonCode());
         record.setRemark(req.remark());

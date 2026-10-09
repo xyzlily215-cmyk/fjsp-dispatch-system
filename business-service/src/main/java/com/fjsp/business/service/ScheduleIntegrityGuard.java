@@ -14,6 +14,7 @@ import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.EventImpact;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.InputSnapshot;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -96,7 +97,7 @@ public class ScheduleIntegrityGuard {
             String opId = old.getOperationId();
             ScheduleOperation cand = candByOp.get(opId);
             List<ExecutionRecord> records = recordsByOp.getOrDefault(opId, List.of());
-            if (records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()))) {
+            if (records.stream().anyMatch(r -> ExecutionStatus.COMPLETED.equals(r.getStatus()))) {
                 if (cand == null) {
                     violations.add(opId + "(已完成工序被移除)");
                 } else if (!old.getMachineId().equals(cand.getMachineId())
@@ -107,7 +108,7 @@ public class ScheduleIntegrityGuard {
                 continue;
             }
             var running = records.stream()
-                    .filter(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null)
+                    .filter(r -> ExecutionStatus.RUNNING.equals(r.getStatus()) && r.getActualEndAt() == null)
                     .findFirst();
             if (running.isPresent()) {
                 ExecutionRecord record = running.get();

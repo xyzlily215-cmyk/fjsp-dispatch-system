@@ -25,6 +25,7 @@ import com.fjsp.business.entity.ImportBatch;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.repository.ImportBatchRepository;
 import com.fjsp.business.repository.MachineRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
@@ -357,7 +358,7 @@ public class ImportService {
                         "工艺模板不存在，请核对模板 ID 或留空按产品族自动匹配"));
                 return;
             }
-            if (!"ACTIVE".equals(template.getStatus())) {
+            if (!TemplateStatus.ACTIVE.equals(template.getStatus())) {
                 errors.add(new ImportRowError(rowNo, "E_REFERENCE", "templateId", templateId,
                         "工艺模板未启用: " + template.getTemplateCode()));
                 return;
@@ -369,7 +370,7 @@ public class ImportService {
             }
         } else {
             template = processTemplateRepository
-                    .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(family, "ACTIVE")
+                    .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(family, TemplateStatus.ACTIVE)
                     .orElse(null);
             if (template == null) {
                 errors.add(new ImportRowError(rowNo, "E_REFERENCE", "productFamily", family,

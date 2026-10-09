@@ -12,11 +12,13 @@ import com.fjsp.business.dto.OrderResponse;
 import com.fjsp.business.dto.OrderRevisionRequest;
 import com.fjsp.business.dto.OrderRevisionResponse;
 import com.fjsp.business.dto.OrderRevisionResultResponse;
+import com.fjsp.business.entity.OperationStatus;
 import com.fjsp.business.entity.OrderOperation;
 import com.fjsp.business.entity.OrderRevision;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.repository.OrderOperationRepository;
 import com.fjsp.business.repository.OrderRevisionRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
@@ -86,7 +88,7 @@ public class OrderRevisionService {
             if (templateChanged) {
                 newTemplate = processTemplateRepository.findById(req.templateId())
                         .orElseThrow(() -> BizException.validation("工艺模板不存在: " + req.templateId()));
-                if (!"ACTIVE".equals(newTemplate.getStatus())) {
+                if (!TemplateStatus.ACTIVE.equals(newTemplate.getStatus())) {
                     throw BizException.validation("工艺模板未启用: " + newTemplate.getTemplateCode());
                 }
                 if (!newTemplate.getProductFamily().equals(productFamily)) {
@@ -170,7 +172,7 @@ public class OrderRevisionService {
         List<OrderOperation> existing = orderOperationRepository.findByOrderIdOrderBySequenceNo(order.getId());
         int keptMaxSeq = 0;
         for (OrderOperation oo : existing) {
-            if ("NOT_STARTED".equals(oo.getStatus())) {
+            if (OperationStatus.NOT_STARTED.equals(oo.getStatus())) {
                 orderOperationRepository.delete(oo);
             } else {
                 keptMaxSeq = Math.max(keptMaxSeq, oo.getSequenceNo());
@@ -187,7 +189,7 @@ public class OrderRevisionService {
             oo.setOrderId(order.getId());
             // 存在已开始工序时新工序排在其后：避免 (orderId, sequenceNo) 唯一冲突并保持先后语义
             oo.setSequenceNo(keptMaxSeq == 0 ? po.getSequenceNo() : keptMaxSeq + po.getSequenceNo());
-            oo.setStatus("NOT_STARTED");
+            oo.setStatus(OperationStatus.NOT_STARTED);
             oo.setCandidates(po.getDefaultCandidates());
             orderOperationRepository.save(oo);
         }

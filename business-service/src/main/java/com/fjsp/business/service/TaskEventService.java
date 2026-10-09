@@ -152,12 +152,16 @@ public class TaskEventService {
     }
 
     private static String stageOf(ScheduleTask task) {
-        return switch (task.getStatus()) {
-            case "PENDING" -> "QUEUED";
-            case "RUNNING" -> task.getProgress() != null && task.getProgress() >= 85 ? "VALIDATING" : "SOLVING";
-            case "RETRY_WAIT" -> "RETRY_WAIT";
-            default -> "DONE";
-        };
+        if (TaskStatus.PENDING.name().equals(task.getStatus())) {
+            return "QUEUED";
+        }
+        if (TaskStatus.RUNNING.name().equals(task.getStatus())) {
+            return task.getProgress() != null && task.getProgress() >= 85 ? "VALIDATING" : "SOLVING";
+        }
+        if (TaskStatus.RETRY_WAIT.name().equals(task.getStatus())) {
+            return "RETRY_WAIT";
+        }
+        return "DONE";
     }
 
     private static long elapsedMs(ScheduleTask task) {

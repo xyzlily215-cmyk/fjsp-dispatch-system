@@ -13,6 +13,7 @@ import com.fjsp.business.dto.TemplateStatusRequest;
 import com.fjsp.business.dto.TemplateUpsertRequest;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.repository.MachineRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
 import com.fjsp.business.repository.ProcessTemplateRepository;
@@ -22,7 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ProcessTemplateCommandService {
 
-    private static final Set<String> TEMPLATE_STATUSES = Set.of("ACTIVE", "INACTIVE", "DRAFT");
+    private static final Set<String> TEMPLATE_STATUSES =
+            Set.of(TemplateStatus.ACTIVE, TemplateStatus.INACTIVE, TemplateStatus.DRAFT);
 
     private final MachineRepository machineRepository;
     private final ProcessTemplateRepository processTemplateRepository;
@@ -61,7 +63,7 @@ public class ProcessTemplateCommandService {
             template.setTemplateCode(req.templateCode());
             template.setProductFamily(req.productFamily());
             template.setTemplateVersion(1);
-            template.setStatus("ACTIVE");
+            template.setStatus(TemplateStatus.ACTIVE);
             processTemplateRepository.save(template);
             saveTemplateOperations(template.getId(), req.operations());
             auditService.record("TEMPLATE_CREATE", "process_template", template.getId(),
@@ -79,7 +81,7 @@ public class ProcessTemplateCommandService {
             }
             ProcessTemplate template = processTemplateRepository.findById(templateId)
                     .orElseThrow(() -> BizException.notFound("工艺模板不存在: " + templateId));
-            if ("ACTIVE".equals(req.status())) {
+            if (TemplateStatus.ACTIVE.equals(req.status())) {
                 List<ProcessOperation> ops =
                         processOperationRepository.findByTemplateIdOrderBySequenceNo(templateId);
                 validateTemplateOperations(toInputs(ops));
@@ -105,7 +107,7 @@ public class ProcessTemplateCommandService {
             copy.setTemplateCode(source.getTemplateCode());
             copy.setProductFamily(source.getProductFamily());
             copy.setTemplateVersion(nextVersion);
-            copy.setStatus("DRAFT");
+            copy.setStatus(TemplateStatus.DRAFT);
             processTemplateRepository.save(copy);
             for (ProcessOperation po
                     : processOperationRepository.findByTemplateIdOrderBySequenceNo(templateId)) {

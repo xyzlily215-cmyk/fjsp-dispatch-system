@@ -30,7 +30,7 @@ public class Machine {
     private List<String> productFamilies;
 
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private String status = MachineStatus.ACTIVE;
 
     @Column(length = 500)
     private String remark;

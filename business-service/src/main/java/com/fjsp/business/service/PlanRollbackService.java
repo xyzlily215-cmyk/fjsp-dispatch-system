@@ -14,6 +14,7 @@ import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.dto.PlanVersionSummaryResponse;
 import com.fjsp.business.dto.RollbackRequest;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.repository.ExecutionRecordRepository;
@@ -98,15 +99,15 @@ public class PlanRollbackService {
         Map<String, HardLock> locks = new LinkedHashMap<>();
         for (ScheduleOperation cur : currentByOp.values()) {
             List<ExecutionRecord> records = recordsByOp.getOrDefault(cur.getOperationId(), List.of());
-            if (records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()))) {
-                locks.put(cur.getOperationId(), new HardLock("COMPLETED", null));
+            if (records.stream().anyMatch(r -> ExecutionStatus.COMPLETED.equals(r.getStatus()))) {
+                locks.put(cur.getOperationId(), new HardLock(ExecutionStatus.COMPLETED, null));
                 continue;
             }
             var running = records.stream()
-                    .filter(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null)
+                    .filter(r -> ExecutionStatus.RUNNING.equals(r.getStatus()) && r.getActualEndAt() == null)
                     .findFirst();
             if (running.isPresent()) {
-                locks.put(cur.getOperationId(), new HardLock("RUNNING", running.get().getActualStartAt()));
+                locks.put(cur.getOperationId(), new HardLock(ExecutionStatus.RUNNING, running.get().getActualStartAt()));
             } else if (!cur.getStartAt().isBefore(now) && cur.getStartAt().isBefore(freezeEnd)) {
                 locks.put(cur.getOperationId(), new HardLock("FROZEN", null));
             }
@@ -123,14 +124,14 @@ public class PlanRollbackService {
                 continue;
             }
             switch (lock.type()) {
-                case "COMPLETED" -> {
+                case ExecutionStatus.COMPLETED -> {
                     if (!cur.getMachineId().equals(hist.getMachineId())
                             || !sameInstant(cur.getStartAt(), hist.getStartAt())
                             || !sameInstant(cur.getEndAt(), hist.getEndAt())) {
                         conflicts.add(opId + "(已完成工序在历史快照中的机台/时间与实际不一致)");
                     }
                 }
-                case "RUNNING" -> {
+                case ExecutionStatus.RUNNING -> {
                     if (!cur.getMachineId().equals(hist.getMachineId())) {
                         conflicts.add(opId + "(加工中工序在历史快照中的机台与实际不一致)");
                     } else if (lock.actualStartAt() != null
@@ -214,8 +215,8 @@ public class PlanRollbackService {
 
     private static String lockText(String type) {
         return switch (type) {
-            case "COMPLETED" -> "已完成";
-            case "RUNNING" -> "加工中";
+            case ExecutionStatus.COMPLETED -> "已完成";
+            case ExecutionStatus.RUNNING -> "加工中";
             default -> "冻结窗内";
         };
     }

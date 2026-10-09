@@ -23,7 +23,7 @@ public class ProcessTemplate {
     private Integer templateVersion = 1;
 
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private String status = TemplateStatus.ACTIVE;
 
     public String getId() {
         return id;

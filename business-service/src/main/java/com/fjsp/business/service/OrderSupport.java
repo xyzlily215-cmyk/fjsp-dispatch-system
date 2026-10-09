@@ -8,6 +8,7 @@ import java.util.Objects;
 
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.dto.OrderResponse;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.repository.ProductionOrderRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
@@ -28,7 +29,7 @@ public class OrderSupport {
 
     /** 已排程 = 已有非 WAITING 状态，或任一工序已进入某个计划版本（调度结果）。 */
     boolean isOrderScheduled(ProductionOrder order) {
-        return !"WAITING".equals(order.getStatus())
+        return !OrderStatus.WAITING.equals(order.getStatus())
                 || scheduleOperationRepository.existsScheduledByOrderId(order.getId());
     }
 

@@ -9,10 +9,13 @@ import com.fjsp.business.dto.OrderCreateResponse;
 import com.fjsp.business.dto.OrderResponse;
 import com.fjsp.business.dto.OrderUpdateRequest;
 import com.fjsp.business.dto.OrderUpsertRequest;
+import com.fjsp.business.entity.OperationStatus;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.repository.OrderOperationRepository;
 import com.fjsp.business.repository.ProcessOperationRepository;
 import com.fjsp.business.repository.ProcessTemplateRepository;
@@ -68,7 +71,7 @@ public class OrderCommandService {
         if (req.templateId() != null && !req.templateId().isBlank()) {
             template = processTemplateRepository.findById(req.templateId())
                     .orElseThrow(() -> BizException.validation("工艺模板不存在: " + req.templateId()));
-            if (!"ACTIVE".equals(template.getStatus())) {
+            if (!TemplateStatus.ACTIVE.equals(template.getStatus())) {
                 throw BizException.validation("工艺模板未启用: " + template.getTemplateCode());
             }
             if (!template.getProductFamily().equals(req.productFamily())) {
@@ -77,7 +80,7 @@ public class OrderCommandService {
             }
         } else {
             template = processTemplateRepository
-                    .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(req.productFamily(), "ACTIVE")
+                    .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(req.productFamily(), TemplateStatus.ACTIVE)
                     .orElseThrow(() -> BizException.validation("产品族无启用中的工艺模板: " + req.productFamily()));
         }
         List<ProcessOperation> templateOps = processOperationRepository
@@ -94,7 +97,7 @@ public class OrderCommandService {
         order.setArrivalAt(OffsetDateTime.parse(req.arrivalAt()));
         order.setDueAt(OffsetDateTime.parse(req.dueAt()));
         order.setPriority(req.priority());
-        order.setStatus("WAITING");
+        order.setStatus(OrderStatus.WAITING);
         order.setTemplateId(template.getId());
         order.setRemark(req.remark());
         productionOrderRepository.save(order);
@@ -105,7 +108,7 @@ public class OrderCommandService {
             oo.setId(req.orderCode() + "-" + po.getSequenceNo());
             oo.setOrderId(order.getId());
             oo.setSequenceNo(po.getSequenceNo());
-            oo.setStatus("NOT_STARTED");
+            oo.setStatus(OperationStatus.NOT_STARTED);
             oo.setCandidates(po.getDefaultCandidates());
             orderOperationRepository.save(oo);
             operationIds.add(oo.getId());

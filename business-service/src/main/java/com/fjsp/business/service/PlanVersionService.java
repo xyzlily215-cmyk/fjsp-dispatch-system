@@ -18,6 +18,7 @@ import com.fjsp.business.dto.ReviewRequest;
 import com.fjsp.business.dto.RollbackRequest;
 import com.fjsp.business.dto.SubmitReviewRequest;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -142,12 +143,12 @@ public class PlanVersionService {
                 order != null ? order.getProductFamily() : null,
                 order != null ? order.getPriority() : null,
                 order != null ? order.getDueAt() : null,
-                exec.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus())),
+                exec.stream().anyMatch(r -> ExecutionStatus.COMPLETED.equals(r.getStatus())),
                 exec.stream().anyMatch(r -> ExecutionService.REASON_EXECUTION_DEVIATION.equals(r.getReasonCode())),
                 exec.stream().map(ExecutionRecord::getDeviationMinutes)
                         .filter(Objects::nonNull).max(Integer::compareTo).orElse(null),
-                exec.stream().anyMatch(r -> "EXCEPTION".equals(r.getStatus())),
-                exec.stream().anyMatch(r -> "PAUSED".equals(r.getStatus()) && r.getActualEndAt() == null));
+                exec.stream().anyMatch(r -> ExecutionStatus.EXCEPTION.equals(r.getStatus())),
+                exec.stream().anyMatch(r -> ExecutionStatus.PAUSED.equals(r.getStatus()) && r.getActualEndAt() == null));
     }
 
     public PlanDiffResponse diff(String idOrCode, String baselineIdOrCode) {

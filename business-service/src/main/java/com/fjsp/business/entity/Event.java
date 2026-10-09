@@ -51,7 +51,7 @@ public class Event {
     private String note;
 
     @Column(nullable = false)
-    private String status = "CREATED";
+    private String status = STATUS_CREATED;
 
     private String revisionOf;
 

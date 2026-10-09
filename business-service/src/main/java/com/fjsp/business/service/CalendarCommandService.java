@@ -14,7 +14,9 @@ import com.fjsp.business.dto.CalendarIntervalRequest;
 import com.fjsp.business.dto.CalendarIntervalResponse;
 import com.fjsp.business.dto.CalendarVersionResponse;
 import com.fjsp.business.entity.CalendarInterval;
+import com.fjsp.business.entity.CalendarStatus;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.Machine;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.WorkCalendar;
@@ -161,7 +163,7 @@ public class CalendarCommandService {
     private WorkCalendar lockActiveCalendar(String calendarId) {
         WorkCalendar current = workCalendarRepository.findByIdForUpdate(calendarId)
                 .orElseThrow(() -> BizException.notFound("日历不存在: " + calendarId));
-        if (!"ACTIVE".equals(current.getStatus())) {
+        if (!CalendarStatus.ACTIVE.equals(current.getStatus())) {
             throw BizException.stateConflict("日历 " + calendarId + " 是历史版本（v" + current.getCalendarVersion()
                     + "），不可变更，请对当前生效版本操作");
         }
@@ -179,7 +181,7 @@ public class CalendarCommandService {
         next.setId(UUID.randomUUID().toString());
         next.setCalendarCode(current.getCalendarCode());
         next.setCalendarVersion(current.getCalendarVersion() + 1);
-        next.setStatus("ACTIVE");
+        next.setStatus(CalendarStatus.ACTIVE);
         next.setChangeNote(changeNote);
         workCalendarRepository.save(next);
         for (CalendarInterval ci : nextIntervals) {
@@ -217,7 +219,7 @@ public class CalendarCommandService {
             return;
         }
         for (ExecutionRecord r : executionRecordRepository.findByOperationIdIn(operationIds)) {
-            if (!"COMPLETED".equals(r.getStatus()) || r.getActualStartAt() == null
+            if (!ExecutionStatus.COMPLETED.equals(r.getStatus()) || r.getActualStartAt() == null
                     || r.getActualEndAt() == null) {
                 continue;
             }

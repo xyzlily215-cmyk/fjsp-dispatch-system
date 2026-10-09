@@ -26,6 +26,7 @@ import com.fjsp.business.dto.ExecutionDeviationItem;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.ExecutionRecord;
 import com.fjsp.business.entity.Machine;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -182,7 +183,7 @@ public class DashboardService {
             for (Map.Entry<String, ScheduleOperation> e : lastEndByOrder.entrySet()) {
                 ProductionOrder order = ordersById.get(e.getKey());
                 if (order != null && e.getValue().getEndAt().isAfter(order.getDueAt())
-                        && !"COMPLETED".equals(order.getStatus())) {
+                        && !OrderStatus.COMPLETED.equals(order.getStatus())) {
                     delayedOrders.add(new DelayedOrderItem(order.getId(), order.getOrderCode(),
                             order.getDueAt(), e.getValue().getEndAt()));
                 }
@@ -253,7 +254,7 @@ public class DashboardService {
             item.put("machineId", b.machineId());
             item.put("occurredAt", b.occurredAt());
             item.put("repairEndAt", b.repairEndAt());
-            item.put("type", "BREAKDOWN");
+            item.put("type", Event.TYPE_BREAKDOWN);
             item.put("severity", SEVERITY_HIGH);
             item.put("at", b.occurredAt());
             items.add(item);

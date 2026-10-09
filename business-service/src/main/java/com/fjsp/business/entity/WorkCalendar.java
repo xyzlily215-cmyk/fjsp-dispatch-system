@@ -22,7 +22,7 @@ public class WorkCalendar {
     private Integer calendarVersion = 1;
 
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private String status = CalendarStatus.ACTIVE;
 
     @Column(nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();

@@ -14,6 +14,7 @@ import com.fjsp.business.dto.OrderOperationItem;
 import com.fjsp.business.dto.ProcessTemplateResponse;
 import com.fjsp.business.entity.Machine;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
@@ -75,7 +76,7 @@ public class BaseDataQueryService {
 
         List<OrderListItemResponse> result = new ArrayList<>();
         for (ProductionOrder order : orders) {
-            boolean scheduled = !"WAITING".equals(order.getStatus())
+            boolean scheduled = !OrderStatus.WAITING.equals(order.getStatus())
                     || scheduledOrderIds.contains(order.getId());
             List<OrderOperationItem> ops = new ArrayList<>();
             for (OrderOperation op : opsByOrder.getOrDefault(order.getId(), List.of())) {

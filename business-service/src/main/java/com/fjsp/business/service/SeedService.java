@@ -14,12 +14,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.entity.CalendarInterval;
+import com.fjsp.business.entity.CalendarStatus;
 import com.fjsp.business.entity.Machine;
+import com.fjsp.business.entity.MachineStatus;
 import com.fjsp.business.entity.OperationCandidate;
+import com.fjsp.business.entity.OperationStatus;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.entity.WorkCalendar;
 import com.fjsp.business.repository.CalendarIntervalRepository;
 import com.fjsp.business.repository.MachineRepository;
@@ -100,7 +105,7 @@ public class SeedService implements ApplicationRunner {
             calendar.setId("CAL-" + machineId);
             calendar.setCalendarCode("CAL-" + machineId);
             calendar.setCalendarVersion(1);
-            calendar.setStatus("ACTIVE");
+            calendar.setStatus(CalendarStatus.ACTIVE);
             workCalendarRepository.save(calendar);
 
             for (JsonNode iv : m.get("availableIntervals")) {
@@ -121,7 +126,7 @@ public class SeedService implements ApplicationRunner {
             List<String> families = new ArrayList<>();
             m.get("productFamilies").forEach(f -> families.add(f.asText()));
             machine.setProductFamilies(families);
-            machine.setStatus("ACTIVE");
+            machine.setStatus(MachineStatus.ACTIVE);
             machineRepository.save(machine);
             machineCount++;
         }
@@ -140,7 +145,7 @@ public class SeedService implements ApplicationRunner {
             template.setTemplateCode("TPL-" + family);
             template.setProductFamily(family);
             template.setTemplateVersion(1);
-            template.setStatus("ACTIVE");
+            template.setStatus(TemplateStatus.ACTIVE);
             processTemplateRepository.save(template);
             familyTemplateId.put(family, template.getId());
             templateCount++;
@@ -198,7 +203,7 @@ public class SeedService implements ApplicationRunner {
             order.setArrivalAt(simStart.plusMinutes(o.get("arrivalMinutes").asLong()));
             order.setDueAt(simStart.plusMinutes(o.get("dueMinutes").asLong()));
             order.setPriority(o.get("priority").asInt());
-            order.setStatus("WAITING");
+            order.setStatus(OrderStatus.WAITING);
             order.setTemplateId(familyTemplateId.get(order.getProductFamily()));
             productionOrderRepository.save(order);
             orderCount++;
@@ -208,7 +213,7 @@ public class SeedService implements ApplicationRunner {
                 oo.setId(op.get("operationId").asText());
                 oo.setOrderId(orderId);
                 oo.setSequenceNo(op.get("seqNo").asInt());
-                oo.setStatus("NOT_STARTED");
+                oo.setStatus(OperationStatus.NOT_STARTED);
                 List<Map<String, Object>> candidates = new ArrayList<>();
                 for (JsonNode c : op.get("candidates")) {
                     Map<String, Object> cand = new LinkedHashMap<>();

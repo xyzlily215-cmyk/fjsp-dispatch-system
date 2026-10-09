@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.fjsp.business.entity.ScheduleTask;
+import com.fjsp.business.entity.TaskStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -44,6 +45,7 @@ public interface ScheduleTaskRepository extends JpaRepository<ScheduleTask, Stri
      * 派发线程抢占，调用方必须放弃本次执行，防止取消后复活与重复派发。
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
+    // 注解值必须是编译期常量，JPQL 中保留字面量，取值与 TaskStatus 枚举一致
     @Query("update ScheduleTask t set t.status = 'RUNNING', t.progress = 10,"
             + " t.startedAt = :startedAt, t.nextRetryAt = null, t.timeoutAt = :timeoutAt"
             + " where t.id = :id and t.status in ('PENDING', 'RETRY_WAIT')")

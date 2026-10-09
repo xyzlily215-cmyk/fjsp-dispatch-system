@@ -3,6 +3,7 @@ package com.fjsp.business.entity;
 import java.time.OffsetDateTime;
 import java.util.Map;
 
+import com.fjsp.business.service.PlanStateMachine;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -29,7 +30,7 @@ public class PlanVersion {
     private String candidateType = "BASELINE";
 
     @Column(nullable = false)
-    private String status = "DRAFT";
+    private String status = PlanStateMachine.DRAFT;
 
     private String taskId;
 

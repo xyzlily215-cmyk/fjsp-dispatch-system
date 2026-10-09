@@ -17,8 +17,11 @@ import com.fjsp.business.entity.CalendarInterval;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.EventImpact;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.Machine;
+import com.fjsp.business.entity.MachineStatus;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.repository.CalendarIntervalRepository;
@@ -117,10 +120,10 @@ public class SnapshotBuilder {
             for (ScheduleOperation op : oldOps) {
                 String opId = op.getOperationId();
                 List<ExecutionRecord> records = recordsByOp.getOrDefault(opId, List.of());
-                boolean completed = records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()));
+                boolean completed = records.stream().anyMatch(r -> ExecutionStatus.COMPLETED.equals(r.getStatus()));
                 var running = completed ? java.util.Optional.<ExecutionRecord>empty()
                         : records.stream()
-                                .filter(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null)
+                                .filter(r -> ExecutionStatus.RUNNING.equals(r.getStatus()) && r.getActualEndAt() == null)
                                 .findFirst();
                 boolean inProgress = running.isPresent();
                 boolean frozen = !completed && !inProgress && !affected.contains(opId)
@@ -164,7 +167,7 @@ public class SnapshotBuilder {
                 .toList();
         List<Map<String, Object>> machines = new ArrayList<>();
         for (Machine machine : machineRepository.findAll()) {
-            if (!"ACTIVE".equals(machine.getStatus())) {
+            if (!MachineStatus.ACTIVE.equals(machine.getStatus())) {
                 continue;
             }
             List<long[]> intervals = new ArrayList<>();
@@ -220,7 +223,7 @@ public class SnapshotBuilder {
                 }
             } else {
                 orders = new ArrayList<>(
-                        productionOrderRepository.findByStatusIn(List.of("WAITING")));
+                        productionOrderRepository.findByStatusIn(List.of(OrderStatus.WAITING)));
             }
         } else {
             Set<String> included = new HashSet<>();
@@ -235,7 +238,7 @@ public class SnapshotBuilder {
                     included.add(oo.getOrderId());
                 }
             }
-            for (ProductionOrder o : productionOrderRepository.findByStatusIn(List.of("WAITING"))) {
+            for (ProductionOrder o : productionOrderRepository.findByStatusIn(List.of(OrderStatus.WAITING))) {
                 included.add(o.getId());
             }
             orders = new ArrayList<>();

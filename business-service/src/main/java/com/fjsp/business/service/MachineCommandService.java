@@ -8,6 +8,7 @@ import com.fjsp.business.dto.MachineResponse;
 import com.fjsp.business.dto.MachineStatusRequest;
 import com.fjsp.business.dto.MachineUpsertRequest;
 import com.fjsp.business.entity.Machine;
+import com.fjsp.business.entity.MachineStatus;
 import com.fjsp.business.repository.MachineRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MachineCommandService {
 
-    private static final Set<String> MACHINE_STATUSES = Set.of("ACTIVE", "INACTIVE");
+    private static final Set<String> MACHINE_STATUSES = Set.of(MachineStatus.ACTIVE, MachineStatus.INACTIVE);
 
     private final MachineRepository machineRepository;
     private final IdempotencyService idempotencyService;
@@ -44,7 +45,7 @@ public class MachineCommandService {
         Machine machine = new Machine();
         machine.setId(req.machineCode());
         applyMachine(machine, req);
-        machine.setStatus("ACTIVE");
+        machine.setStatus(MachineStatus.ACTIVE);
         machineRepository.save(machine);
         auditService.record("MACHINE_CREATE", "machine", machine.getId(),
                 "machineCode=" + machine.getMachineCode());

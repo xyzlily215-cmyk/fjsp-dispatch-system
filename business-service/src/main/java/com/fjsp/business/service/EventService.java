@@ -25,11 +25,14 @@ import com.fjsp.business.dto.ReschedulePreviewResponse;
 import com.fjsp.business.dto.ReviseEventRequest;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.EventImpact;
+import com.fjsp.business.entity.OperationStatus;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProcessOperation;
 import com.fjsp.business.entity.ProcessTemplate;
 import com.fjsp.business.entity.ProductionOrder;
+import com.fjsp.business.entity.TemplateStatus;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.TaskStatus;
 import com.fjsp.business.repository.EventImpactRepository;
@@ -121,7 +124,7 @@ public class EventService {
             throw BizException.duplicate("同车间订单号重复: " + orderCode);
         }
         ProcessTemplate template = processTemplateRepository
-                .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(req.productFamily(), "ACTIVE")
+                .findFirstByProductFamilyAndStatusOrderByTemplateVersionDesc(req.productFamily(), TemplateStatus.ACTIVE)
                 .orElseThrow(() -> BizException.validation("产品族无可用工艺模板: " + req.productFamily()));
         List<ProcessOperation> templateOps = processOperationRepository
                 .findByTemplateIdOrderBySequenceNo(template.getId());
@@ -150,7 +153,7 @@ public class EventService {
         order.setArrivalAt(arrivalAt);
         order.setDueAt(dueAt);
         order.setPriority(req.priority());
-        order.setStatus("WAITING");
+        order.setStatus(OrderStatus.WAITING);
         order.setTemplateId(template.getId());
         productionOrderRepository.save(order);
 
@@ -160,7 +163,7 @@ public class EventService {
             oo.setId(orderCode + "-" + po.getSequenceNo());
             oo.setOrderId(order.getId());
             oo.setSequenceNo(po.getSequenceNo());
-            oo.setStatus("NOT_STARTED");
+            oo.setStatus(OperationStatus.NOT_STARTED);
             oo.setCandidates(po.getDefaultCandidates());
             orderOperationRepository.save(oo);
             operationIds.add(oo.getId());

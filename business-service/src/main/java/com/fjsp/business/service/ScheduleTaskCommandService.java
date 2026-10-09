@@ -161,8 +161,8 @@ public class ScheduleTaskCommandService {
         inputSnapshot.setSnapshotHash(snapshotHash);
         snapshotRepository.save(inputSnapshot);
 
-        if (event != null && "CONFIRMED".equals(event.getStatus())) {
-            event.setStatus("USED_FOR_SOLVE");
+        if (event != null && Event.STATUS_CONFIRMED.equals(event.getStatus())) {
+            event.setStatus(Event.STATUS_USED_FOR_SOLVE);
             eventRepository.save(event);
         }
         auditService.record("TASK_CREATE", "schedule_task", task.getId(),

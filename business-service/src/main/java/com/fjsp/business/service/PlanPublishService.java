@@ -12,6 +12,7 @@ import com.fjsp.business.dto.PlanVersionSummaryResponse;
 import com.fjsp.business.dto.PublishRequest;
 import com.fjsp.business.entity.InputSnapshot;
 import com.fjsp.business.entity.OrderOperation;
+import com.fjsp.business.entity.OrderStatus;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ProductionOrder;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -119,8 +120,8 @@ public class PlanPublishService {
             touched.put(order.getId(), order);
         }
         for (ProductionOrder order : touched.values()) {
-            if ("WAITING".equals(order.getStatus())) {
-                order.setStatus("SCHEDULED");
+            if (OrderStatus.WAITING.equals(order.getStatus())) {
+                order.setStatus(OrderStatus.SCHEDULED);
                 productionOrderRepository.save(order);
             }
         }

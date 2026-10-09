@@ -18,6 +18,7 @@ import com.fjsp.business.dto.ReschedulePreviewResponse;
 import com.fjsp.business.entity.Event;
 import com.fjsp.business.entity.EventImpact;
 import com.fjsp.business.entity.ExecutionRecord;
+import com.fjsp.business.entity.ExecutionStatus;
 import com.fjsp.business.entity.OrderOperation;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
@@ -172,16 +173,16 @@ public class ImpactCalculator {
     }
 
     private static boolean hasCompleted(List<ExecutionRecord> records) {
-        return records != null && records.stream().anyMatch(r -> "COMPLETED".equals(r.getStatus()));
+        return records != null && records.stream().anyMatch(r -> ExecutionStatus.COMPLETED.equals(r.getStatus()));
     }
 
     private static boolean hasRunning(List<ExecutionRecord> records) {
         return records != null && records.stream()
-                .anyMatch(r -> "RUNNING".equals(r.getStatus()) && r.getActualEndAt() == null);
+                .anyMatch(r -> ExecutionStatus.RUNNING.equals(r.getStatus()) && r.getActualEndAt() == null);
     }
 
     public List<ExecutionRecord> runningExecutions() {
-        return executionRecordRepository.findByStatusAndActualEndAtIsNull("RUNNING");
+        return executionRecordRepository.findByStatusAndActualEndAtIsNull(ExecutionStatus.RUNNING);
     }
 
     private EventImpact base(Event event, String operationId, String type, String reason) {
