@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# ui-check.sh — 验证前端（8082）跨域访问业务服务（8081）的关键接口
+# ui-check.sh — 验证前端（$FJSP_WEB_PORT）跨域访问业务服务（$FJSP_API_BASE）的关键接口
 # 用法: bash scripts/ui-check.sh
 set -euo pipefail
-ORIGIN="http://localhost:8082"
-API="http://localhost:8081/api/v1"
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/demo-common.sh
+source "$ROOT_DIR/scripts/demo-common.sh"
+load_demo_env
+
+ORIGIN="http://localhost:${FJSP_WEB_PORT}"
+API="$FJSP_API_BASE"
+WEB_BASE="http://localhost:${FJSP_WEB_PORT}"
 FAIL=0
 
 check_cors() {
@@ -36,7 +43,7 @@ check_preflight() {
 check_static() {
   local path="$1"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8082$path") || true
+  code=$(curl -s -o /dev/null -w "%{http_code}" "$WEB_BASE$path") || true
   if [ "$code" = "200" ]; then echo "PASS  static $path"; else echo "FAIL  static $path (HTTP $code)"; FAIL=1; fi
 }
 
