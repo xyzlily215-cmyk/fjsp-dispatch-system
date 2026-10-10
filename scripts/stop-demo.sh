@@ -8,6 +8,8 @@ source "$SCRIPT_DIR/demo-common.sh"
 load_demo_env
 
 stop_process agh "agnes-harness/packages/cli/dist/local/agnes.mjs serve"
+stop_process m03 "machine-m03.py"
+stop_process agh-daemon "daemon.mjs --profile"
 stop_process web "http.server ${FJSP_WEB_PORT}"
 stop_process business "business-service-1.0.0.jar"
 stop_process algorithm "uvicorn app.api:app"

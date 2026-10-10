@@ -28,6 +28,10 @@ load_demo_env() {
   export FJSP_WEB_DIR="${FJSP_WEB_DIR:-web-vue/dist}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
   export FJSP_START_AGH="${FJSP_START_AGH:-1}"
+  # AgnesHub（MHS）对外地址；启动 AGH serve 时注入 AGNES_HUB_ORIGIN，工作台才能连上 Devices 面板
+  export FJSP_AGH_HUB_ORIGIN="${FJSP_AGH_HUB_ORIGIN:-http://127.0.0.1:4180}"
+  # 是否随演示环境启动 MHS 虚拟机床设备 machine-m03（需要 mhs-devices/.venv 已建好）
+  export FJSP_START_MHS="${FJSP_START_MHS:-1}"
   export FJSP_AUTH_USER="${FJSP_AUTH_USER:-admin}"
   export FJSP_AUTH_PASSWORD="${FJSP_AUTH_PASSWORD:-Fj@123456}"
 }
@@ -37,6 +41,33 @@ require_command() {
     printf '缺少命令: %s\n' "$1" >&2
     exit 1
   }
+}
+
+# AGH 需要 Node ≥ 24.10（node:sqlite setAuthorizer）。PATH 里的 node 版本不够时，
+# 自动从 fnm 版本目录挑一个 ≥24 的加到 PATH 最前；找不到则报错退出。
+ensure_node24() {
+  local major
+  major="$(node -v 2>/dev/null | sed 's/^v//;s/\..*//' || true)"
+  if [[ -n "$major" && "$major" -ge 24 ]]; then
+    return 0
+  fi
+  local fnm_dir="$HOME/.local/share/fnm/node-versions" candidate best="" best_major=0
+  for candidate in "$fnm_dir"/*/installation/bin; do
+    [[ -x "$candidate/node" ]] || continue
+    local v
+    v="$("$candidate/node" -v 2>/dev/null | sed 's/^v//;s/\..*//')"
+    [[ -n "$v" && "$v" -ge 24 ]] || continue
+    if [[ -z "$best" || "$v" -gt "$best_major" ]]; then
+      best="$candidate"; best_major="$v"
+    fi
+  done
+  if [[ -n "$best" ]]; then
+    export PATH="$best:$PATH"
+    printf '[Node] PATH 中 node 版本过低，改用 %s（v%s.x）\n' "$best" "$best_major"
+    return 0
+  fi
+  printf 'AGH 需要 Node ≥ 24.10，当前 PATH 中 node=%s，且 fnm 目录下无 ≥24 版本。\n' "$(node -v 2>/dev/null || echo 未安装)" >&2
+  return 1
 }
 
 pid_file() { printf '%s/%s.pid' "$RUNTIME_DIR" "$1"; }
