@@ -149,6 +149,13 @@ export const Api = {
   adminResetUserPassword: (id, password) => api('/admin/users/' + encodeURIComponent(id) + '/password', { method: 'POST', body: { password } }),
   adminConfigs: () => api('/admin/configs'),
   adminUpdateConfig: (key, configValue) => api('/admin/configs/' + encodeURIComponent(key), { method: 'PUT', body: { configValue } }),
+  /* Agent 处置时间线（仅 ADMIN）：审计日志按 source/sessionId 过滤 */
+  auditLogsPage: ({ page = 0, size = 20, source, sessionId } = {}) => {
+    const q = new URLSearchParams({ page, size });
+    if (source) q.set('source', source);
+    if (sessionId) q.set('sessionId', sessionId);
+    return api('/audit-logs?' + q);
+  },
   /* F-05 批量导入（仅 ADMIN）：模板下载 / 预览（multipart 上传）/ 整批入库 */
   importTemplate: (type) => apiDownload('/import/templates/' + encodeURIComponent(type)),
   importPreview: (type, file) => apiUpload('/import/' + encodeURIComponent(type) + '/preview', file),

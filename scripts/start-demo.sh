@@ -102,12 +102,13 @@ if [[ "$FJSP_START_AGH" == "1" ]]; then
   wait_for_url "http://127.0.0.1:${FJSP_AGH_PORT}/" "AGH 工作台" 60
 
   # MHS 虚拟机床设备（machine-m03 → ws://…:4180），需已启用 @agnes/mhs 插件
+  # FJSP_MHS_MACHINES 为空时只起 M-03；设为 "M-01 M-02 ... M-08" 则一次拉起整个车间
   if [[ "$FJSP_START_MHS" == "1" ]]; then
     mhs_dir="$ROOT_DIR/agh-integration/mhs-devices"
     if [[ -x "$mhs_dir/.venv/bin/python" && -f "$mhs_dir/machine-m03.py" ]]; then
       start_process m03 "machine-m03.py" "$ROOT_DIR/agh-integration" "$(log_file m03)" \
         env PYTHONPATH=agnes-harness/packages/mhs/python/src \
-          "$mhs_dir/.venv/bin/python" mhs-devices/machine-m03.py "${FJSP_AGH_HUB_ORIGIN/http/ws}"
+          "$mhs_dir/.venv/bin/python" mhs-devices/machine-m03.py "${FJSP_AGH_HUB_ORIGIN/http/ws}" ${FJSP_MHS_MACHINES:-M-03}
       wait_for_url "${FJSP_AGH_HUB_ORIGIN}/" "AgnesHub Devices 面板" 10 || true
     else
       printf '[跳过] MHS 设备未准备（缺 .venv 或 machine-m03.py），见 agh-integration/README.md「MHS 设备接入」\n'
