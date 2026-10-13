@@ -28,8 +28,10 @@ public class AuditLogController {
             @RequestParam(required = false) String objectId,
             @RequestParam(required = false) String operator,
             @RequestParam(required = false) String requestId,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String sessionId,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        return ApiResponse.ok(auditService.query(objectType, objectId, operator, requestId, page, size));
+        return ApiResponse.ok(auditService.query(objectType, objectId, operator, requestId, source, sessionId, page, size));
     }
 }

@@ -2,7 +2,22 @@
  * 与旧版的行为契约：X-Source 头、非 GET 自动 Idempotency-Key、15s 超时、
  * 401 → 已注册的 unauthorized 回调、下载走 Blob + Content-Disposition、上传走 FormData。
  * token 直接读 localStorage（与 stores/auth.js 同一 key），避免模块循环依赖。 */
-export const API_BASE = (new URLSearchParams(location.search).get('api'))
+// URL 参数来自外部链接，不能直接决定携带 JWT 的请求目标。
+// 仅允许同源 API，或本地页面访问本机 API（含 Vite 同源代理和 8082 → 8081）。
+function trustedLinkApiBase(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const loopback = (host) => ['localhost', '127.0.0.1', '[::1]'].includes(host);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+        || url.search || url.hash || url.pathname !== '/api/v1') return null;
+    if (url.origin === location.origin
+        || (loopback(location.hostname) && loopback(url.hostname))) return url.href;
+  } catch { /* 无效 URL 不作为 API 地址 */ }
+  return null;
+}
+
+export const API_BASE = trustedLinkApiBase(new URLSearchParams(location.search).get('api'))
   || localStorage.getItem('fjsp.apiBase')
   || 'http://localhost:8081/api/v1';
 
@@ -149,6 +164,13 @@ export const Api = {
   adminResetUserPassword: (id, password) => api('/admin/users/' + encodeURIComponent(id) + '/password', { method: 'POST', body: { password } }),
   adminConfigs: () => api('/admin/configs'),
   adminUpdateConfig: (key, configValue) => api('/admin/configs/' + encodeURIComponent(key), { method: 'PUT', body: { configValue } }),
+  /* Agent 处置时间线（仅 ADMIN）：审计日志按 source/sessionId 过滤 */
+  auditLogsPage: ({ page = 0, size = 20, source, sessionId } = {}) => {
+    const q = new URLSearchParams({ page, size });
+    if (source) q.set('source', source);
+    if (sessionId) q.set('sessionId', sessionId);
+    return api('/audit-logs?' + q);
+  },
   /* F-05 批量导入（仅 ADMIN）：模板下载 / 预览（multipart 上传）/ 整批入库 */
   importTemplate: (type) => apiDownload('/import/templates/' + encodeURIComponent(type)),
   importPreview: (type, file) => apiUpload('/import/' + encodeURIComponent(type) + '/preview', file),

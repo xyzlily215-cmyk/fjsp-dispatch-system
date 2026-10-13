@@ -67,13 +67,53 @@ wait_for_url "http://127.0.0.1:${FJSP_WEB_PORT}/index.html" "前端"
 if [[ "$FJSP_START_AGH" == "1" ]]; then
   printf '\n== 5. 启动 AGH 工作台 ==\n'
   require_command node
+  ensure_node24
   local_agh="$ROOT_DIR/agh-integration/agnes-harness/packages/cli/dist/local/agnes.mjs"
   [[ -f "$local_agh" ]] || { printf 'AGH CLI 未构建: %s\n' "$local_agh" >&2; exit 1; }
+
+  # serve 自动拉起 daemon 在 macOS 上不稳定（daemon child exited before readiness），
+  # 这里显式检查并按手动方式启动 daemon，serve 检测到已有 daemon 会直接复用。
+  agh_home="${AGH_HOME:-$HOME/.agh}"
+  daemon_sock="$agh_home/data/daemon/agnesd.sock"
+  daemon_owner="$agh_home/data/daemon/owner.json"
+  daemon_alive=0
+  if [[ -S "$daemon_sock" && -f "$daemon_owner" ]]; then
+    owner_pid="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["pid"])' "$daemon_owner" 2>/dev/null || true)"
+    if [[ -n "${owner_pid:-}" ]] && process_matches "$owner_pid" "daemon.mjs --profile"; then
+      daemon_alive=1
+      printf '[复用] AGH daemon 已运行，PID=%s\n' "$owner_pid"
+    fi
+  fi
+  if [[ "$daemon_alive" == "0" ]]; then
+    start_process agh-daemon "daemon.mjs --profile" "$ROOT_DIR/agh-integration" "$(log_file agh-daemon)" \
+      node agnes-harness/packages/cli/dist/local/daemon.mjs --profile local-dev \
+        --workspace "$ROOT_DIR/agh-integration" --data-dir "$agh_home/data" \
+        --local-web-addr 127.0.0.1:0 --local-web-origin "http://127.0.0.1:${FJSP_AGH_PORT}"
+    for _ in {1..30}; do [[ -S "$daemon_sock" ]] && break; sleep 1; done
+    [[ -S "$daemon_sock" ]] || { printf '[失败] AGH daemon 未就绪，请查看 %s\n' "$(log_file agh-daemon)" >&2; exit 1; }
+    printf '[就绪] AGH daemon: %s\n' "$daemon_sock"
+  fi
+
   if ! curl -fsS --max-time 3 "http://127.0.0.1:${FJSP_AGH_PORT}/" >/dev/null 2>&1; then
     start_process agh "agnes-harness/packages/cli/dist/local/agnes.mjs serve" "$ROOT_DIR/agh-integration" "$(log_file agh)" \
-      node agnes-harness/packages/cli/dist/local/agnes.mjs serve
+      env AGNES_HUB_ORIGIN="$FJSP_AGH_HUB_ORIGIN" \
+        node agnes-harness/packages/cli/dist/local/agnes.mjs serve
   fi
   wait_for_url "http://127.0.0.1:${FJSP_AGH_PORT}/" "AGH 工作台" 60
+
+  # MHS 虚拟机床设备（machine-m03 → ws://…:4180），需已启用 @agnes/mhs 插件
+  # FJSP_MHS_MACHINES 为空时只起 M-03；设为 "M-01 M-02 ... M-08" 则一次拉起整个车间
+  if [[ "$FJSP_START_MHS" == "1" ]]; then
+    mhs_dir="$ROOT_DIR/agh-integration/mhs-devices"
+    if [[ -x "$mhs_dir/.venv/bin/python" && -f "$mhs_dir/machine-m03.py" ]]; then
+      start_process m03 "machine-m03.py" "$ROOT_DIR/agh-integration" "$(log_file m03)" \
+        env PYTHONPATH=agnes-harness/packages/mhs/python/src \
+          "$mhs_dir/.venv/bin/python" mhs-devices/machine-m03.py "${FJSP_AGH_HUB_ORIGIN/http/ws}" ${FJSP_MHS_MACHINES:-M-03}
+      wait_for_url "${FJSP_AGH_HUB_ORIGIN}/" "AgnesHub Devices 面板" 10 || true
+    else
+      printf '[跳过] MHS 设备未准备（缺 .venv 或 machine-m03.py），见 agh-integration/README.md「MHS 设备接入」\n'
+    fi
+  fi
 else
   printf '\n== 5. 跳过 AGH（FJSP_START_AGH=%s）==\n' "$FJSP_START_AGH"
 fi
@@ -84,7 +124,12 @@ cat <<SUMMARY
   前端: http://127.0.0.1:${FJSP_WEB_PORT}/index.html?api=${FJSP_API_BASE}
   业务 API: ${FJSP_API_BASE}
   算法服务: ${FJSP_ALGORITHM_BASE_URL}/health
-  AGH: http://127.0.0.1:${FJSP_AGH_PORT}/
+SUMMARY
+if [[ "$FJSP_START_AGH" == "1" ]]; then
+  printf '  AGH: http://127.0.0.1:%s/\n  AgnesHub Devices 面板: %s/\n' \
+    "$FJSP_AGH_PORT" "$FJSP_AGH_HUB_ORIGIN"
+fi
+cat <<SUMMARY
 
 运行数据未被重置。如需重建演示数据，请执行：
   ./scripts/reset-demo.sh

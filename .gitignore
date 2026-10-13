@@ -11,6 +11,7 @@
 .vscode/
 
 # Build and test outputs
+.venv/
 target/
 __pycache__/
 .pytest_cache/
@@ -21,3 +22,6 @@ agh-integration/.agh-session-id
 agh-integration/evidence/
 agh-integration/agh-trace-*.zip
 agh-integration/agnes-harness/
+
+# 提交打包产物
+/*-*.zip

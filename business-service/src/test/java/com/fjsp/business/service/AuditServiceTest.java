@@ -42,7 +42,7 @@ class AuditServiceTest {
                 .thenReturn(new PageImpl<>(List.of(entry)));
 
         PageResponse<Map<String, Object>> resp =
-                auditService.query("plan_version", "pv-1", "manager", null, 0, 10);
+                auditService.query("plan_version", "pv-1", "manager", null, null, null, 0, 10);
 
         assertEquals(1, resp.getTotal());
         assertEquals(1, resp.getItems().size());
@@ -53,8 +53,28 @@ class AuditServiceTest {
     }
 
     @Test
+    void query_sourceAndSessionFiltersAccepted() {
+        AuditLog entry = new AuditLog();
+        entry.setId("a2");
+        entry.setAction("EVENT_BREAKDOWN");
+        entry.setObjectType("event");
+        entry.setObjectId("evt-1");
+        entry.setSource("agh");
+        entry.setSessionId("sess-1");
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(entry)));
+
+        PageResponse<Map<String, Object>> resp =
+                auditService.query(null, null, null, null, "agh", "sess-1", 0, 10);
+
+        assertEquals(1, resp.getTotal());
+        assertEquals("agh", resp.getItems().get(0).get("source"));
+        assertEquals("sess-1", resp.getItems().get(0).get("sessionId"));
+    }
+
+    @Test
     void query_invalidPageParams_rejected() {
-        assertThrows(BizException.class, () -> auditService.query(null, null, null, null, -1, 10));
-        assertThrows(BizException.class, () -> auditService.query(null, null, null, null, 0, 500));
+        assertThrows(BizException.class, () -> auditService.query(null, null, null, null, null, null, -1, 10));
+        assertThrows(BizException.class, () -> auditService.query(null, null, null, null, null, null, 0, 500));
     }
 }

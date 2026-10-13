@@ -40,13 +40,9 @@ def validate_plan(problem: Problem,
             conflicts.append(_conflict(
                 "DURATION_MISMATCH", [op.operation_id], "ERROR",
                 "endAt-startAt 应等于 setupMinutes+processMinutes（%d）" % (setup + proc)))
-    if any(c["severity"] == "ERROR" and c["rule"] in
-           ("MISSING_OPERATION", "UNKNOWN_MACHINE", "NOT_CANDIDATE_MACHINE")
-           for c in conflicts):
-        # subsequent checks need valid placements for every op
-        missing = [c for c in conflicts if c["rule"] == "MISSING_OPERATION"]
-        if missing:
-            return conflicts
+    # 缺少工序时，后续约束检查需要的排程结果不完整。
+    if any(c["rule"] == "MISSING_OPERATION" for c in conflicts):
+        return conflicts
 
     # ---- release time & precedence ----
     for op in problem.ops:

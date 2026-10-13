@@ -46,7 +46,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { Api } from '../api';
 import { toast, toastErr } from '../utils/ui';
 import { fmtDateTime, fmtMinutes } from '../utils/format';
@@ -56,6 +56,7 @@ import ErrorBox from '../components/ErrorBox.vue';
 import EmptyScreen from '../components/EmptyScreen.vue';
 import GanttChart from '../components/GanttChart.vue';
 
+const route = useRoute();
 const router = useRouter();
 const shared = useSharedStore();
 
@@ -157,6 +158,8 @@ onMounted(() => {
   // 跨页/跨视图联动定位目标：消费一次即清除
   focusOp.value = shared.ganttFocusOp;
   shared.ganttFocusOp = null;
+  // 支持 ?planVersion=xxx 直接定位指定版本
+  if (route.query.planVersion) shared.ganttVersionId = route.query.planVersion;
   load();
 });
 </script>

@@ -70,7 +70,19 @@ def validate_endpoint(req: ValidateRequest):
         return {"passed": False, "conflicts": conflicts,
                 "meta": {"elapsedMs": int((time.monotonic() - t0) * 1000)}}
     placements: Dict[str, tuple] = {}
+    seen_operation_ids = set()
     for p in req.operations:
+        if p.operationId in seen_operation_ids:
+            conflicts.append(make_conflict(
+                "DUPLICATE_OPERATION", [p.operationId], "ERROR",
+                "排程结果中工序 %s 重复" % p.operationId))
+            continue
+        seen_operation_ids.add(p.operationId)
+        if p.operationId not in problem.op_index:
+            conflicts.append(make_conflict(
+                "UNKNOWN_OPERATION", [p.operationId], "ERROR",
+                "工序 %s 不属于当前订单" % p.operationId))
+            continue
         start = _resolve_minutes(p.startAtMinutes, p.startAt, problem.sim_start,
                                  "startAt", p.operationId, conflicts)
         end = _resolve_minutes(p.endAtMinutes, p.endAt, problem.sim_start,

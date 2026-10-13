@@ -144,7 +144,7 @@ class SecurityAccessTest {
 
     @Test
     void admin_auditLogs_allowed() throws Exception {
-        when(auditService.query(any(), any(), any(), any(), any(), any()))
+        when(auditService.query(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new com.fjsp.business.common.PageResponse<>(java.util.List.of(), 0, 20, 0, 0));
         mvc.perform(get("/api/v1/audit-logs")
                         .header("Authorization", "Bearer " + token("admin", "ADMIN")))

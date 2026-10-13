@@ -47,9 +47,10 @@ public class AuditService {
         log.info("audit {} {} {}", action, objectType, objectId);
     }
 
-    /** 审计检索（仅 ADMIN）：分页 + 可选过滤 objectType / objectId / operator / requestId。 */
+    /** 审计检索（仅 ADMIN）：分页 + 可选过滤 objectType / objectId / operator / requestId / source / sessionId。 */
     public PageResponse<Map<String, Object>> query(String objectType, String objectId,
                                                    String operator, String requestId,
+                                                   String source, String sessionId,
                                                    Integer page, Integer size) {
         var pageable = PageSupport.of(page, size, PageSupport.DEFAULT_MAX_SIZE,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -66,6 +67,12 @@ public class AuditService {
             }
             if (requestId != null && !requestId.isBlank()) {
                 predicates.add(cb.equal(root.get("requestId"), requestId));
+            }
+            if (source != null && !source.isBlank()) {
+                predicates.add(cb.equal(root.get("source"), source));
+            }
+            if (sessionId != null && !sessionId.isBlank()) {
+                predicates.add(cb.equal(root.get("sessionId"), sessionId));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };

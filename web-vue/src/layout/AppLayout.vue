@@ -107,6 +107,7 @@ const menu = [
   { id: 'admin-users', title: '用户管理', icon: '☺', roles: ['ADMIN'] },
   { id: 'admin-configs', title: '字典维护', icon: '☷', roles: ['ADMIN'] },
   { section: '智能体' },
+  { id: 'agent-trace', title: '处置时间线', icon: '⌚', roles: ['ADMIN'] },
   { id: '__agent-panel', title: '智能体工作台', icon: '<span style="font-size:11px">AI</span>' },
 ];
 

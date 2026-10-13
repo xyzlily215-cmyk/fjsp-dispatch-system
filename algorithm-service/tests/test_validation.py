@@ -116,3 +116,34 @@ def test_validate_negative_planned_minutes_rejected():
     req["operations"][0]["endAtMinutes"] = -1
     r = client.post("/validate", json=req)
     assert r.status_code == 422
+
+
+def test_validate_complete_unique_plan_passes():
+    req = _validate_request()
+    req["operations"][2]["endAtMinutes"] = 30
+    response = client.post("/validate", json=req)
+    assert response.status_code == 200
+    assert response.json()["passed"]
+
+
+def test_validate_rejects_unknown_operation():
+    req = _validate_request()
+    req["operations"][2]["endAtMinutes"] = 30
+    req["operations"].append({
+        "operationId": "NOT-IN-ORDER", "machineId": "M1",
+        "startAtMinutes": 50, "endAtMinutes": 75, "changeoverMinutes": 0,
+    })
+    response = client.post("/validate", json=req)
+    assert response.status_code == 200
+    assert not response.json()["passed"]
+    assert any(c["rule"] == "UNKNOWN_OPERATION" for c in response.json()["conflicts"])
+
+
+def test_validate_rejects_duplicate_operation():
+    req = _validate_request()
+    req["operations"][2]["endAtMinutes"] = 30
+    req["operations"].append(req["operations"][0].copy())
+    response = client.post("/validate", json=req)
+    assert response.status_code == 200
+    assert not response.json()["passed"]
+    assert any(c["rule"] == "DUPLICATE_OPERATION" for c in response.json()["conflicts"])

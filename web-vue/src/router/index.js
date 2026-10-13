@@ -29,6 +29,7 @@ const routes = [
       { path: 'execution', name: 'execution', component: () => import('../views/ExecutionView.vue'), meta: { section: '执行反馈', title: '实际执行' } },
       { path: 'admin-users', name: 'admin-users', component: () => import('../views/AdminUsersView.vue'), meta: { section: '系统管理', title: '用户管理', roles: ['ADMIN'] } },
       { path: 'admin-configs', name: 'admin-configs', component: () => import('../views/AdminConfigsView.vue'), meta: { section: '系统管理', title: '字典维护', roles: ['ADMIN'] } },
+      { path: 'agent-trace', name: 'agent-trace', component: () => import('../views/AgentTraceView.vue'), meta: { section: '智能体', title: 'Agent 处置时间线', roles: ['ADMIN'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: { name: 'board' } },
