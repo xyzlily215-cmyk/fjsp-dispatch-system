@@ -1,7 +1,7 @@
 from bisect import bisect_left, bisect_right, insort
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
-from .decoder import BCMP, BCO, BFAM, BS, Schedule
+from .decoder import BS, Schedule
 from .instance import MODE_BASELINE, Problem
 
 
@@ -10,18 +10,6 @@ def norm(x, base):
     if b < 1:
         b = 1
     return x / b
-
-
-def order_completion(problem: Problem, placements) -> Dict[str, int]:
-    comp = {}
-    for order in problem.orders:
-        c = 0
-        for i in order.op_indices:
-            end = placements[i][2]
-            if end > c:
-                c = end
-        comp[order.order_id] = c
-    return comp
 
 
 def compute_delta(problem: Problem, placements) -> Dict[str, float]:
@@ -115,12 +103,15 @@ def compute_delta(problem: Problem, placements) -> Dict[str, float]:
 
 def compute_metrics(problem: Problem, schedule: Schedule) -> Dict:
     placements = schedule.placements
-    comp = order_completion(problem, placements)
     cmax = 0
     t_weighted = 0
     n_tardy = 0
     for order in problem.orders:
-        c = comp[order.order_id]
+        c = 0
+        for i in order.op_indices:
+            end = placements[i][2]
+            if end > c:
+                c = end
         if c > cmax:
             cmax = c
         t = c - order.due
@@ -128,17 +119,14 @@ def compute_metrics(problem: Problem, schedule: Schedule) -> Dict:
             t_weighted += order.weight * t
             n_tardy += 1
 
-    occ = dict((m, 0) for m in problem.machine_ids)
+    utilization = {}
+    us = []
     for m in problem.machine_ids:
         total = 0
         for blk in schedule.timelines[m]:
             total += blk[1] - blk[BS]  # (endAt) - (startAt - changeover)
-        occ[m] = total
-    utilization = {}
-    us = []
-    for m in problem.machine_ids:
         avail_min = problem.machines[m].avail_minutes
-        u = (occ[m] / avail_min) if avail_min > 0 else 0.0
+        u = (total / avail_min) if avail_min > 0 else 0.0
         utilization[m] = u
         if avail_min > 0:
             us.append(u)
