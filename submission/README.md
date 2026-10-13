@@ -10,7 +10,7 @@
 | ② | 技术信息（AGH 作用、Agnes 模型名称/版本/环节/调用方式、数据/代码/专业软件/仿真环境/API/设备接口） | `submission/02-技术信息.md` | 已就绪 |
 | ③ | 可运行作品（在线体验链接、代码仓库、安装包或可复现运行说明） | `submission/03-可运行作品与复现说明.md`；ZIP 内含完整源码快照 | 部分就绪：公开代码仓库已上线（<https://github.com/xyzlily215-cmyk/fjsp-dispatch-system>）；【待办】无在线体验链接，以「代码仓库 + ZIP 安装包 + 可复现运行说明」形式提交 |
 | ④ | 演示视频（3–5 分钟，仅提交链接，1 主链接 + 可选备用链接，评审期间有效、不得要求登录参赛者账号） | `submission/04-演示视频脚本.md`（分镜脚本已就绪） | 【待办】视频未录制、未上传，链接待回填 |
-| ⑤ | 运行证据（AGH 执行记录、≥1 条工具/设备调用链、Agnes 模型参与核心任务证据、关键配置与专业验证结果） | `submission/05-运行证据说明.md`；`agh-integration/evidence/`；`agh-integration/agh-trace-20261003.zip`（19 条目打包） | 已就绪；【待办】AGH 工作台运行截图待补 |
+| ⑤ | 运行证据（AGH 执行记录、≥1 条工具/设备调用链、Agnes 模型参与核心任务证据、关键配置与专业验证结果） | `submission/05-运行证据说明.md`；`agh-integration/evidence/`；`agh-integration/agh-trace-20261010.zip`（含 2026-10-02/03/10 全部证据） | 已就绪；【待办】AGH 工作台运行截图待补 |
 | ⑥ | 测试样例（正常、边界、失败三类） | `submission/06-测试样例.md`；`algorithm-service/tests/`、`business-service/src/test/`、`scripts/` | 已就绪 |
 | ⑦ | 成员声明 | `submission/07-成员声明.md` | 【待办】成员信息待填、签名待签 |
 | ⑧ | 公开内容（≥1 条真实项目内容，含平台、有效链接、截图与发布日期） | `submission/08-公开内容.md` | 部分就绪：GitHub 公开仓库已于 2026-10-09 上线；【待办】仓库首页截图待补 |
@@ -28,7 +28,7 @@ bash submission/build-zip.sh 本科生组 U019 暴躁的兔子 熊英孜
 
 1. 用 `git status --porcelain` 检查是否存在未提交改动；若有则提示先提交（`git archive` 只打包已提交内容）。
 2. 以 `git archive HEAD` 生成源码快照（自动排除 `.gitignore` 忽略的 `node_modules/`、`target/`、`dist/` 等构建产物）。
-3. 合并 `submission/` 目录与 `agh-integration/agh-trace-20261003.zip` 运行证据包。
+3. 合并 `submission/` 目录与 `agh-integration/agh-trace-20261010.zip` 运行证据包。
 4. 生成 `组别-参赛编号-队伍名称-队长姓名.zip`，打印文件大小并对 200MB 上限做检查告警。
 
 ## 截止前检查清单

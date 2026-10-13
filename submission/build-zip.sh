@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # 打包比赛提交 ZIP：组别-参赛编号-队伍名称-队长姓名.zip
-# 内容 = git archive HEAD 源码快照 + submission/ 目录 + agh-integration/agh-trace-20261003.zip
+# 内容 = git archive HEAD 源码快照 + submission/（工作区强制覆盖）
+#      + agh-integration/ 工作区（含未跟踪/被忽略的 driver、mhs-devices、evidence）
+#      + agh-integration/agnes-harness 嵌套仓库的 git archive 源码快照
+#      + agh-integration/agh-trace-20261010.zip 证据包
 set -euo pipefail
 
 LIMIT_BYTES=$((200 * 1024 * 1024)) # 200MB
 
 usage() {
   echo "用法: bash submission/build-zip.sh <组别> <参赛编号> <队伍名称> <队长姓名>" >&2
-  echo "示例: bash submission/build-zip.sh 本科组 A001 示例队 张三" >&2
+  echo "示例: bash submission/build-zip.sh 本科生组 U019 暴躁的兔子 熊英孜" >&2
   exit 1
 }
 
@@ -28,17 +31,20 @@ command -v git >/dev/null 2>&1 || { echo "错误: 未找到 git" >&2; exit 1; }
 command -v zip >/dev/null 2>&1 || { echo "错误: 未找到 zip" >&2; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "错误: 当前目录不是 git 仓库" >&2; exit 1; }
 
-# git archive 只打包已提交内容，先检查未提交改动
-if [ -n "$(git status --porcelain)" ]; then
-  echo "警告: 存在未提交/未跟踪的改动，git archive 不会包含它们：" >&2
-  git status --porcelain >&2
+# submission/ 与 agh-integration/ 以工作区文件强制覆盖（允许未提交）；其余目录必须先提交
+DIRTY="$(git status --porcelain -- . ':(exclude)submission' ':(exclude)agh-integration')"
+if [ -n "${DIRTY}" ]; then
+  echo "错误: 存在未提交/未跟踪的改动，git archive 不会包含它们：" >&2
+  echo "${DIRTY}" >&2
   echo "请先 git add && git commit 后再打包。" >&2
   exit 1
 fi
 
-EVIDENCE_ZIP="agh-integration/agh-trace-20261003.zip"
+EVIDENCE_ZIP="agh-integration/agh-trace-20261010.zip"
 if [ ! -f "${EVIDENCE_ZIP}" ]; then
-  echo "警告: 未找到证据包 ${EVIDENCE_ZIP}，将跳过（建议确认后重新打包）。" >&2
+  echo "错误: 未找到证据包 ${EVIDENCE_ZIP}。" >&2
+  echo "请先在 agh-integration/evidence/ 下执行: zip -r ../agh-trace-20261010.zip ." >&2
+  exit 1
 fi
 
 TMP_DIR="$(mktemp -d)"
@@ -55,11 +61,17 @@ mkdir -p "${STAGE_DIR}/submission"
 # submission/ 中的新材料可能尚未提交，强制以工作区文件覆盖
 cp -R "${SCRIPT_DIR}/." "${STAGE_DIR}/submission/"
 
-if [ -f "${EVIDENCE_ZIP}" ]; then
-  echo "==> 附带证据包 ${EVIDENCE_ZIP}..."
-  mkdir -p "${STAGE_DIR}/agh-integration"
-  cp "${EVIDENCE_ZIP}" "${STAGE_DIR}/agh-integration/"
-fi
+echo "==> 覆盖 agh-integration/ 工作区（含被 gitignore 的 evidence/ 与未跟踪文件）..."
+mkdir -p "${STAGE_DIR}/agh-integration"
+tar -cf - -C agh-integration \
+  --exclude='./agnes-harness' \
+  --exclude='./mhs-devices/.venv' \
+  --exclude='./mhs-devices/m03.pid' \
+  . | tar -x -C "${STAGE_DIR}/agh-integration/"
+
+echo "==> 追加 agnes-harness 嵌套仓库源码快照（不含 node_modules/dist，评审方按 03 文档构建）..."
+mkdir -p "${STAGE_DIR}/agh-integration/agnes-harness"
+git -C agh-integration/agnes-harness archive HEAD | tar -x -C "${STAGE_DIR}/agh-integration/agnes-harness"
 
 OUT_PATH="${REPO_ROOT}/${ZIP_NAME}"
 rm -f "${OUT_PATH}"
