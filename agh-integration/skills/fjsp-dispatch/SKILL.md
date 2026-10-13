@@ -1,6 +1,6 @@
 ---
 name: fjsp-dispatch
-description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户要求做基线排程、处理插单/设备故障、局部或完全重调度、对比方案扰动、评审发布计划时使用。依赖 fjsp-tools 插件提供的 fjsp_* 工具。
+description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户要求做基线排程、处理插单/设备故障（含 MHS 设备通道自动上报的异常）、局部或完全重调度、对比方案扰动、评审发布计划、查看计划甘特图，或询问某订单/工件当前在哪台设备加工、还剩几道工序时使用。依赖 fjsp-tools 插件提供的 fjsp_* 工具；含处置经验闭环（fjsp_experience_query/record）：处置前查同类历史、处置后沉淀结果，让策略随经验改进。
 ---
 
 # FJSP 动态调度处置规程
@@ -25,19 +25,34 @@ description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户
    - 插单 → `fjsp_insert_order(orderCode, productFamily, quantity, arrivalAt, dueAt, priority, occurredAt, subType?)`
    - 若返回 `E_EVENT_IN_PROCESS`：说明事件发生时间与该机台正在执行的工序冲突，向用户说明原因，改用不冲突的时间（如工序结束后）重试，不要静默改其他参数。
    - 其他错误码：原样向用户解释 message，不要重试相同参数。
-3. `fjsp_reschedule` 触发重调度：mode 先取 LOCAL_RESCHEDULE（局部修复、扰动小），eventId 用上一步返回的事件 ID，oldPlanVersionId 用当前发布计划 ID。
-4. `fjsp_task_status` 轮询至 SUCCESS/FAILED（内置等待，RUNNING 就再调一次，不要用 shell/sleep）。
-5. 校验：resultStatus=FEASIBLE 且 conflicts 为空才继续；INFEASIBLE 时先读 conflicts 明细解释瓶颈（哪台设备、哪个订单、什么约束），再改 FULL_RESCHEDULE 重试一次；仍不可行则停止并给出人工建议。
-6. `fjsp_compare_plans(planVersionId=新方案, baselineVersionId=原发布计划)` 评估扰动：换机数、换序数、时间平移数、Delta_plan、加权拖期差值。
-7. 发布走三段式人工确认流程：`fjsp_submit_review`（必传 version）提交评审 → 停下来请用户查看方案对比与 KPI → 用户同意后调 `fjsp_approve_review`（人工审批确认）→ 再调 `fjsp_publish`（人工审批确认）。fjsp_publish 只执行发布，不会自动提交或自动评审；版本不是 REVIEWED 状态时会返回 FJSP_INVALID_STATE，此时检查漏了哪一步，不要试图绕过。若评审被驳回（REJECTED），先向用户转述驳回意见，再调 `fjsp_revise_plan(planVersionId, version)` 退回 DRAFT，修正问题后重新走提交流程。
-8. 输出中文处置报告，必须包含：事件摘要、影响范围（受影响工序/设备数）、新旧 KPI 对比表（makespan、加权拖期、拖期订单数、负载不均衡）、扰动率（Delta_plan 及换机/换序/平移数量）、结论与建议。
+3. 查询处置经验：`fjsp_experience_query(eventType)`（BREAKDOWN / NEW_ORDER）。recommendation 非空时，按其推荐的模式执行并向用户说明历史依据（"过去 N 次同类事件用 X 模式平均拖期差值最优"）；recommendation 为空（经验库还没有同类记录）时按默认策略：先取 LOCAL_RESCHEDULE（局部修复、扰动小）。
+4. `fjsp_reschedule` 触发重调度：eventId 用第 2 步返回的事件 ID，oldPlanVersionId 用当前发布计划 ID，模式取第 3 步的决策；用户指定权重时透传。
+5. `fjsp_task_status` 轮询至 SUCCESS/FAILED（内置等待，RUNNING 就再调一次，不要用 shell/sleep）。
+6. 校验：resultStatus=FEASIBLE 且 conflicts 为空才继续；INFEASIBLE 时先读 conflicts 明细解释瓶颈（哪台设备、哪个订单、什么约束），再改 FULL_RESCHEDULE 重试一次；仍不可行则停止并给出人工建议。
+7. `fjsp_compare_plans(planVersionId=新方案, baselineVersionId=原发布计划)` 评估扰动：换机数、换序数、时间平移数、Delta_plan、加权拖期差值。
+8. 发布走三段式人工确认流程：`fjsp_submit_review`（必传 version）提交评审 → 停下来请用户查看方案对比与 KPI → 用户同意后调 `fjsp_approve_review`（人工审批确认）→ 再调 `fjsp_publish`（人工审批确认）。fjsp_publish 只执行发布，不会自动提交或自动评审；版本不是 REVIEWED 状态时会返回 FJSP_INVALID_STATE，此时检查漏了哪一步，不要试图绕过。若评审被驳回（REJECTED），先向用户转述驳回意见，再调 `fjsp_revise_plan(planVersionId, version)` 退回 DRAFT，修正问题后重新走提交流程。**若本次扰动来自 MHS 设备告警：发布前用 `read_device` 确认设备真实状态与计划假设一致（例如故障机仍处 down/维修窗口内；若已恢复 running 则说明维修提前结束），不一致时停下向用户报告，不要带病发布。**
+9. 沉淀处置经验：`fjsp_experience_record` 记录本次事件类型、设备、最终采用的模式与权重、resultStatus、第 7 步的 kpiDiff（加权拖期/扰动率差值）、是否发布、一句话结论。零扰动无需发布的场景也要记录（published=false），这类"不用动"的经验同样有价值。
+10. 输出中文处置报告，必须包含：事件摘要、影响范围（受影响工序/设备数）、新旧 KPI 对比表（makespan、加权拖期、拖期订单数、负载不均衡）、扰动率（Delta_plan 及换机/换序/平移数量）、结论与建议。
 
-## 三、方案对比与查询
+## 三、MHS 设备告警触发的处置流程
+
+车间设备通过 MHS（Model Hardware Standard）接入 AgnesHub 后，扰动可以由设备通道自动暴露，而不是只能等人工录入。设备工具（list_devices / read_device / call_device / set_device / stop_device / watch_device / unwatch_device）是感知层，按设计不弹人工审批；**业务写操作仍然全部走 fjsp_* 工具的人工审批**，两者边界不要混淆。
+
+1. 值守：用户要求"盯着某台设备"时，用 `watch_device` 等待异常条件，然后挂起等待唤醒，不要用轮询刷屏。until 条件要写成**数据源字段阈值**或**状态枚举**的形式，例如 `{"source":"metrics","field":"temperature","gte":85}` 或 `{"state":"status","eq":"down"}`——这两种条件会让 Hub 主动拉取数据/接收状态推送，异常一到立即唤醒。**不要只 watch `{"health":"bad"}`**：health 监视不会促成数据源拉流，设备读数不上报时 health 永远停在 ok，监视永远不会触发。
+2. 唤醒后确认：先 `read_device` 读取该设备最新状态与读数（温度、振动、主轴负载），确认异常属实，排除单次抖动。
+3. 映射与录事件：设备 ID 到业务机台号的映射为 `cnc-m03` → `M-03`；occurredAt 取当前时间，维修时长按用户估计值；之后调 `fjsp_report_breakdown` 录入事件（弹人工审批）。
+4. 后续完全按第二节「扰动事件处置流程」第 3 步起执行：查经验（eventType=BREAKDOWN）→ 重调度 → 轮询 → FEASIBLE 校验 → 方案对比 → 三段式人工确认发布（发布前必须 `read_device` 复核设备状态，见第二节第 8 步）→ 记录经验。
+5. 处置报告中注明异常来源为「MHS 设备通道自动上报」，并附上唤醒时的设备读数快照（温度/振动/状态）。
+
+## 四、方案对比与查询
 
 - 对比任意两版方案用 `fjsp_compare_plans`；解读时说明 kpiDiff 中每个指标的方向（负值=改善）。
+- 处置经验库用 `fjsp_experience_query`（查）与 `fjsp_experience_record`（记）：策略选择前查、流程结束时记，构成「处置 → 经验 → 改进后续处置」的闭环。
 - 查版本详情、乐观锁 version 用 `fjsp_get_plan`（不传 ID 时取当前发布版）。
 - 驳回重提用 `fjsp_revise_plan(planVersionId, version)`（REJECTED → DRAFT），退回后修改方案再重新 `fjsp_submit_review`。
 - 查设备能力/状态用 `fjsp_list_machines`；查任务进度用 `fjsp_task_status`。
+- 排程任务成功（拿到 planVersionId）或发布后，调 `fjsp_get_gantt_link` 获取甘特图链接发给用户在浏览器中查看（不传 planVersionId 时取当前发布版）。
+- 用户问"某订单/工件现在在哪台设备加工、还剩几道工序"时，调 `fjsp_get_workpiece_position(orderRef)`（orderRef 支持订单号如 O001 或内部 id），返回当前工序与设备、已完成/剩余工序数、进度百分比与下一道工序安排；转述时说明数据来自当前发布计划与实际执行反馈。
 - `fjsp_reset_demo` 会清空全部数据重建演示集，仅在用户明确要求"重置演示"时使用，执行前必须再次确认。
 
 ## 纪律

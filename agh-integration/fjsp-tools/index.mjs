@@ -2,7 +2,7 @@
 // (Spring Boot, default http://localhost:8081/api/v1) as agent tools.
 // Self-contained ESM, no external dependencies; tool schemas are hand-tagged
 // TypeBox schemas like examples/packages/hot-tool-plugin.
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 
 const Kind = Symbol.for('TypeBox.Kind')
 
@@ -22,6 +22,12 @@ const WEIGHTS = Obj({
   makespan: N({ description: '最大完工时间权重' }),
   weightedTardiness: N({ description: '加权拖期权重' }),
   loadImbalance: N({ description: '负载不均衡权重' }),
+})
+
+const KPI_DIFF = Obj({
+  weightedTardinessMinutes: N({ description: '加权拖期差值（新-旧，越小越好，可为负）' }),
+  cMaxMinutes: N({ description: '最大完工时间差值' }),
+  deltaPlan: N({ description: '扰动率 Delta_plan 差值' }),
 })
 
 const READ = {
@@ -66,6 +72,9 @@ const DESTRUCTIVE = {
 }
 
 const BASE = (process.env.FJSP_API_BASE || 'http://localhost:8081/api/v1').replace(/\/+$/, '')
+const WEB_BASE = (process.env.FJSP_WEB_BASE || 'http://localhost:5173').replace(/\/+$/, '')
+
+const ganttUrl = (planVersionId) => `${WEB_BASE}/#/resource-gantt?planVersion=${encodeURIComponent(planVersionId)}`
 
 // The plugin runs inside the AGH daemon's extension host, so it cannot see the
 // driver process's env. The driver drops the session id in this file as a
@@ -79,6 +88,36 @@ function aghSessionId() {
   } catch {
     return undefined
   }
+}
+
+// ---- RSI 经验库（对应官方案例的递归自我改进闭环）：每次扰动处置把
+// 事件类型 / 重调度模式 / 权重 / KPI 结果沉淀到本地 JSONL；处置前查询同类事件的
+// 历史表现，让策略随经验改进。文件仅追加，一行一条 JSON。
+// 注意：插件从安装快照运行（import.meta.url 指向快照目录，重装即换路径），
+// 经验库必须落在稳定位置：FJSP_EXPERIENCE_FILE 覆盖，默认 ~/.agh/fjsp-experience.jsonl。
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+const EXPERIENCE_FILE = process.env.FJSP_EXPERIENCE_FILE || join(homedir(), '.agh', 'fjsp-experience.jsonl')
+
+function readExperience() {
+  let text
+  try {
+    text = readFileSync(EXPERIENCE_FILE, 'utf8')
+  } catch {
+    return []
+  }
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line)
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)
 }
 
 // ---- 认证：业务服务要求 JWT（P0 改造后所有接口需登录） ----
@@ -434,6 +473,7 @@ const tools = [
             ok: true,
             task: {
               ...trimTask(t),
+              ...(t.status === 'SUCCESS' && t.planVersionId ? { ganttUrl: ganttUrl(t.planVersionId) } : {}),
               resultStatus: t.resultStatus,
               feasibleSolution: t.feasibleSolution,
               candidateGroupId: t.candidateGroupId,
@@ -489,6 +529,44 @@ const tools = [
           },
         },
       })
+    },
+  },
+  {
+    name: 'fjsp_get_gantt_link',
+    description:
+      '获取计划版本的甘特图链接（前端资源甘特图页 URL）。调度方案排好（fjsp_task_status 拿到 planVersionId）或发布后调用本工具，把返回的 ganttUrl 发给用户在浏览器中查看甘特图。不传 planVersionId 时取当前发布计划。',
+    parameters: Obj({ planVersionId: S() }),
+    meta: READ,
+    async execute({ planVersionId }) {
+      let id = planVersionId
+      if (!id) {
+        const d = await api('GET', '/dashboard')
+        if (!d.ok) return result(d)
+        id = d.data && d.data.currentPlan && d.data.currentPlan.id
+        if (!id) return result({ ok: false, error: { code: 'FJSP_NO_PUBLISHED_PLAN', message: '当前没有已发布计划' } })
+      }
+      const r = await api('GET', `/plan-versions/${encodeURIComponent(id)}`)
+      if (!r.ok) return result(r)
+      const v = r.data || {}
+      return result({ ok: true, planVersionId: v.id, versionCode: v.versionCode, ganttUrl: ganttUrl(v.id) })
+    },
+  },
+  {
+    name: 'fjsp_get_workpiece_position',
+    description:
+      '查询某订单（工件）的实时加工位置与进度：当前正在哪台设备加工（当前工序）、已完成/剩余工序数、进度百分比、下一道工序的计划设备与时间。orderRef 支持订单号（如 O001）或内部 id。用户问"某个件现在到哪了/还剩几道工序"时调用本工具。',
+    parameters: Obj(
+      { orderRef: S({ description: '订单号 orderCode（如 O001）或订单内部 id' }) },
+      ['orderRef'],
+    ),
+    meta: READ,
+    async execute({ orderRef }) {
+      if (!orderRef) {
+        return result({ ok: false, error: { code: 'FJSP_INVALID_ORDER_REF', message: 'orderRef 不能为空' } })
+      }
+      const r = await api('GET', `/orders/${encodeURIComponent(orderRef)}/position`)
+      if (!r.ok) return result(r)
+      return result({ ok: true, position: r.data })
     },
   },
   {
@@ -632,7 +710,7 @@ const tools = [
     async execute({ planVersionId }) {
       const cur = await getVersion(planVersionId)
       if (!cur) return result({ ok: false, error: { code: 'FJSP_NOT_FOUND', message: '计划版本不存在' } })
-      if (cur.status === 'PUBLISHED') return result({ ok: true, alreadyPublished: true, plan: trimVersion(cur) })
+      if (cur.status === 'PUBLISHED') return result({ ok: true, alreadyPublished: true, plan: trimVersion(cur), ganttUrl: ganttUrl(planVersionId) })
       if (cur.status !== 'REVIEWED') {
         return result({
           ok: false,
@@ -649,8 +727,103 @@ const tools = [
       return result({
         ok: !!done,
         ...(done ? {} : { error: { code: 'FJSP_PUBLISH_INCOMPLETE', message: `发布未完成，当前状态 ${after && after.status}` } }),
+        ...(done ? { ganttUrl: ganttUrl(planVersionId) } : {}),
         plan: trimVersion(after || cur),
       })
+    },
+  },
+  {
+    name: 'fjsp_experience_query',
+    description:
+      '查询扰动处置经验库：历史同类事件采用的重调度模式/权重及结果（KPI 差值、扰动率、是否发布）。决定重调度策略前调用；recommendation 按模式统计历史平均加权拖期差值并给出表现最好的模式，经验为空时为 null（此时按默认策略：LOCAL 优先）。',
+    parameters: Obj({
+      eventType: S({ description: 'BREAKDOWN（设备故障）或 NEW_ORDER（插单）；不传返回全部类型' }),
+      limit: I({ description: '最多返回条数，默认 10' }),
+    }),
+    meta: READ,
+    async execute({ eventType, limit }) {
+      const all = readExperience()
+      const matched = (eventType ? all.filter((r) => r.eventType === eventType) : all)
+        .slice(-Math.min(Math.max(limit ?? 10, 1), 100))
+        .reverse()
+      // 推荐：按模式统计平均加权拖期差值（越小越好），平均扰动率作平局依据
+      const stats = {}
+      for (const r of matched) {
+        if (!r.mode || typeof r.kpiDiff?.weightedTardinessMinutes !== 'number') continue
+        const s = (stats[r.mode] ??= { mode: r.mode, count: 0, tardinessSum: 0, deltaPlanSum: 0, deltaPlanCount: 0 })
+        s.count += 1
+        s.tardinessSum += r.kpiDiff.weightedTardinessMinutes
+        if (typeof r.kpiDiff?.deltaPlan === 'number') {
+          s.deltaPlanSum += r.kpiDiff.deltaPlan
+          s.deltaPlanCount += 1
+        }
+      }
+      const ranked = Object.values(stats)
+        .map((s) => ({
+          mode: s.mode,
+          count: s.count,
+          avgWeightedTardinessDiff: Math.round((s.tardinessSum / s.count) * 100) / 100,
+          ...(s.deltaPlanCount ? { avgDeltaPlan: Math.round((s.deltaPlanSum / s.deltaPlanCount) * 1000) / 1000 } : {}),
+        }))
+        .sort((a, b) => a.avgWeightedTardinessDiff - b.avgWeightedTardinessDiff || (a.avgDeltaPlan ?? 0) - (b.avgDeltaPlan ?? 0))
+      return result({
+        ok: true,
+        total: all.length,
+        matched: matched.length,
+        records: matched,
+        recommendation: ranked.length
+          ? {
+              mode: ranked[0].mode,
+              reason: `历史 ${ranked[0].count} 次同类处置平均加权拖期差值 ${ranked[0].avgWeightedTardinessDiff}，为各模式最优`,
+              byMode: ranked,
+            }
+          : null,
+      })
+    },
+  },
+  {
+    name: 'fjsp_experience_record',
+    description:
+      '把本次扰动处置的结果写入经验库（事件类型、设备、重调度模式与权重、KPI 差值、是否发布、备注），供后续同类事件处置参考。在方案对比（fjsp_compare_plans）完成后、流程结束时调用一次；零扰动无需发布的场景也要记录（published=false）。',
+    parameters: Obj(
+      {
+        eventType: S({ description: 'BREAKDOWN 或 NEW_ORDER' }),
+        machineId: S({ description: '故障设备号（BREAKDOWN 时填）' }),
+        mode: S({ description: 'LOCAL_RESCHEDULE 或 FULL_RESCHEDULE' }),
+        weights: WEIGHTS,
+        resultStatus: S({ description: 'FEASIBLE / INFEASIBLE' }),
+        kpiDiff: KPI_DIFF,
+        published: S({ description: '"true" 已发布 / "false" 未发布（含零扰动无需发布）' }),
+        note: S({ description: '一句话处置结论，如「故障落在空闲窗口，零扰动未发布」' }),
+      },
+      ['eventType', 'mode'],
+    ),
+    meta: WRITE,
+    async execute({ eventType, machineId, mode, weights, resultStatus, kpiDiff, published, note }) {
+      if (eventType !== 'BREAKDOWN' && eventType !== 'NEW_ORDER') {
+        return result({ ok: false, error: { code: 'FJSP_INVALID_EVENT_TYPE', message: 'eventType 必须是 BREAKDOWN 或 NEW_ORDER' } })
+      }
+      if (mode !== 'LOCAL_RESCHEDULE' && mode !== 'FULL_RESCHEDULE') {
+        return result({ ok: false, error: { code: 'FJSP_INVALID_MODE', message: 'mode 必须是 LOCAL_RESCHEDULE 或 FULL_RESCHEDULE' } })
+      }
+      const record = {
+        ts: new Date().toISOString(),
+        eventType,
+        mode,
+        ...(machineId ? { machineId } : {}),
+        ...(weights ? { weights } : {}),
+        ...(resultStatus ? { resultStatus } : {}),
+        ...(kpiDiff ? { kpiDiff } : {}),
+        ...(published !== undefined ? { published: published === 'true' } : {}),
+        ...(note ? { note } : {}),
+        sessionId: aghSessionId(),
+      }
+      try {
+        appendFileSync(EXPERIENCE_FILE, JSON.stringify(record) + '\n')
+      } catch (e) {
+        return result({ ok: false, error: { code: 'FJSP_EXPERIENCE_WRITE_FAILED', message: String(e) } })
+      }
+      return result({ ok: true, recorded: record, total: readExperience().length })
     },
   },
   {

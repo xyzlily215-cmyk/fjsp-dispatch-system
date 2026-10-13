@@ -24,6 +24,8 @@ load_demo_env() {
   export FJSP_API_BASE="${FJSP_API_BASE:-http://localhost:8081/api/v1}"
   export FJSP_READINESS_URL="${FJSP_READINESS_URL:-${FJSP_API_BASE%/api/v1}/actuator/health/readiness}"
   export FJSP_WEB_PORT="${FJSP_WEB_PORT:-8082}"
+  # 前端完整入口地址（含 api 参数），AGH fjsp-tools 插件用它生成甘特图链接（ganttUrl）
+  export FJSP_WEB_BASE="${FJSP_WEB_BASE:-http://127.0.0.1:${FJSP_WEB_PORT}/index.html?api=${FJSP_API_BASE}}"
   # 前端静态目录（相对仓库根）：默认 Vue 版构建产物 web-vue/dist（需先 cd web-vue && npm run build）
   export FJSP_WEB_DIR="${FJSP_WEB_DIR:-web-vue/dist}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
@@ -32,6 +34,8 @@ load_demo_env() {
   export FJSP_AGH_HUB_ORIGIN="${FJSP_AGH_HUB_ORIGIN:-http://127.0.0.1:4180}"
   # 是否随演示环境启动 MHS 虚拟机床设备 machine-m03（需要 mhs-devices/.venv 已建好）
   export FJSP_START_MHS="${FJSP_START_MHS:-1}"
+  # MHS 虚拟机床清单：默认只起故障演示机 M-03；设为 "M-01 M-02 M-03 M-04 M-05 M-06 M-07 M-08" 拉起整个车间
+  export FJSP_MHS_MACHINES="${FJSP_MHS_MACHINES:-M-03}"
   export FJSP_AUTH_USER="${FJSP_AUTH_USER:-admin}"
   export FJSP_AUTH_PASSWORD="${FJSP_AUTH_PASSWORD:-Fj@123456}"
 }
