@@ -34,6 +34,21 @@ def test_machine_overlap_detected():
     assert "MACHINE_OVERLAP" in _rules(conflicts)
 
 
+def test_missing_operation_stops_downstream_checks():
+    plan = dict(FEASIBLE_PLAN)
+    del plan["B1-10"]
+    plan["A1-10"] = ("M1", -5, 20, 0)
+    assert _rules(_validate(tiny_request(), plan)) == ["MISSING_OPERATION"]
+
+
+def test_unknown_machine_still_checks_release_time():
+    plan = dict(FEASIBLE_PLAN)
+    plan["A1-10"] = ("UNKNOWN", -5, 20, 0)
+    rules = _rules(_validate(tiny_request(), plan))
+    assert "UNKNOWN_MACHINE" in rules
+    assert "RELEASE_VIOLATION" in rules
+
+
 def test_availability_violation_detected():
     plan = dict(FEASIBLE_PLAN)
     plan["B1-10"] = ("M2", 470, 495, 0)
