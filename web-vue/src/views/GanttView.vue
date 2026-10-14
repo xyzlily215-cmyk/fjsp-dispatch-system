@@ -34,7 +34,7 @@
           <StatusTag :status="plan.status" />
         </div>
         <div v-if="ops.length" class="muted">
-          C_max {{ fmtMinutes(kpi.cMaxMinutes) }} · 加权拖期 {{ fmtMinutes(kpi.weightedTardinessMinutes) }} · 延期 {{ kpi.nTardy ?? '-' }} 单 · Δ_plan {{ kpi.deltaPlan ? kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}
+          C_max {{ fmtMinutes(kpi.cMaxMinutes) }} · 加权拖期 {{ fmtMinutes(kpi.weightedTardinessMinutes) }} · 延期 {{ kpi.nTardy ?? '-' }} 单 · Δ_plan {{ kpi.deltaPlan?.deltaPlan != null ? kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}
         </div>
       </div>
       <GanttChart v-if="ops.length" ref="chartRef" :plan="plan" :ops="ops" :machines="machines" :orders="orders"

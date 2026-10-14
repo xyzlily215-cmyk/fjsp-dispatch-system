@@ -29,7 +29,7 @@ load_demo_env() {
   # 前端静态目录（相对仓库根）：默认 Vue 版构建产物 web-vue/dist（需先 cd web-vue && npm run build）
   export FJSP_WEB_DIR="${FJSP_WEB_DIR:-web-vue/dist}"
   export FJSP_AGH_PORT="${FJSP_AGH_PORT:-4177}"
-  export FJSP_START_AGH="${FJSP_START_AGH:-1}"
+  export FJSP_START_AGH="${FJSP_START_AGH:-0}"
   # AgnesHub（MHS）对外地址；启动 AGH serve 时注入 AGNES_HUB_ORIGIN，工作台才能连上 Devices 面板
   export FJSP_AGH_HUB_ORIGIN="${FJSP_AGH_HUB_ORIGIN:-http://127.0.0.1:4180}"
   # 是否随演示环境启动 MHS 虚拟机床设备 machine-m03（需要 mhs-devices/.venv 已建好）

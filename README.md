@@ -11,35 +11,52 @@
 
 ## 快速启动
 
-> 本地演示会启动或复用 PostgreSQL、算法服务、业务服务和前端服务。脚本不会删除数据库卷；`start-demo.sh` 也不会自动重置业务数据。业务服务默认以 `local` profile 运行。
+### Windows：使用 WSL2 + Docker Desktop
 
-从零 clone 后需先完成一次性前置准备（脚本不会自动安装依赖或构建前端）：
+本项目的启动脚本为 Bash，Windows 用户请在 **WSL2 的 Ubuntu 终端**运行，不要在 PowerShell 或 Git Bash 中直接运行。首次准备：
+
+1. 在**管理员 PowerShell** 执行 `wsl --list --online` 确认发行版可用，再执行 `wsl --install -d Ubuntu-24.04`，按提示完成安装/重启；用 `wsl -l -v` 确认 Ubuntu 的 VERSION 为 `2`。
+2. 在 Windows 安装并启动 Docker Desktop，使用 WSL 2 后端，在 **Settings → Resources → WSL Integration** 中启用 Ubuntu；切换到 Linux containers（不要使用 Windows containers）。
+3. 打开 Ubuntu 终端，在 Ubuntu 中安装 Git、curl、Python 3.12（含 `venv`）、Node.js 22、JDK 17 和 Maven；运行 `docker compose version` 与 `docker info` 确认该终端可以连接 Docker。
+4. 建议在 Ubuntu 的家目录（如 `~/projects`，而非较慢的 `/mnt/c`）执行下方克隆和启动命令。服务启动后用 Windows 浏览器访问下方的前端入口。
+
+此路径复用 Linux 启动脚本；**尚未在 Windows 实机验证**。如果 WSL2 或 Docker Desktop 无法启用（例如公司电脑的虚拟化策略受限），目前不承诺原生 Windows 启动。
+
+### 从 GitHub 全新克隆并启动（macOS / Linux / WSL2）
+
+先安装并启动 Docker（含 Compose v2），准备 Python 3.12、Node.js 22、JDK 17、Maven、Bash 和 curl；首次安装依赖和拉取 PostgreSQL 镜像需要联网。脚本不会自动安装依赖、构建前端或清空数据库。
 
 ```bash
-# 算法服务 Python 依赖（建议使用 venv）
-pip install -r algorithm-service/requirements.txt
+git clone https://github.com/xyzlily215-cmyk/fjsp-dispatch-system.git
+cd fjsp-dispatch-system
 
-# 构建前端产物 web-vue/dist（start-demo.sh 直接托管该目录，缺失会报错退出）
-cd web-vue && npm install && npm run build && cd ..
-```
+# 使用虚拟环境；运行 start-demo.sh 时保持它处于激活状态
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r algorithm-service/requirements.txt
 
-```bash
+# 构建前端产物（web-vue/dist 不纳入 Git）
+cd web-vue && npm ci && npm run build && cd ..
+
 cp .env.example .env
-# 编辑 .env，至少把 FJSP_DB_PASSWORD 改成当前本地数据库使用的密码
+# 编辑 .env：将 FJSP_DB_PASSWORD=change-this-password 换成自己的本地密码
+# 新装数据库可设置新密码；若已有 fjsp 数据库，须使用原有密码，勿覆盖数据
 ./scripts/start-demo.sh
 ```
+
+`start-demo.sh` 会启动或复用 PostgreSQL、算法服务、业务服务和前端；默认业务服务使用 `local` profile，不会自动重置业务数据。`.env`、Python 虚拟环境和前端构建产物均不提交到 Git。启动失败时先检查 Docker 是否已运行、端口 5432/8101/8081/8082 是否被占用，以及脚本输出的日志路径。该步骤针对**本机访问**，不是公网生产部署指南。
 
 默认入口：
 
 - 前端：<http://127.0.0.1:8082/index.html?api=http://localhost:8081/api/v1>
 - 业务 API：<http://localhost:8081/api/v1>
 - 算法健康检查：<http://localhost:8101/health>
-- AGH 工作台：<http://localhost:4177/>
+- AGH 工作台（仅启用 AGH 时）：<http://localhost:4177/>
 
-如果只需要业务服务和前端，不启动 AGH：
+默认只启动 PostgreSQL、算法服务、业务服务和前端；AGH 是可选组件，启用前需按 [`agh-integration/README.md`](agh-integration/README.md) 构建其 CLI：
 
 ```bash
-FJSP_START_AGH=0 ./scripts/start-demo.sh
+FJSP_START_AGH=1 ./scripts/start-demo.sh
 ```
 
 不经脚本单独操作 PostgreSQL 的 Compose 配置时，需显式指定 env 文件（`deploy/docker-compose.yml` 中数据库名/用户/密码为 `:?` 必填变量，缺失会直接报错；端口仅绑定到 127.0.0.1）：
@@ -50,7 +67,7 @@ docker compose --env-file .env -f deploy/docker-compose.yml up -d
 
 ## 前端（web-vue/）
 
-前端基于 Vue 3 + Vite + Element Plus + Pinia + ECharts，路由为 hash 模式（`/#/...`），任意静态服务器均可托管；API 地址支持 `?api=` 查询参数与 `localStorage fjsp.apiBase` 覆盖（默认 `http://localhost:8081/api/v1`）。
+前端基于 Vue 3 + Vite + Element Plus + Pinia + ECharts，路由为 hash 模式（`/#/...`），任意静态服务器均可托管；API 地址支持同源或本机回环地址的 `?api=` 查询参数，也支持手工设置的 `localStorage fjsp.apiBase`（默认 `http://localhost:8081/api/v1`）。外部链接中的非本机跨域 `?api=` 会被忽略，以免向不可信服务发送 JWT；需要独立远程 API 时请在受信任环境下显式配置，而非通过外部链接传入。
 
 ```bash
 # 开发联调（5174 端口，内置 /api → 8081 代理，自动处理 CORS Origin）
@@ -127,7 +144,7 @@ AGH 的审核发布流程要求显式审批：计划必须先提交审核，审�
 ## 数据库 schema 管理（Flyway + ddl-auto 分环境）
 
 - 迁移脚本位于 `business-service/src/main/resources/db/migration/`，基线为 `V1__baseline_schema.sql`（17 张业务表）；schema 变更一律新增 `V<n>__*.sql`，不要改动已应用的脚本（唯一例外：`V3__auth.sql` 在未上线前做过一次性修正——种子账号插入移至 `UserSeedRunner`，表结构不变；已应用旧版 V3 的存量库需 `flyway repair` 或重建，local profile 不跑 Flyway、不受影响）。
-- **本地开发（local profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=local` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构。
+- **本地开发（local profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=local` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构；启动时还会复用 V5/V6/V13 的迁移 SQL 创建 Hibernate 无法管理的部分唯一索引（重复运行安全）。如存量库已有多个生效计划或同一工序的重复未结束反馈，索引创建会拒绝启动；请先备份并核查冲突数据，不会自动删除业务记录。
 - **默认 profile（生产姿态）**：Flyway 启用并执行迁移，`ddl-auto=validate` 仅校验实体与库表一致，不再自动改表。存量库首次启动会自动 baseline 到版本 1（`baseline-on-migrate`），全新空库则执行 V1 建表。
 - 手动启动时通过环境变量选择：`SPRING_PROFILES_ACTIVE=local java -jar ...` 为本地开发模式；不设该变量即为生产姿态。`prod` profile 下所有连接与密钥强制来自环境变量（无默认值，缺失即启动失败）；`test` profile 预留给 Testcontainers 集成测试。
 - 业务服务配置矩阵（配置项/类型/默认值/各 profile 差异/环境变量）见 [`business-service/README.md`](business-service/README.md) 的「配置项」一节。

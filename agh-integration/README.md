@@ -6,7 +6,7 @@
 
 ```
 agh-integration/
-├── agnes-harness/            # AGH 源码（已构建，入口 packages/cli/dist/local/agnes.mjs）
+├── agnes-harness/            # 可选 AGH 源码（未随本仓库分发，构建后入口 packages/cli/dist/local/agnes.mjs）
 ├── fjsp-tools/               # 后端工具插件（agnes.plugins 入口）
 │   ├── package.json
 │   └── index.mjs             # 16 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
@@ -20,7 +20,7 @@ agh-integration/
 
 ## 启动 AGH
 
-推荐走演示脚本：`scripts/start-demo.sh` 会自动选择 Node ≥24（fnm 目录）、显式拉起 daemon（绕过 serve 自动拉起的稳定性问题）、带 `AGNES_HUB_ORIGIN` 启动 serve，并启动 MHS 设备 machine-m03；`scripts/stop-demo.sh` 会对应全部停止。
+AGH 为可选组件，默认本地部署不启动；本仓库未跟踪 `agnes-harness/`，从零克隆需自行准备对应 AGH 源码并构建 CLI（`agh-integration/agnes-harness/packages/cli/dist/local/agnes.mjs`），再用 `FJSP_START_AGH=1 ./scripts/start-demo.sh` 启用。启用后脚本会自动选择 Node ≥24（fnm 目录）、显式拉起 daemon（绕过 serve 自动拉起的稳定性问题）、带 `AGNES_HUB_ORIGIN` 启动 serve，并启动 MHS 设备 machine-m03；`scripts/stop-demo.sh` 会对应全部停止。
 
 手动方式（排障时）：
 

@@ -28,7 +28,7 @@ cd "${REPO_ROOT}"
 
 # 前置检查
 command -v git >/dev/null 2>&1 || { echo "错误: 未找到 git" >&2; exit 1; }
-command -v zip >/dev/null 2>&1 || { echo "错误: 未找到 zip" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "错误: 未找到 python3" >&2; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "错误: 当前目录不是 git 仓库" >&2; exit 1; }
 
 # submission/ 与 agh-integration/ 以工作区文件强制覆盖（允许未提交）；其余目录必须先提交
@@ -58,8 +58,8 @@ git archive HEAD | tar -x -C "${STAGE_DIR}"
 
 echo "==> 追加 submission/ 目录（含未提交的新材料）..."
 mkdir -p "${STAGE_DIR}/submission"
-# submission/ 中的新材料可能尚未提交，强制以工作区文件覆盖
-cp -R "${SCRIPT_DIR}/." "${STAGE_DIR}/submission/"
+# submission/ 中的新材料可能尚未提交，强制以工作区文件覆盖；本地原始 .mov 视频素材不入包（赛事要求只提交分享链接）
+tar -cf - -C "${SCRIPT_DIR}" --exclude='*.mov' . | tar -x -C "${STAGE_DIR}/submission/"
 
 echo "==> 覆盖 agh-integration/ 工作区（含被 gitignore 的 evidence/ 与未跟踪文件）..."
 mkdir -p "${STAGE_DIR}/agh-integration"
@@ -77,7 +77,8 @@ OUT_PATH="${REPO_ROOT}/${ZIP_NAME}"
 rm -f "${OUT_PATH}"
 
 echo "==> 生成 ${ZIP_NAME} ..."
-( cd "${STAGE_DIR}" && zip -qr "${OUT_PATH}" . )
+# Python zipfile writes the UTF-8 filename flag; Info-ZIP on macOS omits it for Chinese paths.
+( cd "${STAGE_DIR}" && python3 -m zipfile -c "${OUT_PATH}" . )
 
 ZIP_SIZE="$(stat -f%z "${OUT_PATH}" 2>/dev/null || stat -c%s "${OUT_PATH}")"
 ZIP_SIZE_MB="$(awk "BEGIN { printf \"%.1f\", ${ZIP_SIZE}/1048576 }")"

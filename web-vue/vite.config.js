@@ -42,5 +42,16 @@ export default defineConfig({
       },
     },
   },
-  preview: { host: '127.0.0.1', port: 5174 },
+  preview: {
+    host: '127.0.0.1',
+    port: 5174,
+    /* preview 与 dev 一样经同源代理访问业务服务（CORS 白名单只放行 8082，见 application-local.yml） */
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+        headers: { Origin: 'http://127.0.0.1:8082' },
+      },
+    },
+  },
 });

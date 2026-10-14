@@ -50,10 +50,11 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web-vue/package-lock.json
-      - name: Build web-vue
+      - name: Test and build web-vue
         run: |
           cd web-vue
           npm ci
+          npm test
           npm run build
 
   shellcheck:
@@ -67,14 +68,11 @@ jobs:
       - name: Validate docker compose config
         run: docker compose --env-file .env.example -f deploy/docker-compose.yml config -q
 
-  # 全链路集成测试：真实启动 PostgreSQL + 算法服务 + 业务服务，
-  # 复用 scripts/start-demo.sh 编排，随后跑业务冒烟与 API 字段契约检查。
-  # 全量链路（Maven 打包 + 前端构建 + 多轮调度任务轮询）约 10 分钟量级，
-  # 不适合 push/PR 全量跑，故仅在 nightly schedule 与手动 workflow_dispatch 时运行。
+  # 全新检出的代码须能启动：push/PR 验证本地部署 + 冒烟，
+  # 会重置 CI 专用库的较长 E2E 仅在定时/手动运行。
   integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     env:
       # CI 不启动 AGH 工作台（需要额外构建 agh-integration CLI）
       FJSP_START_AGH: "0"
@@ -115,6 +113,7 @@ jobs:
       - name: Run business smoke test
         run: ./scripts/run-smoke-test.sh
       - name: Run API field-contract E2E check
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         # 会调 POST /demo/reset 清空重建演示数据，CI 专用库无所谓
         run: ./scripts/run-e2e.sh
       - name: Upload service logs on failure

@@ -1,5 +1,5 @@
 <template>
-  <AsyncPage :loading="loading" :error="error" :error-title="errorTitle" loading-text="正在加载当前执行计划…" :empty="!dashboard.currentPlan">
+  <AsyncPage :loading="loading" :error="error" :error-title="errorTitle" loading-text="正在加载当前执行计划…" :empty="!dashboard || !dashboard.currentPlan">
     <template #empty>
     <div class="page-header">
       <div><h1>实际执行反馈</h1><p>对当前发布计划的工序提交实际执行状态</p></div>
@@ -23,11 +23,24 @@
       <div class="card stat-card"><span>执行偏差</span><b style="color:#d54941">{{ deviationCount }}</b></div>
     </div>
     <section class="card table-card">
+      <div class="section-pad" style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0;font-size:15px">工序执行状态<span class="muted" style="font-weight:normal">（共 {{ filteredOps.length }} / {{ ops.length }} 道）</span></h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="field" style="width:200px" v-model.trim="q" placeholder="查询工序号 / 设备号" />
+          <select class="field" style="width:auto" v-model="statusFilter">
+            <option value="">全部状态</option>
+            <option value="NOT_STARTED">未开始</option>
+            <option value="RUNNING">加工中</option>
+            <option value="PAUSED">暂停中</option>
+            <option value="COMPLETED">已完成</option>
+          </select>
+        </div>
+      </div>
       <div class="table-wrap" style="max-height:600px">
         <table class="data-table">
           <thead><tr><th>工序</th><th>设备</th><th>计划开始</th><th>计划结束</th><th>冻结</th><th>执行状态</th><th>标记</th><th>反馈</th></tr></thead>
           <tbody>
-            <tr v-for="o in ops" :key="o.operationId">
+            <tr v-for="o in filteredOps" :key="o.operationId">
               <td>{{ o.operationId }}</td>
               <td>{{ o.machineId }}</td>
               <td>{{ fmtDateTime(o.startAt) }}</td>
@@ -57,34 +70,32 @@
                    v-role="['DISPATCHER','ADMIN']" @click="goReschedule(o)">重调度</a>
               </td>
             </tr>
+            <tr v-if="!filteredOps.length"><td colspan="8" class="muted" style="text-align:center">无匹配工序</td></tr>
           </tbody>
         </table>
       </div>
     </section>
-    <section v-if="timeline.visible" class="card">
-      <div class="section-pad">
-        <div v-if="timeline.loading" class="loading-block"><div class="spin"></div><div>正在加载执行时间线…</div></div>
-        <ErrorBox v-else-if="timeline.error" :error="timeline.error" title="时间线加载失败" />
-        <template v-else>
-          <h3 style="margin:0 0 10px;font-size:15px">工序 {{ timeline.opId }} 执行时间线</h3>
-          <div v-if="timeline.records.length" class="table-wrap">
-            <table class="data-table">
-              <thead><tr><th>动作</th><th>时间</th><th>原因码</th><th>偏差(分)</th><th>备注</th></tr></thead>
-              <tbody>
-                <tr v-for="(r, i) in timeline.records" :key="i">
-                  <td><StatusTag :status="r.status" /></td>
-                  <td>{{ fmtDateTime(r.occurredAt || r.actualStartAt || r.actualEndAt || r.createdAt) }}</td>
-                  <td><StatusTag v-if="r.reasonCode" :status="r.reasonCode" /><template v-else>-</template></td>
-                  <td>{{ r.deviationMinutes ?? '-' }}</td>
-                  <td>{{ r.remark || '-' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else class="muted">暂无执行记录。</p>
-        </template>
-      </div>
-    </section>
+    <el-drawer v-model="timeline.visible" :title="`工序 ${timeline.opId} 执行时间线`" size="50%">
+      <div v-if="timeline.loading" class="loading-block"><div class="spin"></div><div>正在加载执行时间线…</div></div>
+      <ErrorBox v-else-if="timeline.error" :error="timeline.error" title="时间线加载失败" />
+      <template v-else>
+        <div v-if="timeline.records.length" class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>动作</th><th>时间</th><th>原因码</th><th>偏差(分)</th><th>备注</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in timeline.records" :key="i">
+                <td><StatusTag :status="r.status" /></td>
+                <td>{{ fmtDateTime(r.occurredAt || r.actualStartAt || r.actualEndAt || r.createdAt) }}</td>
+                <td><StatusTag v-if="r.reasonCode" :status="r.reasonCode" /><template v-else>-</template></td>
+                <td>{{ r.deviationMinutes ?? '-' }}</td>
+                <td>{{ r.remark || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="muted">暂无执行记录。</p>
+      </template>
+    </el-drawer>
   </AsyncPage>
 </template>
 
@@ -111,6 +122,15 @@ const error = ref(null);
 const errorTitle = ref('加载失败');
 
 const timeline = reactive({ visible: false, opId: '', loading: false, error: null, records: [] });
+
+const q = ref('');
+const statusFilter = ref('');
+const filteredOps = computed(() => {
+  const kw = q.value.toLowerCase();
+  return ops.value.filter(o =>
+    (!kw || o.operationId.toLowerCase().includes(kw) || (o.machineId || '').toLowerCase().includes(kw))
+    && (!statusFilter.value || statusOf(o) === statusFilter.value));
+});
 
 function statusOf(o) {
   return opStatus.value[o.operationId] || 'NOT_STARTED';

@@ -11,6 +11,7 @@
 .vscode/
 
 # Build and test outputs
+.venv/
 target/
 __pycache__/
 .pytest_cache/
@@ -24,3 +25,9 @@ agh-integration/agnes-harness/
 
 # 提交打包产物
 /*-*.zip
+
+# 大体积/个人文件不入库：演示视频、提交用项目副本、简历
+submission/10月10日/
+submission/10月10日(1)/
+本科生组-U019-暴躁的兔子-熊英孜/
+熊英孜-简历-AI全栈工程师.docx

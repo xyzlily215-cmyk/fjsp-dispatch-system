@@ -69,7 +69,7 @@
                 <div class="task-overview-block"><span>加权拖期</span><b>{{ fmtMinutes(task.kpi.weightedTardinessMinutes) }}</b></div>
                 <div class="task-overview-block"><span>延期订单数</span><b>{{ task.kpi.nTardy ?? '-' }}</b></div>
                 <div class="task-overview-block"><span>负荷不均衡度</span><b>{{ task.kpi.loadImbalance ?? '-' }}</b></div>
-                <div class="task-overview-block"><span>计划扰动 Δ_plan</span><b>{{ task.kpi.deltaPlan ? task.kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}</b></div>
+                <div class="task-overview-block"><span>计划扰动 Δ_plan</span><b>{{ task.kpi.deltaPlan?.deltaPlan != null ? task.kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}</b></div>
                 <div class="task-overview-block"><span>可行解</span><b>{{ task.feasibleSolution ? '是' : '否' }}</b></div>
               </div>
             </template>

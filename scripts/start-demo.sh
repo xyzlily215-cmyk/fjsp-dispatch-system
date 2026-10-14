@@ -124,8 +124,12 @@ cat <<SUMMARY
   前端: http://127.0.0.1:${FJSP_WEB_PORT}/index.html?api=${FJSP_API_BASE}
   业务 API: ${FJSP_API_BASE}
   算法服务: ${FJSP_ALGORITHM_BASE_URL}/health
-  AGH: http://127.0.0.1:${FJSP_AGH_PORT}/
-  AgnesHub Devices 面板: ${FJSP_AGH_HUB_ORIGIN}/
+SUMMARY
+if [[ "$FJSP_START_AGH" == "1" ]]; then
+  printf '  AGH: http://127.0.0.1:%s/\n  AgnesHub Devices 面板: %s/\n' \
+    "$FJSP_AGH_PORT" "$FJSP_AGH_HUB_ORIGIN"
+fi
+cat <<SUMMARY
 
 运行数据未被重置。如需重建演示数据，请执行：
   ./scripts/reset-demo.sh
