@@ -39,7 +39,7 @@
               <div class="task-overview-block"><span>总完工时间 C_max</span><b>{{ fmtMinutes(kpi.cMaxMinutes) }}</b></div>
               <div class="task-overview-block"><span>加权拖期</span><b>{{ fmtMinutes(kpi.weightedTardinessMinutes) }}</b></div>
               <div class="task-overview-block"><span>延期订单数</span><b>{{ kpi.nTardy ?? '-' }}</b></div>
-              <div class="task-overview-block"><span>计划扰动 Δ_plan</span><b>{{ kpi.deltaPlan ? kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}</b></div>
+              <div class="task-overview-block"><span>计划扰动 Δ_plan</span><b>{{ kpi.deltaPlan?.deltaPlan != null ? kpi.deltaPlan.deltaPlan.toFixed(3) : '-' }}</b></div>
               <div class="task-overview-block"><span>乐观锁版本号</span><b>{{ detail.version }}</b></div>
               <div class="task-overview-block"><span>工序数</span><b>{{ detail.operationCount ?? '-' }}</b></div>
             </div>

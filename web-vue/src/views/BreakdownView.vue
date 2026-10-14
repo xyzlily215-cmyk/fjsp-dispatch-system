@@ -105,7 +105,7 @@
 import { onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Api } from '../api';
-import { toast } from '../utils/ui';
+import { toast, toastErr } from '../utils/ui';
 import { fmtDateTime, isoToLocalInput, localInputToIso, errMsg } from '../utils/format';
 import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
@@ -177,9 +177,13 @@ async function init() {
 }
 
 async function reloadEvents() {
-  eventsPage.value = await Api.eventsPage({
-    page: shared.eventsPageNo || 0, size: 10, eventType: shared.eventsType || undefined,
-  });
+  try {
+    eventsPage.value = await Api.eventsPage({
+      page: shared.eventsPageNo || 0, size: 10, eventType: shared.eventsType || undefined,
+    });
+  } catch (e) {
+    toastErr(e, '事件列表加载失败');
+  }
 }
 
 function onTypeChange(e) {

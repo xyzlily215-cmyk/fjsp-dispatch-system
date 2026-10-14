@@ -53,7 +53,9 @@ async function api(path, options = {}) {
     opts.body = JSON.stringify(opts.body);
   }
   if (opts.method !== 'GET' && !opts.headers['Idempotency-Key']) {
-    opts.headers['Idempotency-Key'] = crypto.randomUUID();
+    /* crypto.randomUUID 仅在安全上下文（https/localhost）可用；局域网 http://IP 访问时退化为随机串 */
+    opts.headers['Idempotency-Key'] = (typeof crypto.randomUUID === 'function' && crypto.randomUUID())
+      || (Date.now() + '-' + Math.random().toString(36).slice(2));
   }
   opts.signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   let resp;

@@ -53,7 +53,7 @@ const dashboard = ref(null);
 const loading = ref(true);
 const error = ref(null);
 
-const currentId = computed(() => dashboard.value.currentPlan && dashboard.value.currentPlan.id);
+const currentId = computed(() => dashboard.value && dashboard.value.currentPlan && dashboard.value.currentPlan.id);
 const byId = computed(() => Object.fromEntries(versions.value.map(v => [v.id, v])));
 
 async function load() {
