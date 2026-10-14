@@ -40,7 +40,7 @@ AGNES_HUB_ORIGIN=http://127.0.0.1:4180 \
 
 ## 模型配置（Agnes AI）
 
-凭据在 `~/.config/fjsp/agnes.env`（不进仓库、不打印明文）。实测该 Key 是**中国区网关**（`https://api.agnes-ai.cn/v1`，AGH 内置 Agnes AI Provider 的默认地址）的 Key，且只授权了 **agnes-3.0-flash**；`agnes.env` 里的国际站 base URL / agnes-2.0-flash 对该 Key 不可用（401/403）。
+凭据在 `~/.config/fjsp/agnes.env`（不打印明文）。**本提交包已随附评审专用 Key**：`agh-integration/agnes.env`，评审方执行 `mkdir -p ~/.config/fjsp && cp agh-integration/agnes.env ~/.config/fjsp/agnes.env` 即可，无需自备 Key。实测该 Key 是**中国区网关**（`https://api.agnes-ai.cn/v1`，AGH 内置 Agnes AI Provider 的默认地址）的 Key，且只授权了 **agnes-3.0-flash**；`agnes.env` 里的国际站 base URL / agnes-2.0-flash 对该 Key 不可用（401/403）。
 
 配置方式（交互向导支持管道输入；Agnes AI 是列表第 12 项）：
 
