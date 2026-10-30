@@ -1,0 +1,204 @@
+[口令] FJSP_REG_DB_PASSWORD 未设置或为占位值，已生成本次运行的一次性随机口令
+
+== 0. 端口冲突预检（回归端口不得占用，也不复用演示端口）==
+
+== 1. 启动回归 PostgreSQL（容器 fjsp-postgres-reg，端口 15432）==
+ Network fjsp-regression_default Creating 
+ Volume fjsp-regression_fjsp-pgdata-reg Creating 
+ Network fjsp-regression_default Creating 
+ Volume fjsp-regression_fjsp-pgdata-reg Creating 
+ Volume fjsp-regression_fjsp-pgdata-reg Created 
+ Volume fjsp-regression_fjsp-pgdata-reg Created 
+ Network fjsp-regression_default Created 
+ Network fjsp-regression_default Created 
+ Container fjsp-postgres-reg Creating 
+ Container fjsp-postgres-reg Created 
+ Container fjsp-postgres-reg Starting 
+ Container fjsp-postgres-reg Started 
+[就绪] 容器 fjsp-postgres-reg healthy
+
+== 2. 启动回归算法服务（端口 18101）==
+[启动] algorithm-reg
+[完成] algorithm-reg，PID=44559，日志=/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T//fjsp-regression/algorithm-reg.log
+[就绪] 回归算法服务: http://127.0.0.1:18101/health
+
+== 3. 构建并启动回归业务服务（端口 28081，FJSP_SIMULATION_MODE=FIXED）==
+[跳过] /Users/xiongyingzi/Desktop/bysj/business-service/target/business-service-1.0.0.jar 已新于 src/ 与 pom.xml，跳过 Maven 构建。
+[启动] business-reg
+[完成] business-reg，PID=44570，日志=/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T//fjsp-regression/business-reg.log
+[就绪] 回归业务服务: http://127.0.0.1:28081/actuator/health/readiness
+
+== 4. 运行 Golden 场景断言（API http://localhost:28081/api/v1，不拉起 AGH）==
+
+---- 场景 s01-machine-breakdown ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=2584b05d-b173-406a-86fc-e01d2fa18f83 versionCode=PV-000001 status=PUBLISHED
+== 触发：设备故障事件（M-03，+24h，维修 120min）==
+PASS 故障事件已登记 EVT-000001
+PASS 响应含 impactSummary.total（实际 12）
+PASS 事件详情 BREAKDOWN/M-03/CONFIRMED（实际 BREAKDOWN/M-03/CONFIRMED）
+PASS 事件详情含 impacts 影响集合
+PASS reschedule-preview 可取（供局部/全量重调度决策）
+SCENARIO_RESULT {"scenario":"s01-machine-breakdown","triggered":{"type":"BREAKDOWN","machineId":"M-03","occurredAt":"2026-09-17T00:00:00.000Z","repairDurationMinutes":120},"eventId":"67b90b5a-b770-4db5-b3c3-c2cdcb105ea8","eventCode":"EVT-000001","impactSummary":{"total":12,"byType":{"SAME_MACHINE_CONFLICT":2,"MACHINE_BREAKDOWN":4,"SUCCESSOR":6}},"impactCount":12,"basePlanVersionId":"2584b05d-b173-406a-86fc-e01d2fa18f83","baseTaskId":"0ab666e3-99b5-4a53-91fc-d7515fb0e138","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 以该 eventId 对 basePlanVersionId 做 LOCAL_RESCHEDULE（必要时升级 FULL_RESCHEDULE），产出新候选版本并走评审"}
+[通过] s01-machine-breakdown
+
+---- 场景 s02-urgent-order ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=a8c926d5-790e-4403-954d-4fc492ec5703 versionCode=PV-000002 status=PUBLISHED
+== 触发：紧急插单事件（ORD-GOLDEN-S02，壳体C ×10，优先级 1）==
+PASS 插单事件已登记 EVT-000002
+PASS 订单实例已创建 ORD-GOLDEN-S02
+PASS 工序实例已创建（5 道）
+PASS 响应含 impactSummary.total（实际 5）
+PASS 事件详情 NEW_ORDER/URGENT_INSERT/CONFIRMED（实际 NEW_ORDER/URGENT_INSERT/CONFIRMED）
+SCENARIO_RESULT {"scenario":"s02-urgent-order","triggered":{"type":"NEW_ORDER","subType":"URGENT_INSERT","orderCode":"ORD-GOLDEN-S02","productFamily":"壳体C","quantity":10,"priority":1},"eventId":"058d6b44-6b81-467f-a44a-66c88c646f31","eventCode":"EVT-000002","orderId":"ORD-GOLDEN-S02","operationIds":["ORD-GOLDEN-S02-10","ORD-GOLDEN-S02-20","ORD-GOLDEN-S02-30","ORD-GOLDEN-S02-40","ORD-GOLDEN-S02-50"],"impactSummary":{"total":5,"byType":{"NEW_ORDER":5}},"basePlanVersionId":"a8c926d5-790e-4403-954d-4fc492ec5703","baseTaskId":"d892ada6-2921-43d3-b2f5-bd447a7a7031","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 以该 eventId 对 basePlanVersionId 做重调度，把插单排入并走评审；终态候选版本含 ORD-GOLDEN-S02 的工序"}
+[通过] s02-urgent-order
+
+---- 场景 s03-mixed-disturbance ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=df730089-c091-42dd-9008-e0fc3c4584ff versionCode=PV-000003 status=PUBLISHED
+== 触发 1/2：设备故障事件（M-03，+24h，维修 120min）==
+PASS 故障事件已登记 EVT-000003
+== 触发 2/2：紧急插单事件（ORD-GOLDEN-S03，盘类B ×10，优先级 1）==
+PASS 插单事件已登记 EVT-000004
+PASS 两个扰动为相互独立的事件
+PASS 两事件均 CONFIRMED（实际 CONFIRMED/CONFIRMED）
+SCENARIO_RESULT {"scenario":"s03-mixed-disturbance","triggered":[{"type":"BREAKDOWN","machineId":"M-03","occurredAt":"2026-09-17T00:00:00.000Z","repairDurationMinutes":120},{"type":"NEW_ORDER","subType":"URGENT_INSERT","orderCode":"ORD-GOLDEN-S03","productFamily":"盘类B","quantity":10,"priority":1}],"breakdownEventId":"6f6e8c26-fe54-4d24-b3f1-4fe3898cef46","breakdownEventCode":"EVT-000003","newOrderEventId":"8109804e-3723-4d48-8167-137516810136","newOrderEventCode":"EVT-000004","orderId":"ORD-GOLDEN-S03","operationIds":["ORD-GOLDEN-S03-10","ORD-GOLDEN-S03-20","ORD-GOLDEN-S03-30","ORD-GOLDEN-S03-40","ORD-GOLDEN-S03-50"],"basePlanVersionId":"df730089-c091-42dd-9008-e0fc3c4584ff","baseTaskId":"708eebed-2142-4eab-9f84-cc10dfa7a4b9","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 按发生先后处置两个事件（可先故障重调度再插单重调度，或合并评估），最终候选版本同时吸收两类扰动并走评审"}
+[通过] s03-mixed-disturbance
+
+---- 场景 s04-infeasible ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=19c69a46-86e7-439c-9fc3-6855dd62f6f4 versionCode=PV-000004 status=PUBLISHED
+== 触发：全车间停摆（8 台设备 × 全 horizon 故障）==
+PASS M-01 故障事件已登记 EVT-000005
+PASS M-02 故障事件已登记 EVT-000006
+PASS M-03 故障事件已登记 EVT-000007
+PASS M-04 故障事件已登记 EVT-000008
+PASS M-05 故障事件已登记 EVT-000009
+PASS M-06 故障事件已登记 EVT-000010
+PASS M-07 故障事件已登记 EVT-000011
+PASS M-08 故障事件已登记 EVT-000012
+== 业务侧自检：FULL_RESCHEDULE 必须落在 INFEASIBLE ==
+PASS 重调度任务终态 INFEASIBLE（实际 status=INFEASIBLE resultStatus=INFEASIBLE）
+PASS conflicts 非空（76 条）
+PASS conflicts 含 NO_FEASIBLE_WINDOW（实际规则: NO_FEASIBLE_WINDOW,AVAILABILITY_VIOLATION）
+PASS 不可行任务不产生新计划版本
+SCENARIO_RESULT {"scenario":"s04-infeasible","triggered":[{"type":"BREAKDOWN","machineId":"M-01","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-02","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-03","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-04","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-05","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-06","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-07","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300},{"type":"BREAKDOWN","machineId":"M-08","occurredAt":"2026-09-16T00:00:00.000Z","repairDurationMinutes":6300}],"eventIds":["ff463e03-807a-4973-9f22-ae346bfcd853","af32b034-a57b-4fe4-bbf8-c563720ff22d","e3f61069-f941-4f54-b5d9-0f448bc2def0","570178cc-78a2-4116-b8e8-bff124af09b5","411cebe0-24d8-4570-a4eb-d789889b87f3","006e122e-2843-4c31-b841-6ddadc21a3d9","55bd956a-c002-44e8-8ce8-ff8d42de528b","ff793d3b-1b60-468a-98dd-471cd5360bc6"],"triggerEventId":"ff463e03-807a-4973-9f22-ae346bfcd853","basePlanVersionId":"19c69a46-86e7-439c-9fc3-6855dd62f6f4","selfCheckTaskId":"9e9a84fb-b5ba-4a0a-bcc2-fffe5f5a938a","selfCheckResult":{"status":"INFEASIBLE","resultStatus":"INFEASIBLE","conflictRules":["NO_FEASIBLE_WINDOW","AVAILABILITY_VIOLATION"]},"simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 重调度得到 INFEASIBLE 后解释 conflicts（NO_FEASIBLE_WINDOW：所有候选设备均无可容纳工序的连续可用区间）并建议处置（调整维修窗口/外协/交期协商），不盲目重试、不提交评审"}
+[通过] s04-infeasible
+
+---- 场景 s05-duplicate-alert ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=3772d3ef-79a5-46a5-a484-65a3e4b7e589 versionCode=PV-000005 status=PUBLISHED
+== 触发：同一故障告警投递 3 次（同键×2 + 换键×1）==
+PASS 第 1 次投递登记成功 EVT-000013
+PASS 第 2 次投递（同键同体）回放首次响应 eventId=a906def4-813c-45f1-9407-93d0c4a4c843
+PASS 第 3 次投递（换键同体）被拒 HTTP 409 E_DUPLICATE
+PASS BREAKDOWN 事件总数净增 1（实际 0 -> 1）
+SCENARIO_RESULT {"scenario":"s05-duplicate-alert","triggered":{"type":"BREAKDOWN","machineId":"M-05","occurredAt":"2026-09-17T02:00:00.000Z","repairDurationMinutes":90,"deliveries":3},"eventId":"a906def4-813c-45f1-9407-93d0c4a4c843","eventCode":"EVT-000013","idempotentReplay":true,"fingerprintRejected":true,"eventCountDelta":1,"simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent/上游重复投递同一告警时系统不产生第二次事件写入；agent 侧应识别重复告警，不重复发起重调度"}
+[通过] s05-duplicate-alert
+
+---- 场景 s06-review-reject ----
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 提交评审 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+== 触发：评审拒绝（decision=REJECT）==
+PASS review REJECT 后 REJECTED（实际 REJECTED）
+PASS 驳回意见已落库
+== 断言：无发布副作用 ==
+PASS dashboard.currentPlan 为空（实际 null）
+PASS REJECTED 版本上 publish 被拒 HTTP 409 E_STATE_CONFLICT
+PASS publish 尝试后状态仍 REJECTED（实际 REJECTED）
+PASS 审计含 PLAN_SUBMIT_REVIEW 与 PLAN_REVIEW_REJECT（实际 PLAN_REVIEW_REJECT,PLAN_SUBMIT_REVIEW）
+PASS 审计不含 PLAN_PUBLISH（无发布副作用）
+SCENARIO_RESULT {"scenario":"s06-review-reject","triggered":{"type":"REVIEW_REJECT","planVersionId":"45d6fbc4-04bc-4610-91cb-b5954a12510f","comment":"golden-s06 演练驳回：KPI 不达标，退回调整"},"planVersionId":"45d6fbc4-04bc-4610-91cb-b5954a12510f","taskId":"495d49a2-7f52-4085-a869-01c36149c286","finalStatus":"REJECTED","auditActions":["PLAN_REVIEW_REJECT","PLAN_SUBMIT_REVIEW"],"simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"评审被拒后计划版本停留 REJECTED、无 PUBLISHED 副作用；agent 可建议 fjsp_revise_plan 退回修改后重新提审，不得绕过评审直接发布"}
+[通过] s06-review-reject
+
+== 回归汇总 ==
+场景结果（SCENARIO_RESULT）：/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T//fjsp-regression/scenario-results.jsonl
+[通过] 全部 6 个场景断言通过。
+
+[保留] --keep 生效：回归环境保留运行，清理请执行 scripts/run-regression.sh --cleanup-only

@@ -1,0 +1,29 @@
+== 登录 http://localhost:28081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布（GOLDEN_ALGORITHM）==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 SUCCESS/FEASIBLE）
+PASS 基线发布 PUBLISHED（PV-000009）
+== 触发：M-03 故障（s01 参数：+1440min，维修 120min）==
+PASS 故障事件已登记且影响集合 total=12（实际 12，基线=12）
+PASS 事件详情 CONFIRMED（实际 CONFIRMED）
+== 处置：LOCAL_RESCHEDULE（请求体与基线 agent 调用一致）==
+PASS 重调度 SUCCESS/TIME_LIMIT+FEASIBLE（实际 SUCCESS/FEASIBLE）
+PASS conflicts 为空（实际 0，基线=0）
+[KPI] cMax=3355 wT=60199 load=0.102175 deltaPlan=0.128166
+PASS cMax=3355（基线 3355）
+PASS 加权拖期=60199（基线 60199）
+PASS 负载均衡=0.102175（基线 0.102175）
+PASS Δ_plan=0.128166（基线 0.128166）
+== 终态：候选版本提审 → 评审通过 → 发布，核对审计链 ==
+PASS 候选版本发布 PUBLISHED（PV-000010）
+PASS 审计链 SUBMIT→APPROVE→PUBLISH（实际 PLAN_PUBLISH,PLAN_REVIEW_APPROVE,PLAN_SUBMIT_REVIEW，基线一致）
+PASS dashboard.currentPlan 为新发布版本（实际 bc9234b4-d776-4977-a431-1520e8a11db6）
+PASS dashboard 复核 cMax=3355（基线 dashboard 复核一致）
+SCENARIO_RESULT {"scenario":"s01-kpi-replay","basePlanVersionId":"cff0fe61-372f-4216-927f-e134e74b36cb","eventId":"15187daf-7d58-4a65-931c-c094defd4e69","rescheduleTaskId":"c69d2e92-09b8-4d31-aebf-8ebe628b2b5e","candidatePlanVersionId":"bc9234b4-d776-4977-a431-1520e8a11db6","candidateVersionCode":"PV-000010","kpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":60199,"loadImbalance":0.102175,"deltaPlan":0.128166},"baselineKpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":60199,"loadImbalance":0.102175,"deltaPlan":0.128166},"auditActions":["PLAN_PUBLISH","PLAN_REVIEW_APPROVE","PLAN_SUBMIT_REVIEW"]}

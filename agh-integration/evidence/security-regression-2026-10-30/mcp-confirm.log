@@ -1,0 +1,9 @@
+[fjsp-mcp] ready on stdio
+PASS MCP initialize 成功
+PASS READ 工具 fjsp_get_dashboard 真实可达（{"ok":true,"currentPlan":null,"orderStats":{"total":20,"byStatus":{"WAITING":20}…）
+PASS fjsp_report_breakdown 带 _confirm:true → isError
+PASS 错误码 APPROVAL_CHANNEL_REQUIRED（实际 APPROVAL_CHANNEL_REQUIRED）
+PASS fjsp_reset_demo 带 _confirm:true → APPROVAL_CHANNEL_REQUIRED
+PASS 无业务副作用：BREAKDOWN 事件总数不变（0 -> 0）
+
+PASS MCP _confirm 回归全部通过（真实业务服务 http://localhost:28081/api/v1）

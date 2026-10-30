@@ -1,0 +1,16 @@
+(node:44720) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[agent-bff] listening on http://127.0.0.1:14182/agent-api (workspace /Users/xiongyingzi/Desktop/bysj/agh-integration)
+ok 1 - 无 token 调 /chat 与 /stream-ticket → 401
+ok 2 - 伪造 token → 401（真实内检拒绝）
+ok 3 - 真实登录 dispatcher/reviewer/manager/admin 成功，内检链路可用（role=DISPATCHER 核实）
+ok 4 - 真实 DISPATCHER 批准 HIGH_RISK fjsp_publish → 403 approval_forbidden，记录不消费
+ok 5 - 跨用户审批（manager 裁决 dispatcher 会话）→ 403 conversation_forbidden + 审计留痕
+ok 6 - 真实 PRODUCTION_MANAGER 批准 fjsp_publish → 202 allowed-once（角色闸非一刀切）
+ok 7 - 重复裁决同一 requestId → 409 approval_already_decided
+ok 8 - 过期审批请求 → 410 approval_expired，承诺按 rejected 结算
+ok 9 - 真实 REVIEWER 批准 fjsp_approve_review → 202（评审/发布角色分离核实）
+ok 10 - 审计 JSONL 7 条：越权/归属不符/批准/拒绝/过期齐全，by 为真实用户名，可按业务对象回溯
+
+PASS 10 组断言全部通过（真实内检 http://localhost:28081/api/v1）
+[keep] 临时目录保留：/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T/bff-sec-e2e-OsrBtQ（含 audit.jsonl）

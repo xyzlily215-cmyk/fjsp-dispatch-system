@@ -7,6 +7,9 @@
 # 流程：拉起回归 DB → 以回归配置 + FJSP_SIMULATION_MODE=FIXED 启动算法/业务服务
 #       → 跑 agh-integration/evaluation/scenarios/ 全部 6 个场景脚本（纯 API 断言，不拉起 AGH；
 #         s05/s06 为全量业务断言，s01–s04 为扰动触发 + 脚本内业务断言，agent 行为回归属后续阶段）
+#       → BFF 安全端到端（agent-bff/test-security-e2e.mts）与 MCP _confirm 回归
+#         （agent-bff/test-mcp-confirm.mjs）：真实内检 + 真实 JWT 的越权/归属/过期/重复裁决断言；
+#         需 tsx（FJSP_TSX 或本机 agnes-harness），缺失则跳过并打印手动执行命令
 #       → 停服务、down -v 清理回归容器与数据卷（默认；--keep 保留现场便于排查）。
 #
 # 用法：
@@ -220,3 +223,27 @@ if [[ "$failed" == "1" ]]; then
   exit 1
 fi
 printf '[通过] 全部 %d 个场景断言通过。\n' "${#SCENARIOS[@]}"
+
+# ---- 5. BFF 安全端到端 + MCP _confirm 回归（任务 1.3）----
+# 需要 tsx 执行 agent-bff 的 .mts/.mjs 测试；agnes-harness 不随仓库分发，
+# 解析顺序：FJSP_TSX 环境变量（CI 注入）→ 本机 agnes-harness 的 tsx → PATH 中的 tsx。
+# 找不到 tsx 时跳过并注明手动执行方式，不判失败。
+printf '\n== 5. BFF 安全端到端与 MCP _confirm 回归（需 tsx）==\n'
+TSX_BIN="${FJSP_TSX:-}"
+if [[ -z "$TSX_BIN" && -x "$ROOT_DIR/agh-integration/agnes-harness/node_modules/.bin/tsx" ]]; then
+  TSX_BIN="$ROOT_DIR/agh-integration/agnes-harness/node_modules/.bin/tsx"
+fi
+if [[ -z "$TSX_BIN" ]] && command -v tsx >/dev/null 2>&1; then
+  TSX_BIN="$(command -v tsx)"
+fi
+if [[ -z "$TSX_BIN" ]]; then
+  printf '[跳过] 未找到 tsx：BFF 安全端到端与 MCP _confirm 回归转为手动执行：\n'
+  printf '  cd agh-integration/agent-bff\n'
+  printf '  FJSP_API_BASE=%s ../agnes-harness/node_modules/.bin/tsx test-security-e2e.mts\n' "$FJSP_API_BASE"
+  printf '  FJSP_API_BASE=%s node test-mcp-confirm.mjs\n' "$FJSP_API_BASE"
+else
+  printf '[使用] tsx=%s\n' "$TSX_BIN"
+  (cd "$ROOT_DIR/agh-integration/agent-bff" && "$TSX_BIN" test-security-e2e.mts)
+  (cd "$ROOT_DIR/agh-integration/agent-bff" && FJSP_TSX="$TSX_BIN" node test-mcp-confirm.mjs)
+  printf '[通过] BFF 安全端到端与 MCP _confirm 回归\n'
+fi

@@ -1,0 +1,67 @@
+== test-auth.mjs ==
+(node:45068) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[bff] [agent-bff] listening on http://127.0.0.1:14178/agent-api (workspace /Users/xiongyingzi/Desktop/bysj/agh-integration)
+ok 1 - health 公开（200，无 token）
+ok 2 - 无 token：chat/cancel/permission/stream-ticket/snapshot/stream/twin-stream/rag 全部 401
+ok 3 - 伪造/过期 token → 401
+ok 4 - 换票：仅接受 Bearer JWT，ticket 续票 401
+ok 5 - SSE：坏 ticket 401；alice 换票建连成功（conv-a 归属 alice）
+ok 6 - alice 对自己的会话发消息：通过鉴权，daemon 缺席返回 503
+ok 7 - bob 访问 alice 的会话：chat/stream/cancel 全部 403 conversation_forbidden
+ok 8 - alice cancel 自己的会话：归属通过，无活动会话 404
+ok 9 - legacy 历史会话：stream/chat 均 403 conversation_legacy
+ok 10 - 授权用户：twin/snapshot 200、rag/experience-query 200
+[mhs] handshake failed: Error: hub call timeout: hub/hello
+    at Timeout._onTimeout (/Users/xiongyingzi/Desktop/bysj/agh-integration/agent-bff/mhs.mts:107:16)
+    at listOnTimeout (node:internal/timers:585:17)
+    at process.processTimers (node:internal/timers:521:7)
+ok 11 - panel/grid 图片端点公开（无 token 不返回 401）
+
+PASS 11 组断言全部通过
+auth-exit=0
+
+== test-approval.mts ==
+(node:45078) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[agent-bff] listening on http://127.0.0.1:14179/agent-api (workspace /Users/xiongyingzi/Desktop/bysj/agh-integration)
+ok 1 - 五要素审批记录：工具/风险级/角色/业务对象/摘要/指纹/有效期齐全，广播带人类可读摘要
+ok 2 - 低角色（DISPATCHER）批准 HIGH_RISK fjsp_publish → 403 approval_forbidden，记录不消费
+ok 3 - 跨用户审批（bob 裁决 alice 的会话）→ 403 conversation_forbidden
+ok 4 - PRODUCTION_MANAGER 属主批准 fjsp_publish → 202，daemon 承诺收到 allowed-once
+ok 5 - 重复裁决同一 requestId → 409 approval_already_decided
+ok 6 - WRITE 工具：REVIEWER 403，DISPATCHER 202 放行
+ok 7 - DESTRUCTIVE 工具：PRODUCTION_MANAGER 403，ADMIN 202 放行
+ok 8 - ticket 路径补 role：ticket 批准 WRITE → 202（role 随票传递）
+ok 9 - 未知工具/未知级别：批准 fail-closed（ADMIN 也 403），拒绝放行
+ok 10 - 过期审批请求 → 410 approval_expired，承诺按 rejected 结算
+[agent-bff] 审批审计写入失败: Error: ENOENT: no such file or directory, open '/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T/bff-approval-test-96VrK1/no-such-dir/audit.jsonl'
+    at Object.writeFileSync (node:fs:2430:20)
+    at appendFileSync (node:fs:2512:6)
+    at writeAudit (/Users/xiongyingzi/Desktop/bysj/agh-integration/agent-bff/server.mts:454:5)
+    at auditApproval (/Users/xiongyingzi/Desktop/bysj/agh-integration/agent-bff/server.mts:463:10)
+    at Server.<anonymous> (/Users/xiongyingzi/Desktop/bysj/agh-integration/agent-bff/server.mts:751:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/var/folders/sf/2788s_852m72zh5zpc23vn9c0000gn/T/bff-approval-test-96VrK1/no-such-dir/audit.jsonl'
+}
+ok 11 - 审计写失败：批准 fail-closed（503 audit_unavailable，记录仍 pending），恢复后重试放行
+ok 12 - 不存在 requestId 的裁决探测 → 404 permission_not_found（留痕见下）
+ok 13 - 审计 JSONL 17 条：批准/拒绝/越权/过期/归属不符/404 探测齐全，可按会话与业务对象回溯
+[fjsp-mcp] ready on stdio
+ok 14 - MCP：_confirm:true 直调 WRITE/DESTRUCTIVE 工具 → APPROVAL_CHANNEL_REQUIRED，不放行
+
+PASS 14 组断言全部通过
+approval-exit=0
+
+== mcp-smoke.mjs ==
+[fjsp-mcp] ready on stdio
+[initialize] { name: 'fjsp-mcp', version: '1.0.0', title: 'FJSP 调度系统 MCP Server' } | protocol: 2025-06-18
+[tools/list] count: 18
+  names: fjsp_get_dashboard, fjsp_list_machines, fjsp_create_baseline, fjsp_report_breakdown, fjsp_insert_order, fjsp_reschedule, fjsp_task_status, fjsp_get_plan, fjsp_get_gantt_link, fjsp_get_workpiece_position, fjsp_compare_plans, fjsp_submit_review, fjsp_approve_review, fjsp_revise_plan, fjsp_publish, fjsp_experience_query, fjsp_experience_record, fjsp_reset_demo
+[fjsp_get_dashboard] isError: false | {"ok":true,"currentPlan":null,"orderStats":{"total":20,"byStatus":{"WAITING":20}},"machines":[{"machineId":"M-01","workCenterId":"WC-车削","status":"ACTIVE","prod
+[write without _confirm] isError: true | {"ok":false,"error":{"code":"APPROVAL_CHANNEL_REQUIRED","message":"fjsp_experience_record 是写/高风险操作：MCP 直连通道不支持人工审批，\"_confirm\" 不再作为批准证据。请通过 Web 副驾（agent-bff，身份绑定 + 五要素审批）或 AGH 会话的
+[write with _confirm] isError: true | {"ok":false,"error":{"code":"APPROVAL_CHANNEL_REQUIRED","message":"fjsp_experience_record 是写/高风险操作：MCP 直连通道不支持人工审批，\"_confirm\" 不再作为批准证据。请通过 Web 副驾（agent-bff，身份
+smoke-exit=0

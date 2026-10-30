@@ -81,6 +81,9 @@ jobs:
       FJSP_REG_DB_PASSWORD: reg-ci-${{ github.run_id }}
       # 服务日志落到工作区内，便于失败时上传 artifact
       FJSP_RUNTIME_DIR: ${{ github.workspace }}/logs/fjsp-regression
+      # agent-bff 安全端到端/MCP 回归（run-regression.sh 第 5 阶段）需要 tsx；
+      # agnes-harness 不随仓库分发，CI 侧独立安装（见下方 Install tsx 步骤）
+      FJSP_TSX: ${{ runner.temp }}/tsx-prefix/node_modules/.bin/tsx
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -99,7 +102,10 @@ jobs:
           node-version: "22"
       - name: Install algorithm-service dependencies
         run: pip install -r algorithm-service/requirements.txt
-      - name: Run isolated regression (Golden scenarios s01-s06)
+      - name: Install tsx for BFF security e2e
+        # 与任务 1.1/1.2 本机使用的 tsx 版本对齐（agnes-harness pnpm 树锁定 4.23.13）
+        run: npm install --prefix "$RUNNER_TEMP/tsx-prefix" --no-save --no-audit --no-fund tsx@4.23.13
+      - name: Run isolated regression (Golden scenarios s01-s06 + BFF security e2e)
         run: ./scripts/run-regression.sh
       - name: Upload regression logs on failure
         if: failure()
