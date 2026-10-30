@@ -11,7 +11,7 @@ agh-integration/
 │   └── server.mts            # 单文件 Node 服务（tsx 运行，默认 127.0.0.1:4178）
 ├── fjsp-tools/               # 后端工具插件（agnes.plugins 入口）
 │   ├── package.json
-│   └── index.mjs             # 16 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
+│   └── index.mjs             # 18 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
 ├── mhs-devices/              # MHS 虚拟设备（agnes_mhs Python 库）
 │   └── machine-m03.py        # CNC 机床 M-01~M-08 + AGV-01（workshop 地图：分区 + grid 平面图 + 位姿）：温度/振动 + 面板画面（image）+ 任意机床故障注入（/tmp/mhs-fault-M-XX 触发文件）
 ├── skills/fjsp-dispatch/SKILL.md   # 调度处置方法论 Skill（工程副本，含 MHS 告警处置流程）
@@ -39,6 +39,104 @@ AGNES_HUB_ORIGIN=http://127.0.0.1:4180 \
 - Web 工作台：http://127.0.0.1:4177/ （默认端口，避开 8080/8081/8082/8100/8101）
 - 共享 daemon，数据在 `~/.agh`（默认 home/profile=local-dev）
 - 停止：`node agnes-harness/packages/cli/dist/local/agnes.mjs daemon stop`，再杀掉 serve 进程
+
+## 版本冻结与复现（2026-10-30 冻结）
+
+本节是当前 AGH 环境的冻结快照：后续所有 AGH 相关工作以此为基准，任何人可按此从零复现。所有值均已逐项核实；升级 AGH 前先记录新旧 commit 并重跑文末验证清单。
+
+### AGH 源码版本
+
+- 上游仓库：https://github.com/AgnesAI-Labs/agnes-harness （本机 origin 经代理配置为 `https://ghfast.top/https://github.com/AgnesAI-Labs/agnes-harness.git`，仓库级配置，不受全局 insteadOf 影响）
+- commit：`a39272bb6bcb3109584e1bd3abac595789ae365d`（分支 `main`，2026-10-09 20:58 +0800，`Merge pull request #446 from Zynoo71/agnes-mhs`）
+- 工作区状态：`git status` 干净，无本地未提交改动；浅克隆（存在 `.git/shallow`，边界 commit `577a3b32…`），如需完整历史先 `git fetch --unshallow`
+
+### Node 与 pnpm
+
+- AGH 要求 Node ≥ 24.10（根 `package.json` engines；daemon 依赖 node:sqlite setAuthorizer）。本机 PATH 默认 node 是 v22.22.3（`/usr/local/bin/node`），**不满足**；实际使用 fnm 安装的 `~/.local/share/fnm/node-versions/v24.21.0/installation/bin/node`（v24.21.0，已核实存在）。`scripts/start-demo.sh` 的 `ensure_node24` 会自动从 fnm 目录挑 ≥24 的版本。
+- pnpm 锁定 **10.34.5**（根 `packageManager` 字段；`node_modules/.modules.yaml` 记录本次安装即 pnpm@10.34.5）。本机 homebrew pnpm 为 12.8.1，与锁定版本不一致，构建一律用 `corepack pnpm`（Node 24 自带 Corepack）。
+
+### 构建步骤（从零环境）
+
+```sh
+git clone https://github.com/AgnesAI-Labs/agnes-harness.git   # 网络受限时用 ghfast.top 代理前缀
+cd agnes-harness
+git checkout a39272bb6bcb3109584e1bd3abac595789ae365d
+export PATH="$HOME/.local/share/fnm/node-versions/v24.21.0/installation/bin:$PATH"
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @agnes/cli build:local    # 产出 packages/cli/dist/local/{agnes.mjs,daemon.mjs,worker.mjs,web,native,...}
+node packages/cli/dist/local/agnes.mjs --help    # 构建冒烟
+```
+
+依据 `agnes-harness/docs/guide/install.md`：无根级 `pnpm build`，`@agnes/cli` 的 `build:local` 产出完整本地发行目录；`@agnes/web build` 只构建 Web 包，不能替代整份发行。把整棵构建好的源码树放到 `agh-integration/agnes-harness/`（`file:./` 插件源相对 `agh-integration` 目录解析，目录位置不能挪）。开发态全量检查（typecheck/lint/build:native 等）见 `agnes-harness/AGENTS.md`。
+
+### 启动与停止（2026-10-30 已与脚本逐一核实）
+
+- **自动**：`FJSP_START_AGH=1 ./scripts/start-demo.sh` 启动，`./scripts/stop-demo.sh` 停止。脚本实际行为（`scripts/start-demo.sh` + `scripts/demo-common.sh`）：`ensure_node24` 选 Node ≥24 → 显式拉起 daemon（绕过 serve 自动拉起的稳定性问题，见下）→ 带 `AGNES_HUB_ORIGIN` 启动 serve → `FJSP_START_MHS=1`（默认开）时拉起 MHS 设备 machine-m03（`FJSP_MHS_MACHINES` 默认只起 M-03）；stop-demo.sh 按 agh(serve) → m03 → agh-daemon 顺序经 pid 文件停止。与上文「启动 AGH」描述一致。
+- **手动**：用上一节「启动 AGH」的命令块，与脚本内联的 daemon/serve 参数完全一致。
+
+### 数据目录与环境变量
+
+| 项 | 值 | 说明 |
+| --- | --- | --- |
+| AGH_HOME | `~/.agh`（默认，未显式设置） | 账号/profile/技能/经验库根目录 |
+| profile | `local-dev`（daemon 启动参数 `--profile local-dev`） | |
+| 数据目录 | `~/.agh/data`（daemon 参数 `--data-dir`） | 会话库 sessions.db、daemon 状态等 |
+| daemon socket | `~/.agh/data/daemon/agnesd.sock` + `owner.json` | 就绪判定与复用判定（pid 签名匹配） |
+| workspace | `agh-integration` 的绝对路径（daemon 参数 `--workspace`） | 插件源相对它解析 |
+| 工作台 | `http://127.0.0.1:4177`（`FJSP_AGH_PORT` 可改） | daemon 参数 `--local-web-origin` |
+| `AGNES_HUB_ORIGIN` | `http://127.0.0.1:4180`（`FJSP_AGH_HUB_ORIGIN`） | serve 启动时注入，否则工作台无 Devices 面板 |
+| Skill | `~/.agh/skills/fjsp-dispatch/SKILL.md` | root-key `user-agnes` |
+| 经验库 | `~/.agh/fjsp-experience.jsonl`（`FJSP_EXPERIENCE_FILE` 可覆盖） | 嵌入向量缓存 `~/.agh/fjsp-experience-vectors.json` |
+| 模型凭据 | `~/.config/fjsp/agnes.env` | 不进仓库、不打印明文 |
+| 运行时 pid/日志 | `${TMPDIR:-/tmp}/fjsp-demo/`（`FJSP_RUNTIME_DIR` 可覆盖） | `agh.pid/agh-daemon.pid/m03.pid` 与对应 .log |
+
+### MHS 设备（machine-m03.py）
+
+- Python 环境：`python3 -m venv agh-integration/mhs-devices/.venv`（本机 venv 为 Command Line Tools 的 Python **3.9.6**），然后 `.venv/bin/pip install jsonschema websockets pillow`（当前已装 jsonschema 4.25.1 / websockets 15.0.1 / pillow 11.3.0）。
+- `agnes_mhs` 库**不经 pip 安装**：运行时以 `PYTHONPATH=$R/agnes-harness/packages/mhs/python/src` 直接从 AGH 源码树加载（$R = agh-integration 绝对路径）。注意其 `pyproject.toml` 声明 `requires-python >= 3.10`，本机以 3.9.6 运行属既有现状，升级 Python 或该库后需重新验证。
+- 启动（start-demo.sh 内联命令，手动排障同）：`PYTHONPATH=agnes-harness/packages/mhs/python/src .venv/bin/python mhs-devices/machine-m03.py ws://127.0.0.1:4180 M-03`（cwd 为 agh-integration；机器清单由 `FJSP_MHS_MACHINES` 控制）。
+- AgnesHub 插件：`pnpm --filter @agnes/mhs build:plugin` 后按 fjsp-tools 同流程 install/trust/enable，插件源写 `file:./agnes-harness/packages/mhs/plugin`（相对 daemon workspace 解析）。
+
+### 已知稳定性坑与脚本规避措施
+
+1. **Node 版本不足**：系统 node 22 起 daemon 报 `E_SEAM_INIT`（node:sqlite setAuthorizer 需 ≥24.10）→ `ensure_node24` 自动从 fnm 目录挑最高 ≥24 版本加进 PATH 最前，找不到则报错退出。
+2. **serve 自动拉起 daemon 失败**：macOS 上复现 `daemon child exited before readiness (1)`（2026-10-08）→ start-demo.sh 改为显式按手动方式拉起 daemon 并轮询等 sock 文件就绪（最多 30s），serve 检测到已有 daemon 直接复用。
+3. **daemon 复用误伤**：脚本用 sock 文件 + `owner.json` 的 pid 做进程签名匹配（`daemon.mjs --profile`），签名不符不复用、不误杀。
+4. **Devices 面板缺失**：serve 不带 `AGNES_HUB_ORIGIN` 启动时工作台右侧无 Devices 面板 → 脚本启动 serve 时固定注入。
+5. **进程残留**：所有 AGH 相关进程由 `${TMPDIR}/fjsp-demo/*.pid` 纳管，stop-demo.sh 按 serve → MHS → daemon 顺序停止，先 SIGTERM 超时再 SIGKILL。
+6. **CLI 偶发 `DAEMON_CONNECTION_CLOSED`**：SDK 直连始终正常；排障时 kill daemon+serve 后按手动方式重启即可恢复。
+
+### 复现验证清单
+
+按顺序执行，全部通过即复现成功：
+
+```sh
+# 1. Node 版本达标（先确保 fnm node 在 PATH 最前）
+node --version    # 期望 v24.x（≥ 24.10），如 v24.21.0
+
+# 2. 构建产物齐全
+ls agh-integration/agnes-harness/packages/cli/dist/local/{agnes.mjs,daemon.mjs,worker.mjs}
+
+# 3. daemon 就绪（sock 文件存在）
+test -S ~/.agh/data/daemon/agnesd.sock && echo daemon-ok
+
+# 4. serve / 工作台可达
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4177/    # 期望 200；浏览器开 http://127.0.0.1:4177/
+
+# 5. AgnesHub 可达（2xx/3xx/401 都算在响应）
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4180/
+
+# 6. fjsp-tools 插件已加载
+node agh-integration/agnes-harness/packages/cli/dist/local/agnes.mjs package status
+# 期望 @fjsp/fjsp-tools desired=enabled actual=running trusted=true
+
+# 7. fjsp-dispatch skill 就绪
+node agh-integration/agnes-harness/packages/cli/dist/local/agnes.mjs resources list --kind skill
+# 期望 fjsp-dispatch trust=trusted desired=enabled actual=ready
+
+# 8. MHS 设备在线（FJSP_START_MHS=1 时）
+pgrep -f machine-m03.py && echo mhs-ok    # 并在工作台 Devices 面板看到 M-03
+```
 
 ## 模型配置（Agnes AI）
 
