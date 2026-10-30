@@ -10,7 +10,7 @@
 // Run:  ../agnes-harness/node_modules/.bin/tsx mcp-server.mts
 // MCP client config example: { "command": "<abs path to tsx>", "args": ["<abs path>/mcp-server.mts"] }
 import { createInterface } from 'node:readline'
-import { tools } from '../fjsp-tools/index.mjs'
+import { tools, __contract } from '../fjsp-tools/index.mjs'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'fjsp-mcp', version: '1.0.0', title: 'FJSP 调度系统 MCP Server' }
@@ -72,6 +72,8 @@ async function handle(msg: Json) {
     const { _confirm, ...toolArgs } = args ?? {}
     void _confirm
     if (tool.meta?.requiresApproval === 'always') {
+      // 与工具核心同一套错误分类（任务 2.3）：入口层构造的错误也补齐 envelope 字段
+      const cls = __contract.classifyError('APPROVAL_CHANNEL_REQUIRED')
       return resultFor(id, {
         isError: true,
         content: [{
@@ -81,6 +83,9 @@ async function handle(msg: Json) {
             error: {
               code: 'APPROVAL_CHANNEL_REQUIRED',
               message: `${tool.name} 是${tool.meta.isDestructive ? '破坏性' : '写/高风险'}操作：MCP 直连通道不支持人工审批，"_confirm" 不再作为批准证据。请通过 Web 副驾（agent-bff，身份绑定 + 五要素审批）或 AGH 会话的人工审批执行。`,
+              category: cls.category,
+              retryable: cls.retryable,
+              recovery: cls.recovery,
             },
           }),
         }],

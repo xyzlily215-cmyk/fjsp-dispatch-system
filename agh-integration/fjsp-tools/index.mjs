@@ -18,6 +18,85 @@ const Obj = (properties, required = []) => ({
 })
 const StrArr = () => ({ [Kind]: 'Array', type: 'array', items: S(), maxItems: 200 })
 
+// ---- 入参运行时校验（任务 2.1）：schema 即本文件手写的 TypeBox 形态子集，
+// 校验器与之适配（类型/必填/枚举/数值范围/字符串格式/数组上限/禁止未定义字段），
+// 不引新依赖。校验在 execute 执行前完成，失败时不发任何 HTTP 请求。
+function validateValue(schema, value, path, issues) {
+  if (!schema || !schema.type) return
+  if (value === undefined) return // 缺省由 object 的 required 检查兜底
+  const t = schema.type
+  if (value === null) {
+    issues.push({ path, message: `应为 ${t}，收到 null` })
+    return
+  }
+  switch (t) {
+    case 'string': {
+      if (typeof value !== 'string') {
+        issues.push({ path, message: `应为字符串，收到 ${typeof value}` })
+        return
+      }
+      if (schema.minLength !== undefined && value.length < schema.minLength) issues.push({ path, message: `长度不得小于 ${schema.minLength}` })
+      if (schema.maxLength !== undefined && value.length > schema.maxLength) issues.push({ path, message: `长度不得大于 ${schema.maxLength}` })
+      if (schema.pattern && !new RegExp(schema.pattern).test(value)) issues.push({ path, message: `不匹配格式 ${schema.pattern}` })
+      break
+    }
+    case 'number':
+    case 'integer': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        issues.push({ path, message: `应为数值，收到 ${typeof value}` })
+        return
+      }
+      if (t === 'integer' && !Number.isInteger(value)) issues.push({ path, message: '应为整数' })
+      if (schema.minimum !== undefined && value < schema.minimum) issues.push({ path, message: `不得小于 ${schema.minimum}` })
+      if (schema.maximum !== undefined && value > schema.maximum) issues.push({ path, message: `不得大于 ${schema.maximum}` })
+      break
+    }
+    case 'boolean':
+      if (typeof value !== 'boolean') issues.push({ path, message: `应为布尔值，收到 ${typeof value}` })
+      break
+    case 'array': {
+      if (!Array.isArray(value)) {
+        issues.push({ path, message: `应为数组，收到 ${typeof value}` })
+        return
+      }
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) issues.push({ path, message: `元素数不得多于 ${schema.maxItems}` })
+      if (schema.minItems !== undefined && value.length < schema.minItems) issues.push({ path, message: `元素数不得少于 ${schema.minItems}` })
+      if (schema.items) value.forEach((item, i) => validateValue(schema.items, item, `${path}[${i}]`, issues))
+      break
+    }
+    case 'object': {
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        issues.push({ path, message: `应为对象，收到 ${Array.isArray(value) ? 'array' : typeof value}` })
+        return
+      }
+      const props = schema.properties || {}
+      for (const req of schema.required || []) {
+        if (value[req] === undefined) issues.push({ path: path ? `${path}.${req}` : req, message: '缺少必填字段' })
+      }
+      if (schema.additionalProperties === false) {
+        for (const key of Object.keys(value)) {
+          if (!(key in props)) issues.push({ path: path ? `${path}.${key}` : key, message: '未定义的字段' })
+        }
+      }
+      for (const [key, propSchema] of Object.entries(props)) {
+        if (value[key] !== undefined) validateValue(propSchema, value[key], path ? `${path}.${key}` : key, issues)
+      }
+      break
+    }
+  }
+  if (schema.enum && !schema.enum.includes(value)) {
+    issues.push({ path, message: `取值须为 ${schema.enum.join(' / ')}` })
+  }
+}
+
+function validateParams(schema, args) {
+  if (args === undefined || args === null) return []
+  if (typeof args !== 'object' || Array.isArray(args)) return [{ path: '(root)', message: '参数必须是对象' }]
+  const issues = []
+  validateValue(schema, args, '', issues)
+  return issues
+}
+
 const WEIGHTS = Obj({
   makespan: N({ description: '最大完工时间权重' }),
   weightedTardiness: N({ description: '加权拖期权重' }),
@@ -216,7 +295,58 @@ async function apiWithRetry(method, path, body, allowReauth) {
   return { ok: true, data: env ? env.data : undefined }
 }
 
+// ---- 错误分类（任务 2.3）：错误码 → 四类（retryable / needs-input / needs-human / terminal）
+// + 可否重试 + 恢复动作。两个点名语义：E_EVENT_IN_PROCESS 只能核实/更换事件时间后重试，
+// 严禁自动移动真实事件时间；FJSP_INVALID_STATE 不可盲目重试，须先读业务现态
+// （reads-before-retry）。未知错误码走 ERROR_CLASS_DEFAULT 兜底（fail-safe：不自动重试）。
+const ERROR_CLASSES = {
+  // —— 工具侧入参/流程错误 ——
+  FJSP_INVALID_PARAMS: { category: 'needs-input', retryable: true, recovery: '按 details.issues 修正参数后重试（校验失败时未发出任何业务请求）' },
+  FJSP_INVALID_MODE: { category: 'needs-input', retryable: true, recovery: 'mode 取 LOCAL_RESCHEDULE 或 FULL_RESCHEDULE 后重试' },
+  FJSP_INVALID_DECISION: { category: 'needs-input', retryable: true, recovery: 'decision 取 APPROVE 或 REJECT 后重试' },
+  FJSP_COMMENT_REQUIRED: { category: 'needs-input', retryable: true, recovery: 'REJECT 必须填 comment，补充后重试' },
+  FJSP_INVALID_ORDER_REF: { category: 'needs-input', retryable: true, recovery: '核实订单号或内部 id 后重试' },
+  FJSP_INVALID_EVENT_TYPE: { category: 'needs-input', retryable: true, recovery: 'eventType 取 BREAKDOWN 或 NEW_ORDER 后重试' },
+  FJSP_NOT_FOUND: { category: 'needs-input', retryable: false, recovery: '对象不存在：先核实 planVersionId 等 ID，不要重试相同参数' },
+  FJSP_NO_PUBLISHED_PLAN: { category: 'needs-input', retryable: false, recovery: '当前无已发布计划：先完成基线排程与发布流程再调用' },
+  FJSP_INVALID_STATE: { category: 'needs-input', retryable: false, recovery: '状态机不允许该步骤：先用 fjsp_get_plan 读业务现态（reads-before-retry），补齐漏掉的步骤后再试，不能盲目重试' },
+  FJSP_PUBLISH_INCOMPLETE: { category: 'needs-human', retryable: false, recovery: '发布结果不确定：人工核查计划版本真实状态后再决定下一步' },
+  FJSP_EXPERIENCE_WRITE_FAILED: { category: 'needs-human', retryable: false, recovery: '本地经验库写入失败：检查 FJSP_EXPERIENCE_FILE 路径与权限' },
+  // —— 通道/基础设施错误 ——
+  FJSP_UNREACHABLE: { category: 'retryable', retryable: true, recovery: '确认业务服务已启动、FJSP_API_BASE 正确后重试' },
+  FJSP_BAD_RESPONSE: { category: 'retryable', retryable: true, recovery: '服务返回非 JSON（多为网关瞬断）：可稍后重试一次，反复出现转人工' },
+  FJSP_UNAUTHORIZED: { category: 'needs-human', retryable: false, recovery: '凭据失效：人工更新 FJSP_AUTH_TOKEN 或 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 后重试' },
+  APPROVAL_CHANNEL_REQUIRED: { category: 'needs-human', retryable: false, recovery: 'MCP 直连不支持人工审批：改走 Web 副驾或 AGH 会话审批，不要带 _confirm 重试' },
+  // —— business-service 业务错误码（原样透传后的分类） ——
+  E_EVENT_IN_PROCESS: { category: 'needs-input', retryable: true, recovery: '事件发生时间与在制工序冲突：核实真实事件时间，改用不冲突的时间重试；严禁自动移动真实事件时间' },
+  E_VALIDATION: { category: 'needs-input', retryable: false, recovery: '业务校验失败：按 message 修正参数，不要原样重试' },
+  E_DUPLICATE: { category: 'needs-input', retryable: false, recovery: '重复/幂等冲突：先核实是否已提交成功，不要重试相同参数' },
+  E_NOT_FOUND: { category: 'needs-input', retryable: false, recovery: '业务对象不存在：核实 ID 后重试' },
+  E_VERSION_STALE: { category: 'retryable', retryable: true, recovery: '乐观锁冲突：先用 fjsp_get_plan 重新读取最新 version 后重试（reads-before-retry）' },
+  E_STATE_CONFLICT: { category: 'needs-input', retryable: false, recovery: '业务状态冲突：先读业务现态再决定下一步，不能盲目重试' },
+  E_PLAN_STALE: { category: 'retryable', retryable: true, recovery: '计划已被并发修改：刷新现态后重试' },
+  E_INFEASIBLE: { category: 'needs-input', retryable: false, recovery: '方案不可行：读 conflicts 明细，调整参数或改 FULL_RESCHEDULE 后重试' },
+  E_INTEGRITY_VIOLATION: { category: 'terminal', retryable: false, recovery: '硬约束完整性违反：结果不可信，停止流程并转人工核查' },
+  E_ROLLBACK_CONFLICT: { category: 'needs-human', retryable: false, recovery: '回滚与在制/冻结窗内工序冲突：转人工处置' },
+  E_UNAUTHORIZED: { category: 'needs-human', retryable: false, recovery: '未认证或凭据失效：人工更新凭据' },
+  E_LOGIN_LOCKED: { category: 'needs-human', retryable: false, recovery: '账号临时锁定：等解锁或由人工处理' },
+  E_FORBIDDEN: { category: 'needs-human', retryable: false, recovery: '当前角色无权执行：转人工或换有权限的角色' },
+  E_INTERNAL: { category: 'retryable', retryable: true, recovery: '服务内部错误：可稍后重试一次，反复出现转人工' },
+}
+const ERROR_CLASS_DEFAULT = { category: 'needs-human', retryable: false, recovery: '未识别的错误码：停止自动重试，把 code 与 message 原样转人工核查' }
+function classifyError(code) {
+  return ERROR_CLASSES[code] || ERROR_CLASS_DEFAULT
+}
+
 function result(value) {
+  // 出参 envelope（任务 2.2）：成功 { ok:true, ...业务字段 }；失败统一
+  // { ok:false, error:{ code, message, category, retryable, recovery, httpStatus?, requestId?, details? } }。
+  // 错误分类在此统一补齐（单个错误已显式给出的字段优先），业务错误码在 code 字段原样透传；
+  // details 为 requestId/idempotencyKey（任务 2.B 步骤级幂等键复用）等扩展位。
+  if (value && value.ok === false && value.error && typeof value.error.code === 'string') {
+    const cls = classifyError(value.error.code)
+    value = { ...value, error: { category: cls.category, retryable: cls.retryable, recovery: cls.recovery, ...value.error } }
+  }
   // JSON round-trip strips undefined fields; Host's isToolResult() rejects non-JSON structured values.
   const clean = JSON.parse(JSON.stringify(value))
   return {
@@ -859,6 +989,28 @@ const tools = [
   },
 ]
 
+// ---- 入参运行时校验挂接（任务 2.1）：包在每个工具的 execute 外层。
+// AGH 插件与 MCP Server 共用本 tools 数组，两个入口同时生效；校验失败返回
+// FJSP_INVALID_PARAMS 结构化错误，不发任何 HTTP 请求。
+for (const tool of tools) {
+  const inner = tool.execute
+  tool.execute = async (args) => {
+    const safeArgs = args ?? {}
+    const issues = validateParams(tool.parameters, safeArgs)
+    if (issues.length > 0) {
+      return result({
+        ok: false,
+        error: {
+          code: 'FJSP_INVALID_PARAMS',
+          message: `参数校验失败：${issues.map((i) => `${i.path || '(root)'} ${i.message}`).join('；')}`,
+          details: { issues },
+        },
+      })
+    }
+    return inner(safeArgs)
+  }
+}
+
 export const fjspTools = {
   inject: ['extension'],
   apply(ctx) {
@@ -872,3 +1024,6 @@ export const fjspTools = {
 
 // MCP Server（agent-bff/mcp-server.mts）复用同一套工具实现：AGH 插件与 MCP 双形态暴露。
 export { tools }
+
+// 契约测试（fjsp-tools/test-contract.mjs）专用内部出口，不影响两个入口的消费方式。
+export const __contract = { validateParams, classifyError, ERROR_CLASSES, ERROR_CLASS_DEFAULT }

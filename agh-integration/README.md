@@ -229,7 +229,13 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 
 ## fjsp-tools 插件
 
-无依赖单文件 ESM（`fjsp-tools/index.mjs`），`package.json` 的 `agnes.plugins` 声明 `export: fjspTools`、`inject: ['extension']`。所有写操作自动生成 `Idempotency-Key`；返回裁剪后的结构化 JSON（`{ok, ...}` / `{ok:false, error:{code,message}}`，业务错误码如 `E_EVENT_IN_PROCESS` 原样透传给 Agent）。
+无依赖单文件 ESM（`fjsp-tools/index.mjs`），`package.json` 的 `agnes.plugins` 声明 `export: fjspTools`、`inject: ['extension']`。所有写操作自动生成 `Idempotency-Key`；返回裁剪后的结构化 JSON（业务错误码如 `E_EVENT_IN_PROCESS` 原样透传给 Agent）。
+
+**工具契约（任务 2.A，2026-10-30）**：
+- **入参运行时校验**：每个工具的 `execute` 外层挂了校验器（`validateParams`，适配文件内手写 TypeBox 形态 schema：类型/必填/枚举/数值范围/字符串格式/数组上限/禁止未定义字段），AGH 插件与 MCP Server 两个入口同时生效。校验失败返回 `FJSP_INVALID_PARAMS`（`error.details.issues` 逐条列出问题），**不发任何 HTTP 请求**。
+- **统一错误 envelope**：成功 `{ ok:true, ...业务字段 }`；失败 `{ ok:false, error:{ code, message, category, retryable, recovery, httpStatus?, requestId?, details? } }`，分类字段由 `result()` 统一补齐，`details` 是 requestId/idempotencyKey（2.B 步骤级幂等键复用）等扩展位。两个入口的 `content[0].text` 与 `structured` 始终是同一份 JSON。
+- **错误分类**：`ERROR_CLASSES` 显式映射「错误码 → category + retryable + recovery」，四类语义：`retryable`（可按 recovery 条件重试）、`needs-input`（修正输入/流程后重试）、`needs-human`（转人工）、`terminal`（停止流程）。两个专门语义：`E_EVENT_IN_PROCESS` = needs-input + 可重试，但**严禁自动移动真实事件时间**（须核实后改用不冲突的时间）；`FJSP_INVALID_STATE` = 不可盲目重试，须先 `fjsp_get_plan` 读业务现态（reads-before-retry）。未知错误码默认 needs-human + 不可重试（fail-safe）。
+- **契约测试**：`node fjsp-tools/test-contract.mjs`（mock fetch，不依赖真实 business-service）：18 个工具的非法参数拦截、分类映射全量覆盖、成功/失败 envelope 一致性。
 
 **认证**：业务服务自 P0 改造后所有接口需要 JWT。插件按优先级取凭据——`FJSP_AUTH_TOKEN` 直连；否则用 `FJSP_AUTH_USER`/`FJSP_AUTH_PASSWORD` 调 `/auth/login`（默认演示账号 admin/Fj@123456，与 `scripts/demo-common.sh` 一致），token 进程内缓存，401 时自动重登并重试一次。审计身份取登录用户（`X-Operator-Id` 头已不再被服务端信任，插件不再发送）。
 
