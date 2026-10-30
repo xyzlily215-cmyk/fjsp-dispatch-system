@@ -447,8 +447,20 @@ function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Re
 // 审计：批准/拒绝/过期/越权尝试/超时一律落 JSONL，含操作者、工具、参数摘要、业务对象。
 // 与 business-service 的业务审计分工：那里记"工具执行了什么业务变更"，这里记"谁在
 // 何时批准/拒绝了这次执行"（审批决策层，business-service 看不到审批拒绝与越权尝试）。
-function auditApproval(record: ApprovalRecord, result: string, by: string, detail?: string) {
-  const entry = {
+// 返回是否落盘成功：批准（allowed-once）路径对写失败 fail-closed（审计存不下就不放行）。
+// 审计路径晚绑定 env：测试可在运行中切换 AGENT_BFF_AUDIT_FILE 制造写失败。
+function writeAudit(entry: Record<string, unknown>): boolean {
+  try {
+    appendFileSync(process.env.AGENT_BFF_AUDIT_FILE ?? AUDIT_FILE, JSON.stringify(entry) + '\n')
+    return true
+  } catch (err) {
+    console.error('[agent-bff] 审批审计写入失败:', err)
+    return false
+  }
+}
+
+function auditApproval(record: ApprovalRecord, result: string, by: string, detail?: string): boolean {
+  return writeAudit({
     ts: new Date().toISOString(),
     conversationId: record.conversationId,
     requestId: record.requestId,
@@ -460,12 +472,20 @@ function auditApproval(record: ApprovalRecord, result: string, by: string, detai
     bizObject: record.bizObject,
     result,
     ...(detail ? { detail } : {}),
-  }
-  try {
-    appendFileSync(AUDIT_FILE, JSON.stringify(entry) + '\n')
-  } catch (err) {
-    console.error('[agent-bff] 审批审计写入失败:', err)
-  }
+  })
+}
+
+// 无法定位审批记录时的会话级留痕（跨用户探测 / 404 探测）
+function auditAttempt(conversationId: string, requestId: string, by: string, detail: string) {
+  writeAudit({
+    ts: new Date().toISOString(),
+    conversationId,
+    requestId,
+    by,
+    tool: '',
+    result: 'forbidden',
+    detail,
+  })
 }
 
 function onPermissionRequest(
@@ -679,15 +699,26 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && path === '/agent-api/permission') {
       // 批准时重校验：a) 会话归属当前用户（authorizeConversation）；b) 审批未过期；
       // c) 当前用户角色 ∈ 可审批角色（内检/ticket 携带的 role 为准）；d) 未被裁决过。
-      // 任一失败拒绝并记审计；放行前再核对参数摘要与记录一致（防串单）。
+      // 任一失败拒绝并记审计（含归属失败与 404 探测）；放行前再核对参数摘要与记录一致，
+      // 且审计落盘必须先成功——审计写失败时批准 fail-closed 不生效。
       const user = await requireAuth(req, url, res)
       if (!user) return
       const body = await readBody(req)
-      const conv = conversations.get(String(body.conversationId ?? ''))
-      if (conv && !authorizeConversation(conv, user, res)) return
       const requestId = String(body.requestId ?? '')
+      const conversationId = String(body.conversationId ?? '')
+      const conv = conversations.get(conversationId)
       const record = approvals.get(requestId)
+      if (conv && conv.owner !== user.username) {
+        // 归属不符（含 legacy）：能定位 record 记 record 级，否则会话级留痕
+        if (record) auditApproval(record, 'forbidden', user.username, `会话归属不符（属主 ${conv.owner ?? 'legacy'}）`)
+        else auditAttempt(conversationId, requestId, user.username, '会话归属不符，审批记录不可定位')
+        authorizeConversation(conv, user, res) // 写 403 响应
+        return
+      }
       if (!conv || !record || record.conversationId !== conv.id) {
+        // 404 探测同样留痕
+        if (record) auditApproval(record, 'forbidden', user.username, 'conversationId 与审批记录归属不符（404 探测）')
+        else auditAttempt(conversationId, requestId, user.username, '审批记录/会话不存在（404 探测）')
         return sendJson(res, 404, { error: 'permission_not_found' })
       }
       if (record.status !== 'pending') {
@@ -716,6 +747,11 @@ const server = createServer(async (req, res) => {
           auditApproval(record, 'rejected', user.username, '参数摘要与审批记录不一致')
           return sendJson(res, 409, { error: 'approval_mismatch', detail: '审批参数已变化，请重新发起' })
         }
+        // 审计先落盘再放行：写失败时批准不生效（fail-closed），记录保持 pending 可重试
+        if (!auditApproval(record, 'approved', user.username)) {
+          return sendJson(res, 503, { error: 'audit_unavailable', detail: '审批审计写入失败，批准未生效，请重试或联系管理员' })
+        }
+        record.status = 'approved' // 已审计，settle 内不再重复
       }
       pending.settle({ verdict }, verdict === 'allowed-once' ? 'approved' : 'rejected', user.username)
       return sendJson(res, 202, { ok: true, verdict })

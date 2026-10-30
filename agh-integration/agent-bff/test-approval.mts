@@ -291,7 +291,36 @@ try {
   assert.equal(bff.approvals.get(r10.requestId)!.status, 'expired')
   ok('过期审批请求 → 410 approval_expired，承诺按 rejected 结算')
 
-  // 11. 审计：批准/拒绝/过期/越权尝试均落 JSONL，可按会话/业务对象回溯
+  // 11. 审计写失败 fail-closed：批准不生效（503 audit_unavailable），记录不消费可重试
+  const goodAuditFile = process.env.AGENT_BFF_AUDIT_FILE!
+  process.env.AGENT_BFF_AUDIT_FILE = join(tmp, 'no-such-dir', 'audit.jsonl') // 目录不存在 → 写必败
+  const r11 = inject(convCarol, 'fjsp_publish', { planVersionId: 'PV-4004' })
+  const blocked = await api('POST', '/permission', {
+    token: 'tok-carol',
+    body: { conversationId: 'conv-carol', requestId: r11.requestId, verdict: 'allowed-once' },
+  })
+  assert.equal(blocked.status, 503)
+  assert.equal(blocked.data.error, 'audit_unavailable')
+  assert.equal(bff.approvals.get(r11.requestId)!.status, 'pending') // 未消费
+  process.env.AGENT_BFF_AUDIT_FILE = goodAuditFile
+  const retry = await api('POST', '/permission', {
+    token: 'tok-carol',
+    body: { conversationId: 'conv-carol', requestId: r11.requestId, verdict: 'allowed-once' },
+  })
+  assert.equal(retry.status, 202, JSON.stringify(retry.data))
+  assert.deepEqual(await r11.outcome, { verdict: 'allowed-once' })
+  ok('审计写失败：批准 fail-closed（503 audit_unavailable，记录仍 pending），恢复后重试放行')
+
+  // 12. 404 探测留痕：属主对自己会话发不存在的 requestId → 404 + 会话级审计
+  const probe = await api('POST', '/permission', {
+    token: 'tok-alice',
+    body: { conversationId: 'conv-alice', requestId: 'req-bogus', verdict: 'allowed-once' },
+  })
+  assert.equal(probe.status, 404)
+  assert.equal(probe.data.error, 'permission_not_found')
+  ok('不存在 requestId 的裁决探测 → 404 permission_not_found（留痕见下）')
+
+  // 13. 审计：批准/拒绝/过期/越权/归属不符/404 探测均落 JSONL，可按会话/业务对象回溯
   const lines = auditLines()
   const results = new Set(lines.map((l) => l.result))
   assert.ok(results.has('approved') && results.has('rejected') && results.has('forbidden') && results.has('expired'),
@@ -300,13 +329,19 @@ try {
   assert.equal(approved.by, 'carol')
   assert.equal(approved.conversationId, 'conv-carol')
   assert.match(approved.argsDigest, /^[0-9a-f]{64}$/)
-  // 按业务对象回溯：PV-1001 的全部裁决轨迹（越权尝试 → 属主拒绝）
+  // 按业务对象回溯：PV-1001 的全部裁决轨迹（属主越权 → 跨用户归属不符 → 属主拒绝）
   const trace = lines.filter((l) => l.bizObject?.planVersionId === 'PV-1001')
-  assert.deepEqual(trace.map((l) => l.result), ['forbidden', 'rejected'])
-  assert.ok(lines.every((l) => l.ts && l.requestId && l.tool && l.argsSummary))
-  ok(`审计 JSONL ${lines.length} 条：批准/拒绝/越权/过期齐全，按业务对象 PV-1001 回溯出 forbidden→rejected 轨迹`)
+  assert.deepEqual(trace.map((l) => l.result), ['forbidden', 'forbidden', 'rejected'])
+  // 跨用户裁决留审计痕：bob 的 403 conversation_forbidden 有 forbidden 记录
+  const crossAudit = lines.find((l) => l.by === 'bob' && l.result === 'forbidden' && l.requestId === r1.requestId)
+  assert.ok(crossAudit && /归属/.test(crossAudit.detail), '跨用户裁决应记 forbidden 审计')
+  // 404 探测留痕：会话级审计条目（tool 为空，detail 注明探测）
+  const probeAudit = lines.find((l) => l.requestId === 'req-bogus' && l.by === 'alice')
+  assert.ok(probeAudit && probeAudit.result === 'forbidden' && /404 探测/.test(probeAudit.detail), '404 探测应记会话级审计')
+  assert.ok(lines.every((l) => l.ts && l.requestId && l.by && (l.tool !== undefined)))
+  ok(`审计 JSONL ${lines.length} 条：批准/拒绝/越权/过期/归属不符/404 探测齐全，可按会话与业务对象回溯`)
 
-  // 12. MCP：_confirm 不再是批准证据，WRITE/DESTRUCTIVE 直调一律拒绝
+  // 14. MCP：_confirm 不再是批准证据，WRITE/DESTRUCTIVE 直调一律拒绝
   // FJSP_API_BASE 指向死端口：即便回归发生也不会触达真实 business-service
   const tsx = new URL('../agnes-harness/node_modules/.bin/tsx', import.meta.url).pathname
   const mcp = spawn(tsx, [new URL('./mcp-server.mts', import.meta.url).pathname], {
