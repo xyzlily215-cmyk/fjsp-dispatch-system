@@ -18,6 +18,17 @@ const Obj = (properties, required = []) => ({
 })
 const StrArr = () => ({ [Kind]: 'Array', type: 'array', items: S(), maxItems: 200 })
 
+// 幂等键（任务 2.B 步骤级复用）：HTTP 写工具的可选入参。同一工作流步骤的重试必须
+// 复用同一字符串，业务服务按 Idempotency-Key 请求头做同键同体回放、换键同体 409
+// （E_DUPLICATE）。不传则每次调用自动生成新键（兼容 AGH 现有会话；注意换键重发
+// 不触发服务端幂等）。服务端仅要求非空（IdempotencyService.requireKey），
+// 这里约束 1-120 字符。不从业务参数推导默认键，避免误去重不同语义的调用。
+const IDEMPOTENCY_KEY = S({
+  description: '幂等键：同一工作流步骤的重试必须复用同一字符串；不传则本次调用自动生成新键（重试将被视为新调用）',
+  minLength: 1,
+  maxLength: 120,
+})
+
 // ---- 入参运行时校验（任务 2.1）：schema 即本文件手写的 TypeBox 形态子集，
 // 校验器与之适配（类型/必填/枚举/数值范围/字符串格式/数组上限/禁止未定义字段），
 // 不引新依赖。校验在 execute 执行前完成，失败时不发任何 HTTP 请求。
@@ -233,11 +244,11 @@ async function ensureToken() {
   return loginInFlight
 }
 
-async function api(method, path, body) {
-  return apiWithRetry(method, path, body, true)
+async function api(method, path, body, idempotencyKey) {
+  return apiWithRetry(method, path, body, true, idempotencyKey)
 }
 
-async function apiWithRetry(method, path, body, allowReauth) {
+async function apiWithRetry(method, path, body, allowReauth, idempotencyKey) {
   const headers = {
     Accept: 'application/json',
     'X-Source': 'agh',
@@ -248,7 +259,8 @@ async function apiWithRetry(method, path, body, allowReauth) {
   if (sessionId) headers['X-AGH-Session-Id'] = sessionId
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
-    headers['Idempotency-Key'] = crypto.randomUUID()
+    // 调用方传入的幂等键原样使用（步骤级重试复用同键）；未传时自动生成（兼容现状）
+    headers['Idempotency-Key'] = idempotencyKey || crypto.randomUUID()
   }
   let res
   try {
@@ -267,7 +279,7 @@ async function apiWithRetry(method, path, body, allowReauth) {
   if (res.status === 401 && allowReauth && !process.env.FJSP_AUTH_TOKEN) {
     cachedToken = null
     const renewed = await ensureToken()
-    if (renewed) return apiWithRetry(method, path, body, false)
+    if (renewed) return apiWithRetry(method, path, body, false, idempotencyKey)
   }
   let env
   try {
@@ -337,7 +349,18 @@ const ERROR_CLASSES = {
   E_INTERNAL: { category: 'retryable', retryable: true, recovery: '服务内部错误：可稍后重试一次，反复出现转人工' },
 }
 const ERROR_CLASS_DEFAULT = { category: 'needs-human', retryable: false, recovery: '未识别的错误码：停止自动重试，把 code 与 message 原样转人工核查' }
+// FJSP_HTTP_5xx（无业务 code 的服务端 5xx 兜底码）按「结果未知」处理（任务 2.B）：
+// 请求可能已到达服务端，写工具必须先查业务终态再决定重试（recovery 由 execute 包装层
+// 按工具逐条补终态查询方式）；只读工具可稍后重试一次。
+const ERROR_CLASS_HTTP_5XX = { category: 'retryable', retryable: true, recovery: '服务端 5xx 错误，本次请求结果未知：读操作可稍后重试一次；写操作必须先按工具指引查询业务终态，确认未生效后用同一 idempotencyKey 重试' }
+// 结果未知类错误（超时/连接中断/响应不可解析/服务端 5xx 与内部错误）：写工具的
+// recovery 由 execute 包装层改写为该工具的具体终态查询指引。
+const UNKNOWN_RESULT_CODES = new Set(['FJSP_UNREACHABLE', 'FJSP_BAD_RESPONSE', 'E_INTERNAL'])
+function isUnknownResultCode(code) {
+  return UNKNOWN_RESULT_CODES.has(code) || /^FJSP_HTTP_5\d\d$/.test(code)
+}
 function classifyError(code) {
+  if (typeof code === 'string' && /^FJSP_HTTP_5\d\d$/.test(code)) return ERROR_CLASS_HTTP_5XX
   return ERROR_CLASSES[code] || ERROR_CLASS_DEFAULT
 }
 
@@ -458,14 +481,16 @@ const tools = [
       orderIds: StrArr(),
       weights: WEIGHTS,
       seed: I({ description: '随机种子 randomSeed' }),
+      idempotencyKey: IDEMPOTENCY_KEY,
     }),
     meta: WRITE,
-    async execute({ orderIds, weights, seed }) {
+    terminalQuery: '用 fjsp_get_dashboard 的 recentTasks 找到本次 BASELINE 任务拿 taskId，再 fjsp_task_status(taskId) 查终态',
+    async execute({ orderIds, weights, seed, idempotencyKey }) {
       const body = { mode: 'BASELINE' }
       if (Array.isArray(orderIds) && orderIds.length > 0) body.orderIds = orderIds
       if (weights) body.objectiveWeights = weights
       if (typeof seed === 'number') body.algorithm = { randomSeed: seed }
-      const r = await api('POST', '/schedule-tasks', body)
+      const r = await api('POST', '/schedule-tasks', body, idempotencyKey)
       if (!r.ok) return result(r)
       return result({ ok: true, task: trimTask(r.data || {}) })
     },
@@ -480,18 +505,20 @@ const tools = [
         occurredAt: S({ description: '故障发生时间，ISO 8601' }),
         repairDurationMinutes: I({ description: '预计维修时长（分钟）' }),
         note: S(),
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['machineId', 'occurredAt', 'repairDurationMinutes'],
     ),
     meta: WRITE,
-    async execute({ machineId, occurredAt, repairDurationMinutes, note }) {
+    terminalQuery: '用 fjsp_get_dashboard 的 recentEvents 核实该故障事件是否已登记（同机台同时间的 BREAKDOWN）',
+    async execute({ machineId, occurredAt, repairDurationMinutes, note, idempotencyKey }) {
       const r = await api('POST', '/events/breakdowns', {
         machineId,
         occurredAt,
         repairDurationMinutes,
         source: 'AGH_AGENT',
         ...(note ? { note } : {}),
-      })
+      }, idempotencyKey)
       if (!r.ok) return result(r)
       const d = r.data || {}
       return result({
@@ -522,11 +549,13 @@ const tools = [
         occurredAt: S({ description: '事件登记时间，ISO 8601' }),
         subType: S({ description: '子类型，默认 URGENT_INSERT' }),
         note: S(),
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['orderCode', 'productFamily', 'quantity', 'arrivalAt', 'dueAt', 'priority', 'occurredAt'],
     ),
     meta: WRITE,
-    async execute({ orderCode, productFamily, quantity, arrivalAt, dueAt, priority, occurredAt, subType, note }) {
+    terminalQuery: '用 fjsp_get_dashboard 的 recentEvents 核实该插单事件是否已登记（按 orderCode 核对）',
+    async execute({ orderCode, productFamily, quantity, arrivalAt, dueAt, priority, occurredAt, subType, note, idempotencyKey }) {
       const r = await api('POST', '/events/new-orders', {
         subType: subType || 'URGENT_INSERT',
         orderCode,
@@ -537,7 +566,7 @@ const tools = [
         priority,
         occurredAt,
         ...(note ? { note } : {}),
-      })
+      }, idempotencyKey)
       if (!r.ok) return result(r)
       const d = r.data || {}
       return result({
@@ -563,11 +592,13 @@ const tools = [
         eventId: S({ description: '触发事件 ID' }),
         oldPlanVersionId: S({ description: '被调整的计划版本 ID' }),
         weights: WEIGHTS,
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['mode', 'eventId', 'oldPlanVersionId'],
     ),
     meta: WRITE,
-    async execute({ mode, eventId, oldPlanVersionId, weights }) {
+    terminalQuery: '若已拿到 taskId 用 fjsp_task_status(taskId) 查终态；否则用 fjsp_get_dashboard 的 recentTasks 找到本次重调度任务拿 taskId 再查',
+    async execute({ mode, eventId, oldPlanVersionId, weights, idempotencyKey }) {
       if (mode !== 'LOCAL_RESCHEDULE' && mode !== 'FULL_RESCHEDULE') {
         return result({
           ok: false,
@@ -576,7 +607,7 @@ const tools = [
       }
       const body = { mode, eventId, oldPlanVersionId }
       if (weights) body.objectiveWeights = weights
-      const r = await api('POST', '/schedule-tasks', body)
+      const r = await api('POST', '/schedule-tasks', body, idempotencyKey)
       if (!r.ok) return result(r)
       return result({ ok: true, task: trimTask(r.data || {}) })
     },
@@ -753,15 +784,17 @@ const tools = [
       {
         planVersionId: S(),
         version: I({ description: '乐观锁版本号，提交前用 fjsp_get_plan 获取' }),
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['planVersionId', 'version'],
     ),
     meta: WRITE,
-    async execute({ planVersionId, version }) {
+    terminalQuery: '用 fjsp_get_plan(planVersionId) 读最新 status 与 version 确认是否已提交评审（status=REVIEW_PENDING 即已生效）',
+    async execute({ planVersionId, version, idempotencyKey }) {
       const before = await getVersion(planVersionId)
       if (!before) return result({ ok: false, error: { code: 'FJSP_NOT_FOUND', message: '计划版本不存在' } })
       if (before.status === 'DRAFT') {
-        const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/submit-review`, { version })
+        const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/submit-review`, { version }, idempotencyKey)
         if (!r.ok) return result(r)
       }
       const after = await getVersion(planVersionId)
@@ -777,11 +810,13 @@ const tools = [
         planVersionId: S(),
         decision: S({ description: 'APPROVE 或 REJECT，默认 APPROVE' }),
         comment: S({ description: '评审意见；REJECT 时必填' }),
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['planVersionId'],
     ),
     meta: HIGH_RISK,
-    async execute({ planVersionId, decision, comment }) {
+    terminalQuery: '用 fjsp_get_plan(planVersionId) 读最新 status 确认评审是否已生效（REVIEWED/REJECTED 即已生效）',
+    async execute({ planVersionId, decision, comment, idempotencyKey }) {
       const dec = (decision || 'APPROVE').toUpperCase()
       if (dec !== 'APPROVE' && dec !== 'REJECT') {
         return result({ ok: false, error: { code: 'FJSP_INVALID_DECISION', message: 'decision 必须是 APPROVE 或 REJECT' } })
@@ -801,7 +836,7 @@ const tools = [
         decision: dec,
         comment: comment || (dec === 'APPROVE' ? '人工评审通过' : ''),
         version: cur.version,
-      })
+      }, idempotencyKey)
       if (!r.ok) return result({ ...r, step: 'review' })
       const after = await getVersion(planVersionId)
       return result({ ok: true, plan: trimVersion(after || cur) })
@@ -815,11 +850,13 @@ const tools = [
       {
         planVersionId: S(),
         version: I({ description: '乐观锁版本号，调用前用 fjsp_get_plan 获取' }),
+        idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['planVersionId', 'version'],
     ),
     meta: WRITE,
-    async execute({ planVersionId, version }) {
+    terminalQuery: '用 fjsp_get_plan(planVersionId) 读最新 status 确认是否已退回 DRAFT',
+    async execute({ planVersionId, version, idempotencyKey }) {
       const cur = await getVersion(planVersionId)
       if (!cur) return result({ ok: false, error: { code: 'FJSP_NOT_FOUND', message: '计划版本不存在' } })
       if (cur.status !== 'REJECTED') {
@@ -828,7 +865,7 @@ const tools = [
           error: { code: 'FJSP_INVALID_STATE', message: `只有 REJECTED 状态可退回修改，当前状态 ${cur.status}` },
         })
       }
-      const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/revise`, { version })
+      const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/revise`, { version }, idempotencyKey)
       if (!r.ok) return result({ ...r, step: 'revise' })
       const after = await getVersion(planVersionId)
       return result({ ok: true, plan: trimVersion(after || cur) })
@@ -838,9 +875,10 @@ const tools = [
     name: 'fjsp_publish',
     description:
       '发布已评审通过的计划版本（REVIEWED → PUBLISHED），发布后成为车间执行计划，原发布版本转为 SUPERSEDED。本工具只执行发布这一步：不自动提交评审、不自动审批。属于高风险操作：必须由人工在审批弹窗中确认后才真正执行。调用前先用 fjsp_get_plan 获取最新乐观锁 version。',
-    parameters: Obj({ planVersionId: S() }, ['planVersionId']),
+    parameters: Obj({ planVersionId: S(), idempotencyKey: IDEMPOTENCY_KEY }, ['planVersionId']),
     meta: HIGH_RISK,
-    async execute({ planVersionId }) {
+    terminalQuery: '用 fjsp_get_plan(planVersionId) 读最新 status 确认是否已发布（PUBLISHED 即已生效）',
+    async execute({ planVersionId, idempotencyKey }) {
       const cur = await getVersion(planVersionId)
       if (!cur) return result({ ok: false, error: { code: 'FJSP_NOT_FOUND', message: '计划版本不存在' } })
       if (cur.status === 'PUBLISHED') return result({ ok: true, alreadyPublished: true, plan: trimVersion(cur), ganttUrl: ganttUrl(planVersionId) })
@@ -853,7 +891,7 @@ const tools = [
           },
         })
       }
-      const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/publish`, { version: cur.version })
+      const r = await api('POST', `/plan-versions/${encodeURIComponent(planVersionId)}/publish`, { version: cur.version }, idempotencyKey)
       if (!r.ok) return result({ ...r, step: 'publish' })
       const after = await getVersion(planVersionId)
       const done = after && after.status === 'PUBLISHED'
@@ -982,10 +1020,11 @@ const tools = [
   {
     name: 'fjsp_reset_demo',
     description: '演示重置：清空全部排程数据并重建演示数据集。仅在演示/联调时使用，会删除现有计划与事件。',
-    parameters: Obj({}),
+    parameters: Obj({ idempotencyKey: IDEMPOTENCY_KEY }),
     meta: DESTRUCTIVE,
-    async execute() {
-      const r = await api('POST', '/demo/reset', {})
+    terminalQuery: '用 fjsp_get_dashboard 确认演示数据是否已重置（当前计划/订单/事件/任务是否已清空重建）',
+    async execute({ idempotencyKey }) {
+      const r = await api('POST', '/demo/reset', {}, idempotencyKey)
       if (!r.ok) return result(r)
       return result({ ok: true, data: r.data ?? '演示数据已重置' })
     },
@@ -995,6 +1034,9 @@ const tools = [
 // ---- 入参运行时校验挂接（任务 2.1）：包在每个工具的 execute 外层。
 // AGH 插件与 MCP Server 共用本 tools 数组，两个入口同时生效；校验失败返回
 // FJSP_INVALID_PARAMS 结构化错误，不发任何 HTTP 请求。
+// 未知结果恢复指引（任务 2.B）：带 terminalQuery 的写工具返回超时/连接中断/5xx 等
+// 结果未知类错误时，把 recovery 改写为该工具的具体终态查询方式 + 同键重试约定，
+// 保持 content[0].text 与 structured 为同一份 JSON。
 for (const tool of tools) {
   const inner = tool.execute
   tool.execute = async (args) => {
@@ -1010,7 +1052,18 @@ for (const tool of tools) {
         },
       })
     }
-    return inner(safeArgs)
+    const out = await inner(safeArgs)
+    if (tool.terminalQuery && out.structured && out.structured.ok === false && out.structured.error && isUnknownResultCode(out.structured.error.code)) {
+      const clean = {
+        ...out.structured,
+        error: {
+          ...out.structured.error,
+          recovery: `结果未知（请求可能已到达服务端）：先 ${tool.terminalQuery} 确认本次调用是否已生效；未生效再用同一 idempotencyKey 重试（重试必须复用同键；原调用未传键时先自行固定一个键再重发，不要每次换键），反复出现转人工`,
+        },
+      }
+      return { ...out, content: [{ type: 'text', text: JSON.stringify(clean) }], structured: clean }
+    }
+    return out
   }
 }
 
