@@ -23,8 +23,9 @@ const created = await api(opts, '/schedule-tasks', {
   body: { mode: 'BASELINE', orderIds: orders.map(o => o.orderId), objectiveWeights: GOLDEN_WEIGHTS, algorithm: GOLDEN_ALGORITHM },
 });
 const task = await waitTask(opts, created.taskId, '基线任务');
-assert(task.status === 'SUCCESS' && task.resultStatus === 'FEASIBLE',
-  `基线任务 SUCCESS+FEASIBLE（实际 status=${task.status} resultStatus=${task.resultStatus}）`);
+// GA 触达 timeLimitSeconds 时终态为 TIME_LIMIT + FEASIBLE（solver.py:120），基线仍可用，不算失败
+assert(['SUCCESS', 'TIME_LIMIT'].includes(task.status) && task.resultStatus === 'FEASIBLE',
+  `基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=${task.status} resultStatus=${task.resultStatus}）`);
 const pvId = task.planVersionId;
 
 let pv = await api(opts, '/plan-versions/' + pvId);

@@ -66,6 +66,7 @@ seed 在**业务服务层**固定，沿请求快照传到算法服务：
 2. Golden 场景脚本统一显式传 `algorithm.randomSeed=20260916`（`scenarios/common.mjs` 的 `GOLDEN_ALGORITHM`），并断言任务落库的 `randomSeed` 一致（`ScheduleTaskCommandService.java:153-154`）。
 3. 算法服务侧：`SolveRequest.algorithm.randomSeed`（`algorithm-service/app/models.py:88-92`，默认同为 20260916）→ `solver.py:39` 取出 → `ga.py:128` `random.Random(params.randomSeed)`。同 seed 可复现性由 `algorithm-service/tests/test_reproducibility.py` 保证（同 seed 两次求解 operations 与 KPI 完全一致）。
 4. 评估基线的 GA 规模参数统一为 `populationSize=40 / maxGenerations=60 / timeLimitSeconds=30`（`GOLDEN_ALGORITHM`），在保证可复现的前提下压缩单场景耗时；目标权重固定 `makespan=0.4 / weightedTardiness=0.4 / loadImbalance=0.2`（与种子默认一致）。
+5. 基线任务的合格终态为 `status ∈ {SUCCESS, TIME_LIMIT}` 且 `resultStatus=FEASIBLE`：GA 在慢机器上触达 `timeLimitSeconds` 时返回 `TIME_LIMIT`+`FEASIBLE`（`algorithm-service/app/solver.py:120`），业务侧仍正常产出 `planVersionId`（`ScheduleResultAssembler.java:182-186`），属可用基线而非失败；场景脚本的前置断言按此口径放宽。
 
 ## 4. 场景定义
 
