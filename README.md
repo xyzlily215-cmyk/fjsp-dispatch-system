@@ -47,6 +47,7 @@ This project builds and validates a closed loop of **dynamic scheduling decision
 
 - **Demo video (3–5 min, Baidu Netdisk)**: <https://pan.baidu.com/s/1Sa8LUACkWuJmYwFUZr9mFw?pwd=pbh7> (extraction code: `pbh7`)
 - The video walks through baseline scheduling → publishing, machine-breakdown handling with the AI copilot, plan comparison and review, and the digital-twin workshop.
+- *Recorded on 2026-10-20. Later versions added the in-web AI copilot sidebar and the digital-twin workshop page; agent interactions in the video use the AGH workbench.*
 
 ## Architecture
 
