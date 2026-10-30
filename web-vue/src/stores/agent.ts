@@ -6,6 +6,7 @@ import { defineStore } from 'pinia';
 import {
   agentCancel, agentChat, agentHealth, agentPermission, openAgentStream,
   type AgentEventName, type AgentHealth, type AgentPageContext, type AgentStreamEvents,
+  type ApprovalInfo,
 } from '../api/agent';
 
 const CONVERSATION_KEY = 'fjsp.agentConversation';
@@ -37,6 +38,8 @@ export interface ApprovalCard {
   toolCall: Record<string, unknown>;
   options: unknown[];
   deadlineMs: number;
+  /** BFF 五要素审批信息（旧版本 BFF 可能不下发，展示层需兼容缺省） */
+  approval?: ApprovalInfo;
   resolving: '' | 'allowed-once' | 'rejected';
 }
 
@@ -141,6 +144,7 @@ export const useAgentStore = defineStore('agent', () => {
         toolCall: data.toolCall || {},
         options: data.options || [],
         deadlineMs: data.deadlineMs || 0,
+        approval: data.approval,
         resolving: '',
       });
       unread.value += 1;

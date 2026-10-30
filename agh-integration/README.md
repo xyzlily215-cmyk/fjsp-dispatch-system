@@ -176,7 +176,19 @@ cd agh-integration/agent-bff
 ../agnes-harness/node_modules/.bin/tsx server.mts   # 默认 127.0.0.1:4178，AGENT_BFF_PORT 可改
 ```
 
-鉴权（P0，2026-10）：除 `/agent-api/health` 与两张孪生图片（`/twin/device/:id/panel`、`/twin/grid`，`<img>`/`<image>` 无法带请求头）外，所有端点要求 business-service 签发的 JWT：HTTP 请求带 `Authorization: Bearer <token>`，BFF 向 `FJSP_API_BASE/auth/me`（默认 `http://localhost:8081/api/v1`）内检（30s 正缓存，fail-closed，内检不可达 → 503 `auth_unavailable`）。SSE（`/stream`、`/twin/stream`）因 EventSource 不能带请求头，先 `POST /agent-api/stream-ticket`（Bearer）换 60s 限时 ticket 再以 `?ticket=` 连接；ticket 绑定 username、TTL 内可复用（EventSource 断线自动重连复用同一 URL），过期被 401 关闭后前端自动重新取票。会话绑定属主：创建会话记录 username，跨用户访问一律 403 `conversation_forbidden`；无属主的历史会话（旧版 `.conversations.json`）一律 403 `conversation_legacy`，需新建会话。测试隔离用环境变量：`AGH_OWNER_FILE` / `AGENT_BFF_STORE_FILE` / `AGENT_BFF_SESSION_ID_FILE`。鉴权回归：`node agent-bff/test-auth.mjs`（mock 内检 + 独立 BFF 实例，不依赖运行中的服务）。
+鉴权（P0，2026-10）：除 `/agent-api/health` 与两张孪生图片（`/twin/device/:id/panel`、`/twin/grid`，`<img>`/`<image>` 无法带请求头）外，所有端点要求 business-service 签发的 JWT：HTTP 请求带 `Authorization: Bearer <token>`，BFF 向 `FJSP_API_BASE/auth/me`（默认 `http://localhost:8081/api/v1`）内检（30s 正缓存，fail-closed，内检不可达 → 503 `auth_unavailable`）。SSE（`/stream`、`/twin/stream`）因 EventSource 不能带请求头，先 `POST /agent-api/stream-ticket`（Bearer）换 60s 限时 ticket 再以 `?ticket=` 连接；ticket 绑定完整身份（username/role，审批角色校验在 ticket 路径同样可用）、TTL 内可复用（EventSource 断线自动重连复用同一 URL），过期被 401 关闭后前端自动重新取票。会话绑定属主：创建会话记录 username，跨用户访问一律 403 `conversation_forbidden`；无属主的历史会话（旧版 `.conversations.json`）一律 403 `conversation_legacy`，需新建会话。测试隔离用环境变量：`AGH_OWNER_FILE` / `AGENT_BFF_STORE_FILE` / `AGENT_BFF_SESSION_ID_FILE` / `AGENT_BFF_AUDIT_FILE`。鉴权回归：`node agent-bff/test-auth.mjs`（mock 内检 + 独立 BFF 实例，不依赖运行中的服务）。
+
+审批身份绑定（P0，2026-10-30）：daemon 的 permission_request 到达 BFF 时落一条**五要素审批记录**——工具名、参数摘要（规范化 JSON 的 SHA-256 指纹 + 人类可读摘要，随审批卡片展示）、业务对象（从参数顶层提取 planVersionId/eventId/taskId/machineId/orderId/jobId，无则 null）、有效期（默认 5 分钟，`AGENT_BFF_APPROVAL_TTL_MS` 可配）、可审批角色（按 fjsp-tools meta 的风险级映射，见下表，未知工具/级别 fail-closed 不可批准）。点批准时重校验：会话归属 → 未裁决过（409 `approval_already_decided`）→ 未过期（410 `approval_expired`）→ 角色 ∈ 可审批角色（403 `approval_forbidden`，拒绝操作不受角色闸限制）→ 参数指纹一致性；全部裁决与越权/过期/重复尝试追加到 `agent-bff/.approval-audit.jsonl`（已 gitignore），含操作者/工具/参数摘要/业务对象/结果，可按会话或业务对象回溯。回归：`../agnes-harness/node_modules/.bin/tsx agent-bff/test-approval.mts`。
+
+审批风险级 → 可审批角色（对齐 business-service 各端点 `@PreAuthorize`，BFF 侧显式配置）：
+
+| 风险级 | 工具 | 可审批角色 |
+| --- | --- | --- |
+| WRITE | fjsp_create_baseline / report_breakdown / insert_order / reschedule / submit_review / revise_plan / experience_record | DISPATCHER、ADMIN |
+| HIGH_RISK | fjsp_approve_review | REVIEWER、ADMIN |
+| HIGH_RISK | fjsp_publish | PRODUCTION_MANAGER、ADMIN |
+| DESTRUCTIVE | fjsp_reset_demo | ADMIN |
+| 未知工具/级别 | 其余任何触发审批的工具 | 无（fail-closed，只能拒绝） |
 
 API：
 
@@ -187,7 +199,7 @@ API：
 | GET | `/agent-api/stream?conversationId=…&ticket=…` | SSE 事件流（user_message / assistant_delta / assistant_message / tool_call / tool_result / permission_request / permission_resolved / turn_end / turn_error），支持 Last-Event-ID 增量重连，事件缓冲可整段回放重建页面 |
 | POST | `/agent-api/chat` | `{conversationId?, message, context?}`，context 为前端当前页面（section/title/route/query），随提示词注入 |
 | POST | `/agent-api/cancel` | 停止当前轮次 |
-| POST | `/agent-api/permission` | `{conversationId, requestId, verdict: allowed-once\|rejected}`，对应 fjsp-tools 三级审批的人工确认 |
+| POST | `/agent-api/permission` | `{conversationId, requestId, verdict: allowed-once\|rejected}`，人工裁决。批准时按五要素审批记录重校验：会话归属、未过期（默认 5 分钟，`AGENT_BFF_APPROVAL_TTL_MS` 可配）、角色匹配、一次性；失败分别返回 403/409/410 |
 | GET | `/agent-api/twin/snapshot` | MHS 设备快照（状态/健康/位姿/最新指标）+ 车间地图，供数字孪生页 |
 | GET | `/agent-api/twin/stream?ticket=…` | SSE 1Hz 设备快照推送 |
 | GET | `/agent-api/twin/device/:id/panel` | 设备 panel 画面（JPEG，BFF 侧 1.5s 缓存；公开——`<img>` 直连无法带请求头） |
@@ -207,13 +219,13 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 # MCP 客户端配置：{ "command": "<tsx 绝对路径>", "args": ["<agent-bff 绝对路径>/mcp-server.mts"] }
 ```
 
-审批语义与 AGH 对齐：`tools/list` 的 annotations 带 readOnlyHint/destructiveHint；`requiresApproval=always` 的工具（写/高风险/破坏性）必须在 arguments 里显式带 `"_confirm": true`，否则返回 `CONFIRM_REQUIRED`——这是 MCP 侧与 AGH 人工审批等价的显式确认。冒烟测试：`node agent-bff/mcp-smoke.mjs`（initialize → tools/list 18 个 → 只读调用 → 未确认拒绝 → 确认后执行）。
+审批语义（P0 收紧，2026-10-30）：MCP 是无人值守直连通道，没有人工审批环节，调用方自报的 `"_confirm": true` **不再作为人工批准证据**——`requiresApproval=always` 的工具（写/高风险/破坏性）在 MCP 入口一律拒绝（`APPROVAL_CHANNEL_REQUIRED`），须改走 Web 副驾（agent-bff，五要素审批 + 身份绑定）或 AGH 会话的原生人工审批；只读工具不受影响。冒烟测试：`node agent-bff/mcp-smoke.mjs`（initialize → tools/list 18 个 → 只读调用 → 写调用带不带 `_confirm` 均拒绝）。
 
 数字孪生通道：BFF 作为 AgnesHub 北向客户端（`ws://127.0.0.1:4180/ws/hub`，role=ui，与 Devices 面板同协议），缓存 `hub/devices` + `hub/changed` + `hub/state`，并按 1Hz 轮询 `hub/read` 取各设备 metrics 最新值；断线自动重连。web-vue「数字孪生车间」页（`/twin`）为**座舱布局**：左侧 SVG 车间地图（分区多边形 + 设备状态色 + 告警点 + AGV 位姿）、设备指标卡片、panel 画面轮询、设备控制（启停虚拟车间、任意机床注入/恢复、随机故障注入）、告警条「让副驾处置」；右侧**内嵌** AI 调度副驾对话栏（`AgentChat.vue`，与抽屉侧栏 `AgentSidebar.vue` 共用，衔接 SKILL 第三节的 MHS 告警处置流程）。对话栏多模态：语音输入（Web Speech API 中文识别，浏览器不支持时自动隐藏）、TTS 播报开关（朗读副驾答复）、设备 panel 画面视觉理解（deepseek-flash 支持 text+image 输入，`read_device` 的 returnsImages 把画面直接给模型，实测可描述状态灯/温度/曲线）。
 
 **全站 AI 融合（不止孪生页）**：通用页内组件 `AiInsightCard.vue`（动作按钮/自由输入 → agent store → 内联展示答复流 + 页内审批卡片 `AgentApprovalCards.vue`，与侧栏共享同一个 Agent 会话）已接入 5 个核心业务页——甘特图「AI 解读方案」（瓶颈/拖期分布/改进建议）、方案对比「AI 推荐方案」（KPI 差值 + 扰动率理由）、基线排程「AI 一键基线」（全流程带审批）、订单插单「AI 提交插单」（自然语言解析下单）、重调度向导「AI 策略推荐」（经验检索给模式/权重建议）；侧栏快捷指令按路由感知（`AgentChat.vue` 的 ROUTE_HINTS，每个页面提示语不同）。标签页隐藏时自动暂停孪生 SSE 与画面轮询。
 
-要点：会话以 `conversationId` 为 `sessionKey` 在 daemon 侧建独立 AGH 会话（不传 sessionKey 时 daemon 会把同一 workspace 的 new() 归并到默认会话，多浏览器会串历史）；映射持久化在 `agent-bff/.conversations.json`（已 gitignore）；接受对话时把 AGH 会话 ID 写入 `agh-integration/.agh-session-id`，与 fjsp-tools 的 `X-AGH-Session-Id` 审计头联动，处置时间线（AgentTraceView）可按会话对照。BFF 仅绑定 127.0.0.1 且校验 Origin 为 loopback，未做用户鉴权（演示环境前提，生产化需接 JWT）。
+要点：会话以 `conversationId` 为 `sessionKey` 在 daemon 侧建独立 AGH 会话（不传 sessionKey 时 daemon 会把同一 workspace 的 new() 归并到默认会话，多浏览器会串历史）；映射持久化在 `agent-bff/.conversations.json`（已 gitignore）；接受对话时把 AGH 会话 ID 写入 `agh-integration/.agh-session-id`，与 fjsp-tools 的 `X-AGH-Session-Id` 审计头联动，处置时间线（AgentTraceView）可按会话对照。BFF 仅绑定 127.0.0.1、校验 Origin 为 loopback，并已接 business-service JWT 鉴权与会话属主绑定（见上「鉴权（P0）」）。
 
 ## fjsp-tools 插件
 
@@ -232,7 +244,7 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 | 高风险 HIGH_RISK | `always` / `never` | fjsp_approve_review（评审决策）、fjsp_publish（发布上线） |
 | 破坏性 DESTRUCTIVE | `always` / `never` | fjsp_reset_demo |
 
-写操作和高风险操作每次都弹审批（`allowed-once`，不沉淀会话级放行）；评审与发布是两个独立的人工决策点。
+写操作和高风险操作每次都弹审批（`allowed-once`，不沉淀会话级放行）；评审与发布是两个独立的人工决策点。经 BFF（Web 副驾）裁决时按上节「审批身份绑定」的五要素记录与风险级→角色映射重校验；driver 的程序化批准只是模拟审批，见下。
 
 ### 发布流程（三段式人工确认）
 

@@ -29,6 +29,19 @@ export interface ChatAccepted {
   sessionId?: string;
 }
 
+/** 审批五要素（BFF 在 permission_request 中随卡片下发，供人类可读展示） */
+export interface ApprovalInfo {
+  tool: string;
+  risk: string;
+  /** 人类可读摘要：工具名 + 规范化参数（截断） */
+  summary: string;
+  /** 参数规范化 JSON 的 SHA-256 前 12 位 */
+  digest: string;
+  bizObject: Record<string, string> | null;
+  requiredRoles: string[];
+  expiresAt: number;
+}
+
 /** SSE 事件名 → payload（与 agent-bff/server.mts 的 broadcast 一一对应） */
 export interface AgentStreamEvents {
   user_message: { text: string; context: AgentPageContext | null };
@@ -42,6 +55,7 @@ export interface AgentStreamEvents {
     toolCall: Record<string, unknown>;
     options: unknown[];
     deadlineMs: number | null;
+    approval?: ApprovalInfo;
   };
   permission_resolved: { requestId: string; verdict: unknown };
   turn_end: { reason: string; stopReason: string };

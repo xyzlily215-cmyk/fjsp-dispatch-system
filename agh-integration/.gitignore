@@ -11,6 +11,9 @@ mhs-devices/m03.pid
 # agent-bff conversation -> AGH session mapping (runtime artifact)
 agent-bff/.conversations.json
 
+# agent-bff 审批裁决审计（JSONL，runtime artifact）
+agent-bff/.approval-audit.jsonl
+
 # agent-bff runtime deps & local models
 agent-bff/node_modules/
 agent-bff/models/

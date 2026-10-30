@@ -2,9 +2,10 @@
 // Same implementations as the AGH plugin — this file imports the tools array from
 // fjsp-tools/index.mjs, so AGH 插件与 MCP 是同一套代码的两种暴露形态。
 //
-// Approval semantics mirror the AGH side: tools with requiresApproval 'always'
-// (writes / high-risk / destructive) need `"_confirm": true` in the call arguments,
-// the MCP-side equivalent of the human approval card; read-only tools run directly.
+// Approval semantics (P0 收紧，2026-10-30)：MCP 是无人值守直连通道，没有人工审批环节，
+// 调用方自报的 "_confirm": true 不再作为人工批准证据。requiresApproval='always' 的工具
+// （写/高风险/破坏性）在 MCP 入口一律拒绝（APPROVAL_CHANNEL_REQUIRED），须改走 Web 副驾
+// （agent-bff，五要素审批 + 身份绑定）或 AGH 会话的原生人工审批；只读工具不受影响。
 //
 // Run:  ../agnes-harness/node_modules/.bin/tsx mcp-server.mts
 // MCP client config example: { "command": "<abs path to tsx>", "args": ["<abs path>/mcp-server.mts"] }
@@ -45,7 +46,7 @@ async function handle(msg: Json) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER_INFO,
       instructions:
-        'FJSP 动态柔性车间调度系统的 18 个工具。只读工具直接调用；写/高风险/破坏性工具（fjsp_create_baseline、fjsp_report_breakdown、fjsp_insert_order、fjsp_reschedule、fjsp_submit_review、fjsp_revise_plan、fjsp_experience_record、fjsp_approve_review、fjsp_publish、fjsp_reset_demo）需要在 arguments 里带 "_confirm": true 才会执行——这是 MCP 侧与 AGH 人工审批等价的显式确认。',
+        'FJSP 动态柔性车间调度系统的 18 个工具。只读工具直接调用；写/高风险/破坏性工具（fjsp_create_baseline、fjsp_report_breakdown、fjsp_insert_order、fjsp_reschedule、fjsp_submit_review、fjsp_revise_plan、fjsp_experience_record、fjsp_approve_review、fjsp_publish、fjsp_reset_demo）在 MCP 直连通道一律拒绝执行（APPROVAL_CHANNEL_REQUIRED）——"_confirm" 参数不再作为人工批准证据；请通过 Web 副驾（agent-bff）或 AGH 会话的人工审批执行这些操作。',
     })
   }
   if (method === 'ping') return resultFor(id, {})
@@ -67,8 +68,10 @@ async function handle(msg: Json) {
     const { name, arguments: args } = (params ?? {}) as { name?: string; arguments?: Json }
     const tool = name ? toolMap.get(name) : undefined
     if (!tool) return errorFor(id, -32602, `unknown tool: ${name}`)
+    // _confirm 不再放行：MCP 直连无人工审批环节，写/高风险/破坏性工具一律拒绝
     const { _confirm, ...toolArgs } = args ?? {}
-    if (tool.meta?.requiresApproval === 'always' && _confirm !== true) {
+    void _confirm
+    if (tool.meta?.requiresApproval === 'always') {
       return resultFor(id, {
         isError: true,
         content: [{
@@ -76,8 +79,8 @@ async function handle(msg: Json) {
           text: JSON.stringify({
             ok: false,
             error: {
-              code: 'CONFIRM_REQUIRED',
-              message: `${tool.name} 是${tool.meta.isDestructive ? '破坏性' : '写/高风险'}操作：请在 arguments 中显式带 "_confirm": true 再调用（等价于 AGH 侧的人工审批确认）。`,
+              code: 'APPROVAL_CHANNEL_REQUIRED',
+              message: `${tool.name} 是${tool.meta.isDestructive ? '破坏性' : '写/高风险'}操作：MCP 直连通道不支持人工审批，"_confirm" 不再作为批准证据。请通过 Web 副驾（agent-bff，身份绑定 + 五要素审批）或 AGH 会话的人工审批执行。`,
             },
           }),
         }],

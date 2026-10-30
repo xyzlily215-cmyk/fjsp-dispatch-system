@@ -19,15 +19,22 @@
 // 等价的限时 ticket（EventSource 不能带请求头；ticket 60s 内可复用以支持自动重连）。
 // 会话绑定属主：创建会话记录 username，跨用户访问 403；无属主的历史会话一律 403（legacy）。
 //
+// 审批身份绑定（P0）：daemon 的 permission_request 落一条五要素审批记录（工具名 /
+// 参数摘要=规范化 JSON 的 SHA-256 + 人类可读摘要 / 业务对象 / 有效期 / 可审批角色），
+// /permission 裁决时重校验：会话归属、未过期、角色匹配（ticket 路径同样带 role）、
+// 一次性（未裁决过）；全部裁决与越权/过期尝试追加到 .approval-audit.jsonl 审计。
+//
 // Run:  ../agnes-harness/node_modules/.bin/tsx server.mts
 // Env:  AGENT_BFF_PORT (default 4178), AGENT_BFF_HOST (default 127.0.0.1),
 //       AGNES_HUB_URL (default ws://127.0.0.1:4180/ws/hub),
 //       FJSP_API_BASE (default http://localhost:8081/api/v1，JWT 内检地址),
-//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE（测试隔离覆盖用）
+//       AGENT_BFF_APPROVAL_TTL_MS（审批有效期，默认 5 分钟）,
+//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE（测试隔离覆盖用）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { randomBytes, randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createClient, type PermissionOutcome, type Session } from '../agnes-harness/packages/sdk/src/index.node.ts'
+import { tools as fjspToolDefs } from '../fjsp-tools/index.mjs'
 import { mhsHub } from './mhs.mts'
 import { simStart, simStatus, simStop } from './sim.mts'
 import { experienceQuery } from './rag.mts'
@@ -45,13 +52,61 @@ const TICKET_TTL_MS = 60_000
 const BUFFER_CAP = 1000
 const HEARTBEAT_MS = 25_000
 const PERMISSION_TIMEOUT_MS = 10 * 60_000
+const APPROVAL_TTL_MS = Number(process.env.AGENT_BFF_APPROVAL_TTL_MS ?? 5 * 60_000)
+const AUDIT_FILE = process.env.AGENT_BFF_AUDIT_FILE ?? new URL('./.approval-audit.jsonl', import.meta.url)
+
+// ---- 审批风险级 → 可审批角色（显式配置；对齐 business-service 各端点的 @PreAuthorize）----
+// 工具风险级以 fjsp-tools/index.mjs 的 meta 为唯一事实来源（MCP 与 AGH 插件共用）。
+type RiskLevel = 'READ' | 'WRITE' | 'HIGH_RISK' | 'DESTRUCTIVE'
+const RISK_ROLES: Record<RiskLevel, string[]> = {
+  READ: [], // 只读工具不触发审批
+  WRITE: ['DISPATCHER', 'ADMIN'], // 对齐 EventController/ScheduleTaskController 等写端点
+  HIGH_RISK: ['REVIEWER', 'PRODUCTION_MANAGER', 'ADMIN'], // 兜底并集，具体工具见 TOOL_ROLES
+  DESTRUCTIVE: ['ADMIN'], // 对齐 DemoController（仅 ADMIN）
+}
+// 工具级覆盖：HIGH_RISK 下两个工具的审批角色在 business-service 侧并不同级
+const TOOL_ROLES: Record<string, string[]> = {
+  fjsp_approve_review: ['REVIEWER', 'ADMIN'], // PlanVersionController 评审端点
+  fjsp_publish: ['PRODUCTION_MANAGER', 'ADMIN'], // PlanVersionController 发布端点
+}
+// 未知工具 / 未知级别：requiredRoles 为空 = 默认拒绝任何人批准（fail-closed）
+
+function riskOfMeta(meta: { requiresApproval?: string; isDestructive?: boolean; replay?: string } | undefined): RiskLevel | null {
+  if (!meta) return null
+  if (meta.requiresApproval === 'never') return 'READ'
+  if (meta.isDestructive) return 'DESTRUCTIVE'
+  if (meta.replay === 'never') return 'HIGH_RISK'
+  return 'WRITE'
+}
+
+const TOOL_RISK = new Map<string, RiskLevel>()
+for (const t of fjspToolDefs as { name: string; meta?: Parameters<typeof riskOfMeta>[0] }[]) {
+  const risk = riskOfMeta(t.meta)
+  if (risk) TOOL_RISK.set(t.name, risk)
+}
 
 type BufferedEvent = { id: number; event: string; data: string }
 type PendingPermission = {
   requestId: string
   toolCall: Record<string, unknown>
-  settle: (outcome: PermissionOutcome) => void
+  settle: (outcome: PermissionOutcome, result?: string, by?: string) => void
   timer: ReturnType<typeof setTimeout>
+}
+// 审批记录（五要素绑定）：工具名、参数摘要（规范化 JSON 的 SHA-256 + 人类可读摘要）、
+// 业务对象、有效期、可审批角色。内存保存（pending 承诺随进程消亡，持久化无意义），
+// 全部裁决结果追加持久化到 AUDIT_FILE（JSONL，可按会话/业务对象回溯）。
+type ApprovalRecord = {
+  requestId: string
+  conversationId: string
+  tool: string
+  risk: RiskLevel | 'UNKNOWN'
+  argsDigest: string
+  argsSummary: string
+  bizObject: Record<string, string> | null
+  requiredRoles: string[]
+  createdAt: number
+  expiresAt: number
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'timeout'
 }
 type Conversation = {
   id: string
@@ -159,30 +214,31 @@ async function introspectToken(token: string): Promise<AuthResult> {
 
 // SSE ticket：EventSource 无法自定义请求头，JWT 进 URL 会泄露到浏览器历史/代理日志
 // （business-service StreamTicketService 的既有结论）。这里签发 60s 限时 ticket，
-// 绑定 username；与业务服务的一次性语义不同，本 ticket 在 TTL 内可复用——
+// 绑定签发时的完整身份（username/role/displayName，审批角色校验需要 role）；与业务
+// 服务的一次性语义不同，本 ticket 在 TTL 内可复用——
 // EventSource 断线自动重连会复用同一 URL，一次性 ticket 会让重连必失败。
-const tickets = new Map<string, { username: string; expiresAt: number }>()
+const tickets = new Map<string, { user: AuthUser; expiresAt: number }>()
 
-function issueTicket(username: string): { ticket: string; expiresAt: number } {
+function issueTicket(user: AuthUser): { ticket: string; expiresAt: number } {
   const now = Date.now()
   for (const [k, v] of tickets) if (v.expiresAt <= now) tickets.delete(k)
   const ticket = randomBytes(32).toString('base64url')
   const expiresAt = now + TICKET_TTL_MS
-  tickets.set(ticket, { username, expiresAt })
+  tickets.set(ticket, { user, expiresAt })
   return { ticket, expiresAt }
 }
 
-function resolveTicket(ticket: string | null): string | null {
+function resolveTicket(ticket: string | null): AuthUser | null {
   if (!ticket) return null
   const t = tickets.get(ticket)
-  return t && t.expiresAt > Date.now() ? t.username : null
+  return t && t.expiresAt > Date.now() ? t.user : null
 }
 
 async function authenticate(req: IncomingMessage, url: URL): Promise<AuthResult> {
   const header = req.headers.authorization ?? ''
   if (header.startsWith('Bearer ')) return introspectToken(header.slice(7))
-  const username = resolveTicket(url.searchParams.get('ticket'))
-  return username ? { username, role: '', displayName: '' } : null
+  // ticket 绑定签发时的完整身份（含 role）：审批角色校验在 SSE/ ticket 路径同样可用
+  return resolveTicket(url.searchParams.get('ticket'))
 }
 
 /** 业务端点统一入口；返回 null 时已写好错误响应。 */
@@ -321,11 +377,103 @@ function startPump(conv: Conversation) {
   })()
 }
 
+// ---- 审批记录与审计 ----
+const approvals = new Map<string, ApprovalRecord>()
+
+/** 规范化 JSON（键排序，递归）→ SHA-256：审批记录与裁决时的参数一致性校验共用。 */
+function canonicalDigest(value: unknown): { canonical: string; digest: string } {
+  const norm = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(norm)
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>
+      return Object.fromEntries(Object.keys(o).sort().map((k) => [k, norm(o[k])]))
+    }
+    return v
+  }
+  const canonical = JSON.stringify(norm(value))
+  return { canonical, digest: createHash('sha256').update(canonical).digest('hex') }
+}
+
+// 业务对象提取：只取参数顶层的已知标识键，无则 null
+const BIZ_KEYS = ['planVersionId', 'eventId', 'taskId', 'machineId', 'orderId', 'jobId']
+
+function extractBizObject(args: Record<string, unknown>): Record<string, string> | null {
+  const found: Record<string, string> = {}
+  for (const k of BIZ_KEYS) {
+    const v = args[k]
+    if (typeof v === 'string' && v) found[k] = v
+    else if (typeof v === 'number' && Number.isFinite(v)) found[k] = String(v)
+  }
+  return Object.keys(found).length ? found : null
+}
+
+/** 人类可读摘要：工具名 + 主要参数 k=v（截断），供审批卡片直接展示。 */
+function buildArgsSummary(tool: string, canonical: string): string {
+  const short = canonical.length > 200 ? canonical.slice(0, 200) + '…' : canonical
+  return `${tool} ${short}`
+}
+
+function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Record<string, unknown>): ApprovalRecord {
+  const tool = String(toolCall.name ?? toolCall.title ?? '')
+  const args = (toolCall.args ?? toolCall.arguments ?? {}) as Record<string, unknown>
+  const { canonical, digest } = canonicalDigest(args)
+  const risk = TOOL_RISK.get(tool) ?? 'UNKNOWN'
+  const requiredRoles = risk === 'UNKNOWN' ? [] : (TOOL_ROLES[tool] ?? RISK_ROLES[risk])
+  const now = Date.now()
+  const record: ApprovalRecord = {
+    requestId,
+    conversationId: conv.id,
+    tool,
+    risk,
+    argsDigest: digest,
+    argsSummary: buildArgsSummary(tool, canonical),
+    bizObject: extractBizObject(args),
+    requiredRoles,
+    createdAt: now,
+    expiresAt: now + APPROVAL_TTL_MS,
+    status: 'pending',
+  }
+  // 惰性清理：上限外丢弃最旧的非 pending 记录
+  if (approvals.size > 5000) {
+    for (const [k, v] of approvals) {
+      if (v.status !== 'pending') approvals.delete(k)
+      if (approvals.size <= 5000) break
+    }
+  }
+  approvals.set(requestId, record)
+  return record
+}
+
+// 审计：批准/拒绝/过期/越权尝试/超时一律落 JSONL，含操作者、工具、参数摘要、业务对象。
+// 与 business-service 的业务审计分工：那里记"工具执行了什么业务变更"，这里记"谁在
+// 何时批准/拒绝了这次执行"（审批决策层，business-service 看不到审批拒绝与越权尝试）。
+function auditApproval(record: ApprovalRecord, result: string, by: string, detail?: string) {
+  const entry = {
+    ts: new Date().toISOString(),
+    conversationId: record.conversationId,
+    requestId: record.requestId,
+    by,
+    tool: record.tool,
+    risk: record.risk,
+    argsDigest: record.argsDigest,
+    argsSummary: record.argsSummary,
+    bizObject: record.bizObject,
+    result,
+    ...(detail ? { detail } : {}),
+  }
+  try {
+    appendFileSync(AUDIT_FILE, JSON.stringify(entry) + '\n')
+  } catch (err) {
+    console.error('[agent-bff] 审批审计写入失败:', err)
+  }
+}
+
 function onPermissionRequest(
   conv: Conversation,
   req: { toolCall: Record<string, unknown>; options: unknown[]; deadlineMs?: number },
 ): Promise<PermissionOutcome> {
   const requestId = randomUUID()
+  const record = buildApprovalRecord(conv, requestId, req.toolCall)
   const timeoutMs = Math.min(
     Math.max((req.deadlineMs ?? Date.now() + PERMISSION_TIMEOUT_MS) - Date.now(), 15_000),
     30 * 60_000,
@@ -335,19 +483,33 @@ function onPermissionRequest(
     toolCall: req.toolCall,
     options: req.options,
     deadlineMs: req.deadlineMs ?? Date.now() + timeoutMs,
+    approval: {
+      tool: record.tool,
+      risk: record.risk,
+      summary: record.argsSummary,
+      digest: record.argsDigest.slice(0, 12),
+      bizObject: record.bizObject,
+      requiredRoles: record.requiredRoles,
+      expiresAt: record.expiresAt,
+    },
   })
   return new Promise<PermissionOutcome>((resolve) => {
     const pending = {} as PendingPermission
-    const settle = (outcome: PermissionOutcome) => {
+    const settle = (outcome: PermissionOutcome, result?: string, by = 'system') => {
       clearTimeout(pending.timer)
       conv.pendingPermissions.delete(requestId)
+      if (record.status === 'pending') {
+        const r = result ?? ('verdict' in outcome && outcome.verdict === 'allowed-once' ? 'approved' : 'rejected')
+        record.status = r === 'approved' ? 'approved' : r === 'expired' ? 'expired' : r === 'timeout' ? 'timeout' : 'rejected'
+        auditApproval(record, r, by)
+      }
       broadcast(conv, 'permission_resolved', { requestId, verdict: outcome })
       resolve(outcome)
     }
     pending.requestId = requestId
     pending.toolCall = req.toolCall
     pending.settle = settle
-    pending.timer = setTimeout(() => settle({ verdict: 'rejected' }), timeoutMs)
+    pending.timer = setTimeout(() => settle({ verdict: 'rejected' }, 'timeout'), timeoutMs)
     conv.pendingPermissions.set(requestId, pending)
   })
 }
@@ -395,7 +557,7 @@ async function handleChat(conv: Conversation, body: { message?: unknown; context
     })
     .finally(() => {
       conv.busy = false
-      for (const p of conv.pendingPermissions.values()) p.settle({ verdict: 'rejected' })
+      for (const p of conv.pendingPermissions.values()) p.settle({ verdict: 'rejected' }, 'rejected', 'system:turn_end')
     })
   sendJson(res, 202, { conversationId: conv.id, sessionId: conv.sessionId })
 }
@@ -486,7 +648,7 @@ const server = createServer(async (req, res) => {
       const result = await introspectToken(header.slice(7))
       if (result === 'unavailable') return sendJson(res, 503, { error: 'auth_unavailable', detail: `业务服务鉴权接口不可达（${FJSP_API_BASE}）` })
       if (!result) return sendJson(res, 401, { error: 'unauthorized' })
-      return sendJson(res, 200, issueTicket(result.username))
+      return sendJson(res, 200, issueTicket(result))
     }
     if (req.method === 'GET' && path === '/agent-api/stream') {
       const user = await requireAuth(req, url, res)
@@ -515,15 +677,47 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 202, { ok: true })
     }
     if (req.method === 'POST' && path === '/agent-api/permission') {
+      // 批准时重校验：a) 会话归属当前用户（authorizeConversation）；b) 审批未过期；
+      // c) 当前用户角色 ∈ 可审批角色（内检/ticket 携带的 role 为准）；d) 未被裁决过。
+      // 任一失败拒绝并记审计；放行前再核对参数摘要与记录一致（防串单）。
       const user = await requireAuth(req, url, res)
       if (!user) return
       const body = await readBody(req)
       const conv = conversations.get(String(body.conversationId ?? ''))
       if (conv && !authorizeConversation(conv, user, res)) return
-      const pending = conv?.pendingPermissions.get(String(body.requestId ?? ''))
-      if (!conv || !pending) return sendJson(res, 404, { error: 'permission_not_found' })
-      const verdict = body.verdict === 'allowed-once' ? 'allowed-once' : 'rejected'
-      pending.settle({ verdict })
+      const requestId = String(body.requestId ?? '')
+      const record = approvals.get(requestId)
+      if (!conv || !record || record.conversationId !== conv.id) {
+        return sendJson(res, 404, { error: 'permission_not_found' })
+      }
+      if (record.status !== 'pending') {
+        auditApproval(record, 'rejected', user.username, `重复裁决尝试（已是 ${record.status}）`)
+        return sendJson(res, 409, { error: 'approval_already_decided', detail: '该审批已被裁决过' })
+      }
+      const pending = conv.pendingPermissions.get(requestId)
+      if (!pending) return sendJson(res, 404, { error: 'permission_not_found' })
+      if (Date.now() > record.expiresAt) {
+        pending.settle({ verdict: 'rejected' }, 'expired', user.username)
+        return sendJson(res, 410, { error: 'approval_expired', detail: '审批请求已过期' })
+      }
+      const verdict = body.verdict === 'allowed-once' ? 'allowed-once' as const : 'rejected' as const
+      // 角色闸只对"批准"生效：拒绝自己会话里的工具调用是安全操作，低角色/未知级别
+      // 工具也应能被及时拒掉（否则 daemon 侧承诺悬挂到超时）
+      if (verdict === 'allowed-once') {
+        if (!record.requiredRoles.includes(user.role)) {
+          auditApproval(record, 'forbidden', user.username, `角色 ${user.role || '(空)'} 不在可审批角色 [${record.requiredRoles.join(',')}]`)
+          return sendJson(res, 403, {
+            error: 'approval_forbidden',
+            detail: `当前角色无权审批该操作（需要：${record.requiredRoles.join(' / ') || '无可用角色'}）`,
+          })
+        }
+        const { digest } = canonicalDigest((pending.toolCall.args ?? pending.toolCall.arguments ?? {}) as Record<string, unknown>)
+        if (digest !== record.argsDigest) {
+          auditApproval(record, 'rejected', user.username, '参数摘要与审批记录不一致')
+          return sendJson(res, 409, { error: 'approval_mismatch', detail: '审批参数已变化，请重新发起' })
+        }
+      }
+      pending.settle({ verdict }, verdict === 'allowed-once' ? 'approved' : 'rejected', user.username)
       return sendJson(res, 202, { ok: true, verdict })
     }
     if (req.method === 'GET' && path === '/agent-api/twin/snapshot') {
@@ -603,3 +797,8 @@ server.listen(PORT, HOST, () => {
   console.log(`[agent-bff] listening on http://${HOST}:${PORT}/agent-api (workspace ${AGH_HOME})`)
   mhsHub.start()
 })
+
+// 供 test-approval.mts（tsx 直接 import 本模块）注入审批请求、检查审批记录：
+// 不新增任何 HTTP 测试端点，生产路径无 test-only 分支。
+export { conversations, approvals, onPermissionRequest }
+export type { Conversation, ApprovalRecord }

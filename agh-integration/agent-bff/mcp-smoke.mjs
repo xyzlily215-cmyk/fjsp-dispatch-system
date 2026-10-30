@@ -1,4 +1,6 @@
 // mcp-smoke: spawn the MCP server, run initialize → tools/list → tools/call.
+// P0 收紧后：写/高风险/破坏性工具在 MCP 直连通道一律拒绝（_confirm 不再放行），
+// 本冒烟不再真实执行任何写操作。
 const { spawn } = await import('node:child_process')
 
 const here = '/Users/xiongyingzi/Desktop/bysj/agh-integration/agent-bff/'
@@ -51,11 +53,16 @@ console.log('[fjsp_get_dashboard] isError:', !!dash.result.isError, '|', dash.re
 const denied = await call('tools/call', { name: 'fjsp_experience_record', arguments: { eventType: 'BREAKDOWN', mode: 'LOCAL_RESCHEDULE' } })
 console.log('[write without _confirm] isError:', !!denied.result.isError, '|', denied.result.content[0].text.slice(0, 180))
 
+// P0 收紧：_confirm 不再是人工批准证据，带 _confirm 的写调用同样被拒绝
 const confirmed = await call('tools/call', {
   name: 'fjsp_experience_record',
-  arguments: { eventType: 'BREAKDOWN', mode: 'LOCAL_RESCHEDULE', note: 'MCP 通道冒烟测试（随后清理）', _confirm: true },
+  arguments: { eventType: 'BREAKDOWN', mode: 'LOCAL_RESCHEDULE', note: 'MCP 通道冒烟测试', _confirm: true },
 })
 console.log('[write with _confirm] isError:', !!confirmed.result.isError, '|', confirmed.result.content[0].text.slice(0, 160))
+if (!confirmed.result.isError || !confirmed.result.content[0].text.includes('APPROVAL_CHANNEL_REQUIRED')) {
+  console.error('FAIL: 带 _confirm 的写调用未被 MCP 通道拒绝')
+  process.exit(1)
+}
 
 server.kill()
 process.exit(0)
