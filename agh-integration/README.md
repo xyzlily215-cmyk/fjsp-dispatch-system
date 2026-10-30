@@ -207,6 +207,9 @@ API：
 | POST | `/agent-api/twin/device/:id/fault` / `:id/recover` | 任意机床（cnc-mXX）故障注入/恢复：写 `/tmp/mhs-fault-M-XX` / `/tmp/mhs-recover-M-XX` 触发文件，设备循环下一拍消费（与 machine-m03.py 约定一致，文件无条件消费防二次触发） |
 | POST | `/agent-api/twin/sim/start` / `sim/stop` | 虚拟车间进程启停（spawn/pgrep + SIGTERM，默认 M-01~M-08 + AGV-01，PYTHONPATH 与 start-demo.sh 一致）；快照含 `sim.running`，页面上可直接启停，免脚本 |
 | POST | `/agent-api/rag/experience-query` | 处置经验库 RAG 语义检索（fjsp_experience_query 的后端）：`{eventType?, query?, limit?}`，返回 `retrieval`（hybrid/bm25/recency）与带 score 的记录 |
+| GET | `/agent-api/openapi.json` | 由契约端点表实时生成的 OpenAPI 3.1 文档（公开） |
+
+API/SSE 契约（2.C，2026-10-30）：`agent-bff/contract/` 是 BFF 线协议的**单一事实源**——`http.mts` 端点表（全量 16 个端点的请求/响应 schema）、`events.mts` SSE 事件注册表（12 类事件，payload 统一带版本字段 `v`，由 BFF 广播时注入）、`types.ts` 纯类型定义、`validate.mts` 无依赖 JSON Schema 子集校验器。校验行为：请求入站按契约校验，缺字段/错类型/非法 JSON 一律 400 `invalid_request`（chat 的 message 保持既有 `message_required` 兼容码）；关键端点响应出站校验，失败记日志并 500 `contract_violation`，不静默发畸形数据；SSE 事件发出前校验，畸形事件记日志并丢弃（不进回放缓冲、流不断开）。前端集成：web-vue 的 `src/api/agent.ts` 协议类型全部 `import type` 自 `contract/types.ts`（构建期擦除、零运行时成本），不再手写两份；前后端事件名一致性由契约测试脚本化强制（前端监听清单必须是契约注册表子集）。版本演进规则：新增事件/可选字段向后兼容不升版；破坏性变更升 `v`（过渡期同名事件可按 v 并存双发），详见 `contract/EVENTS.md`。契约测试：`../agnes-harness/node_modules/.bin/tsx agent-bff/test-contract-api.mts`（mock 内检 + 独立端口 BFF，含 SSE 样本校验、HTTP 合法/非法请求、前后端一致性、OpenAPI 覆盖断言）。
 
 RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（携带业务服务 JWT，4s 超时或 401 回退本地统计），推荐口径不变（按模式平均加权拖期差值最优）。
 

@@ -5,65 +5,19 @@
  * 可用 ?bff= 或 localStorage 'fjsp.agentBff' 覆盖，与 api/index.js 相同的本机信任规则。
  * 鉴权（P0）：业务端点一律携带 business-service JWT（Authorization: Bearer，与
  * api/index.js 同一 localStorage key）；EventSource 不能带请求头，SSE 先换限时
- * ticket（POST /stream-ticket）再以 ?ticket= 连接，ticket 过期断开后再取新票重连。 */
+ * ticket（POST /stream-ticket）再以 ?ticket= 连接，ticket 过期断开后再取新票重连。
+ * 类型契约（2.C）：HTTP/SSE 线协议类型全部由 agent-bff/contract/types.ts 派生
+ * （import type，构建期擦除、零运行时成本），本文件不再手写协议类型；事件名运行时
+ * 清单 STREAM_EVENTS 与契约注册表的一致性由 agent-bff/test-contract-api.mts 强制。 */
+import type {
+  AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
+  AgentStreamEvents, AgentEventName, StreamTicket,
+} from '../../../agh-integration/agent-bff/contract/types';
 
-/** BFF 健康状态（/agent-api/health） */
-export interface AgentHealth {
-  ok: boolean;
-  daemon?: string;
-  hint?: string;
-  mhs?: string;
-  conversations?: number;
-}
-
-/** 随消息附带的页面上下文（BFF 拼入提示词） */
-export interface AgentPageContext {
-  section?: string;
-  title?: string;
-  route?: string | symbol | null;
-  query?: Record<string, unknown>;
-}
-
-export interface ChatAccepted {
-  conversationId: string;
-  sessionId?: string;
-}
-
-/** 审批五要素（BFF 在 permission_request 中随卡片下发，供人类可读展示） */
-export interface ApprovalInfo {
-  tool: string;
-  risk: string;
-  /** 人类可读摘要：工具名 + 规范化参数（截断） */
-  summary: string;
-  /** 参数规范化 JSON 的 SHA-256 前 12 位 */
-  digest: string;
-  bizObject: Record<string, string> | null;
-  requiredRoles: string[];
-  expiresAt: number;
-}
-
-/** SSE 事件名 → payload（与 agent-bff/server.mts 的 broadcast 一一对应） */
-export interface AgentStreamEvents {
-  user_message: { text: string; context: AgentPageContext | null };
-  turn_start: Record<string, never>;
-  assistant_delta: { delta: string; offset: number };
-  assistant_message: { seq: number; text: string };
-  tool_call: { seq: number; name: string; args: unknown; toolUseId: string | null };
-  tool_result: { seq: number; toolUseId: string | null; code: string; isError: boolean; text: string };
-  permission_request: {
-    requestId: string;
-    toolCall: Record<string, unknown>;
-    options: unknown[];
-    deadlineMs: number | null;
-    approval?: ApprovalInfo;
-  };
-  permission_resolved: { requestId: string; verdict: unknown };
-  turn_end: { reason: string; stopReason: string };
-  turn_error: { message: string; detail?: unknown };
-  stream_closed: Record<string, never>;
-}
-
-export type AgentEventName = keyof AgentStreamEvents;
+export type {
+  AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
+  AgentStreamEvents, AgentEventName, StreamTicket,
+};
 export type AgentEventHandlers = {
   [K in AgentEventName]?: (data: AgentStreamEvents[K], eventId: number) => void;
 } & {
@@ -142,7 +96,7 @@ export function agentPermission(opts: { conversationId: string; requestId: strin
 }
 
 /** SSE 限时 ticket（60s）：EventSource 不能带请求头，先换票再以 ?ticket= 连接 */
-export function agentStreamTicket(): Promise<{ ticket: string; expiresAt: number }> {
+export function agentStreamTicket(): Promise<StreamTicket> {
   return post('/stream-ticket', {});
 }
 

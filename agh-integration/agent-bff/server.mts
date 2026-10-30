@@ -4,6 +4,7 @@
 // API so the agent is native UI instead of an iframe.
 //
 //   GET  /agent-api/health                     daemon/connectivity status（公开）
+//   GET  /agent-api/openapi.json               由契约端点表生成的 OpenAPI 3.1 文档（公开）
 //   POST /agent-api/stream-ticket              换取 SSE ticket（需 Bearer JWT）
 //   GET  /agent-api/stream?conversationId=...&ticket=...  SSE event stream (replay via sinceId / Last-Event-ID)
 //   POST /agent-api/chat       { conversationId?, message, context? }
@@ -13,6 +14,13 @@
 //   GET  /agent-api/twin/stream?ticket=...     SSE 1Hz device snapshot ticks
 //   GET  /agent-api/twin/device/:id/panel      latest panel JPEG（公开：<img> 无法带请求头）
 //   GET  /agent-api/twin/grid                  workshop floor-plan PNG（公开，同上）
+//
+// 契约（2.C）：`contract/` 目录是 HTTP/SSE 线协议的单一事实源——http.mts 端点表
+// （请求/响应 schema）、events.mts SSE 事件注册表（payload 带版本字段 v）、types.ts
+// 类型定义（web-vue 的 src/api/agent.ts 由此 import type 派生，不再手写）。
+// 请求入站按契约校验（非法 400 invalid_request）；关键端点响应出站校验（失败记日志
+// 并 500 contract_violation）；SSE 事件发出前校验（畸形记日志并丢弃）。版本演进
+// 规则见 contract/EVENTS.md；契约测试：test-contract-api.mts。
 //
 // 鉴权：除健康检查与两张孪生图片外，所有端点要求 business-service 签发的 JWT
 // （Authorization: Bearer，BFF 向 FJSP_API_BASE/auth/me 内检），SSE 走一次性语义
@@ -38,6 +46,13 @@ import { tools as fjspToolDefs } from '../fjsp-tools/index.mjs'
 import { mhsHub } from './mhs.mts'
 import { simStart, simStatus, simStop } from './sim.mts'
 import { experienceQuery } from './rag.mts'
+import { validateEvent, withVersion } from './contract/events.mts'
+import {
+  buildOpenApi, validateRequestBody, findEndpoint,
+  CHAT_ACCEPTED, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
+  SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
+} from './contract/http.mts'
+import { validateValue, type Schema } from './contract/validate.mts'
 
 const PORT = Number(process.env.AGENT_BFF_PORT ?? 4178)
 const HOST = process.env.AGENT_BFF_HOST ?? '127.0.0.1'
@@ -316,10 +331,18 @@ async function ensureSession(conv: Conversation): Promise<Session> {
 }
 
 function broadcast(conv: Conversation, event: string, payload: unknown) {
+  // 契约出站校验（2.C）：统一注入版本字段 v，发出前按 contract/events.mts 校验；
+  // 畸形事件记日志并丢弃——不进回放缓冲、不推送订阅者，绝不静默发畸形数据。
+  const body = withVersion(event, (payload ?? {}) as Record<string, unknown>)
+  const issues = validateEvent(event, body)
+  if (issues.length) {
+    console.error(`[agent-bff] SSE 事件契约校验失败（${event}）:`, issues)
+    return
+  }
   const entry: BufferedEvent = {
     id: ++conv.lastEventId,
     event,
-    data: JSON.stringify(payload),
+    data: JSON.stringify(body),
   }
   conv.buffer.push(entry)
   if (conv.buffer.length > BUFFER_CAP) conv.buffer.splice(0, conv.buffer.length - BUFFER_CAP)
@@ -579,7 +602,7 @@ async function handleChat(conv: Conversation, body: { message?: unknown; context
       conv.busy = false
       for (const p of conv.pendingPermissions.values()) p.settle({ verdict: 'rejected' }, 'rejected', 'system:turn_end')
     })
-  sendJson(res, 202, { conversationId: conv.id, sessionId: conv.sessionId })
+  sendJsonChecked(res, 202, { conversationId: conv.id, sessionId: conv.sessionId }, CHAT_ACCEPTED, 'chat')
 }
 
 function handleStream(conv: Conversation, req: IncomingMessage, res: ServerResponse, url: URL) {
@@ -607,6 +630,33 @@ function sendJson(res: ServerResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload))
 }
 
+// ---- 契约校验（2.C，contract/ 目录为单一事实源）----
+
+/** 出站校验：关键端点响应发送前按契约校验，失败记日志并 500，不静默发畸形数据。 */
+function sendJsonChecked(res: ServerResponse, status: number, payload: unknown, schema: Schema, tag: string) {
+  const issues = validateValue(schema, payload)
+  if (issues.length) {
+    console.error(`[agent-bff] 响应契约校验失败（${tag}）:`, issues)
+    return sendJson(res, 500, { error: 'contract_violation', detail: `响应不符合 API 契约（${tag}）` })
+  }
+  sendJson(res, status, payload)
+}
+
+/** 入站校验：请求体按端点契约校验，非法 400 invalid_request（缺字段/错类型）。
+ *  兼容既有错误码：chat 的 message 缺失/错类型仍报 message_required。 */
+function checkBody(method: string, path: string, body: unknown, res: ServerResponse): boolean {
+  const endpoint = findEndpoint(method, path)
+  if (!endpoint) return true
+  const issues = validateRequestBody(endpoint, body)
+  if (!issues.length) return true
+  if (issues.some((i) => i.path.endsWith('.message'))) {
+    sendJson(res, 400, { error: 'message_required' })
+  } else {
+    sendJson(res, 400, { error: 'invalid_request', detail: '请求体不符合 API 契约', issues })
+  }
+  return false
+}
+
 // sim 进程状态走 pgrep，缓存 3s 避免每秒 fork（SSE tick 会调用）。
 let simCache: { at: number; status: unknown } = { at: 0, status: null }
 async function twinSnapshot() {
@@ -625,7 +675,12 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
     chunks.push(chunk)
   }
   const raw = Buffer.concat(chunks).toString('utf8')
-  return raw ? JSON.parse(raw) : {}
+  try {
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    // JSON 语法错误按契约属非法请求（外层 catch 映射 400 invalid_request）
+    throw new Error('invalid_json')
+  }
 }
 
 function cors(req: IncomingMessage, res: ServerResponse) {
@@ -645,20 +700,24 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
   const path = url.pathname.replace(/\/$/, '')
   try {
+    if (req.method === 'GET' && path === '/agent-api/openapi.json') {
+      // 由契约端点表实时生成（contract/http.mts），无静态文件，不会陈旧
+      return sendJson(res, 200, buildOpenApi())
+    }
     if (req.method === 'GET' && path === '/agent-api/health') {
       if (!existsSync(OWNER_FILE)) {
-        return sendJson(res, 200, { ok: false, daemon: 'absent', hint: 'AGH daemon 未启动（未找到 owner.json），请先运行 agnes serve' })
+        return sendJsonChecked(res, 200, { ok: false, daemon: 'absent', hint: 'AGH daemon 未启动（未找到 owner.json），请先运行 agnes serve' }, HEALTH_RESPONSE, 'health')
       }
       try {
         await getClient()
-        return sendJson(res, 200, {
+        return sendJsonChecked(res, 200, {
           ok: true,
           daemon: 'connected',
           conversations: conversations.size,
           mhs: mhsHub.connected ? 'connected' : 'connecting',
-        })
+        }, HEALTH_RESPONSE, 'health')
       } catch (err) {
-        return sendJson(res, 200, { ok: false, daemon: 'unavailable', hint: String(err) })
+        return sendJsonChecked(res, 200, { ok: false, daemon: 'unavailable', hint: String(err) }, HEALTH_RESPONSE, 'health')
       }
     }
     if (req.method === 'POST' && path === '/agent-api/stream-ticket') {
@@ -668,12 +727,16 @@ const server = createServer(async (req, res) => {
       const result = await introspectToken(header.slice(7))
       if (result === 'unavailable') return sendJson(res, 503, { error: 'auth_unavailable', detail: `业务服务鉴权接口不可达（${FJSP_API_BASE}）` })
       if (!result) return sendJson(res, 401, { error: 'unauthorized' })
-      return sendJson(res, 200, issueTicket(result))
+      return sendJsonChecked(res, 200, issueTicket(result), STREAM_TICKET_RESPONSE, 'stream-ticket')
     }
     if (req.method === 'GET' && path === '/agent-api/stream') {
       const user = await requireAuth(req, url, res)
       if (!user) return
-      const conv = getConversation(url.searchParams.get('conversationId') ?? undefined, user.username)
+      const convIdParam = url.searchParams.get('conversationId')
+      if (convIdParam !== null && !/^[\w-]{1,80}$/.test(convIdParam)) {
+        return sendJson(res, 400, { error: 'invalid_request', detail: 'conversationId 格式不符合契约', issues: [{ path: 'conversationId', message: '需匹配 ^[\\w-]{1,80}$' }] })
+      }
+      const conv = getConversation(convIdParam ?? undefined, user.username)
       if (!authorizeConversation(conv, user, res)) return
       return handleStream(conv, req, res, url)
     }
@@ -681,6 +744,7 @@ const server = createServer(async (req, res) => {
       const user = await requireAuth(req, url, res)
       if (!user) return
       const body = await readBody(req)
+      if (!checkBody('POST', '/agent-api/chat', body, res)) return
       const conv = getConversation(typeof body.conversationId === 'string' ? body.conversationId : undefined, user.username)
       if (!authorizeConversation(conv, user, res)) return
       return await handleChat(conv, body, res)
@@ -689,12 +753,13 @@ const server = createServer(async (req, res) => {
       const user = await requireAuth(req, url, res)
       if (!user) return
       const body = await readBody(req)
+      if (!checkBody('POST', '/agent-api/cancel', body, res)) return
       const conv = conversations.get(String(body.conversationId ?? ''))
       if (!conv) return sendJson(res, 404, { error: 'conversation_not_found' })
       if (!authorizeConversation(conv, user, res)) return
       if (!conv.session) return sendJson(res, 404, { error: 'conversation_not_found' })
       await conv.session.cancel()
-      return sendJson(res, 202, { ok: true })
+      return sendJsonChecked(res, 202, { ok: true }, { type: 'object', required: ['ok'] }, 'cancel')
     }
     if (req.method === 'POST' && path === '/agent-api/permission') {
       // 批准时重校验：a) 会话归属当前用户（authorizeConversation）；b) 审批未过期；
@@ -704,6 +769,8 @@ const server = createServer(async (req, res) => {
       const user = await requireAuth(req, url, res)
       if (!user) return
       const body = await readBody(req)
+      // 契约入站校验（缺字段/错类型 400）；形态合法但定位不到记录的 404 探测仍走下方审计留痕
+      if (!checkBody('POST', '/agent-api/permission', body, res)) return
       const requestId = String(body.requestId ?? '')
       const conversationId = String(body.conversationId ?? '')
       const conv = conversations.get(conversationId)
@@ -754,11 +821,11 @@ const server = createServer(async (req, res) => {
         record.status = 'approved' // 已审计，settle 内不再重复
       }
       pending.settle({ verdict }, verdict === 'allowed-once' ? 'approved' : 'rejected', user.username)
-      return sendJson(res, 202, { ok: true, verdict })
+      return sendJsonChecked(res, 202, { ok: true, verdict }, PERMISSION_ACCEPTED, 'permission')
     }
     if (req.method === 'GET' && path === '/agent-api/twin/snapshot') {
       if (!(await requireAuth(req, url, res))) return
-      return sendJson(res, 200, await twinSnapshot())
+      return sendJsonChecked(res, 200, await twinSnapshot(), TWIN_SNAPSHOT, 'twin/snapshot')
     }
     if (req.method === 'GET' && path === '/agent-api/twin/stream') {
       if (!(await requireAuth(req, url, res))) return
@@ -768,10 +835,18 @@ const server = createServer(async (req, res) => {
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
       })
-      const tick = setInterval(async () => {
-        res.write(`event: twin\ndata: ${JSON.stringify(await twinSnapshot())}\n\n`)
-      }, 1000)
-      res.write(`event: twin\ndata: ${JSON.stringify(await twinSnapshot())}\n\n`)
+      // 与 broadcast 同一契约：注入版本字段 v，发出前校验，畸形帧记日志跳过（流不断开）
+      const writeTick = async () => {
+        const frame = withVersion('twin', await twinSnapshot())
+        const issues = validateEvent('twin', frame)
+        if (issues.length) {
+          console.error('[agent-bff] SSE 事件契约校验失败（twin）:', issues)
+          return
+        }
+        res.write(`event: twin\ndata: ${JSON.stringify(frame)}\n\n`)
+      }
+      const tick = setInterval(() => void writeTick(), 1000)
+      await writeTick()
       req.on('close', () => clearInterval(tick))
       return
     }
@@ -800,31 +875,36 @@ const server = createServer(async (req, res) => {
       if (!st.running) return sendJson(res, 409, { error: 'sim_not_running' })
       const code = 'M-' + id.slice(5).toUpperCase()
       writeFileSync(`/tmp/mhs-${action}-${code}`, String(Date.now()))
-      return sendJson(res, 202, { ok: true, device: id, action })
+      return sendJsonChecked(res, 202, { ok: true, device: id, action }, TWIN_ACTION_ACCEPTED, `twin/device/${action}`)
     }
     if (req.method === 'POST' && path === '/agent-api/twin/sim/start') {
       if (!(await requireAuth(req, url, res))) return
       const body = await readBody(req).catch(() => ({}))
+      if (!checkBody('POST', '/agent-api/twin/sim/start', body, res)) return
       const machines = Array.isArray(body.machines) ? body.machines.map(String) : undefined
       const r = await simStart(machines)
-      return sendJson(res, r.started ? 202 : 409, r)
+      return sendJsonChecked(res, r.started ? 202 : 409, r, SIM_START_RESULT, 'twin/sim/start')
     }
     if (req.method === 'POST' && path === '/agent-api/twin/sim/stop') {
       if (!(await requireAuth(req, url, res))) return
-      return sendJson(res, 202, await simStop())
+      return sendJsonChecked(res, 202, await simStop(), SIM_STOP_RESULT, 'twin/sim/stop')
     }
     if (req.method === 'POST' && path === '/agent-api/rag/experience-query') {
       if (!(await requireAuth(req, url, res))) return
       const body = await readBody(req)
+      if (!checkBody('POST', '/agent-api/rag/experience-query', body, res)) return
       const result = await experienceQuery({
         eventType: typeof body.eventType === 'string' ? body.eventType : undefined,
         query: typeof body.query === 'string' ? body.query : undefined,
         limit: typeof body.limit === 'number' ? body.limit : undefined,
       })
-      return sendJson(res, 200, result)
+      return sendJsonChecked(res, 200, result, RAG_QUERY_RESULT, 'rag/experience-query')
     }
     sendJson(res, 404, { error: 'not_found' })
   } catch (err) {
+    if (err instanceof Error && err.message === 'invalid_json') {
+      return sendJson(res, 400, { error: 'invalid_request', detail: '请求体不是合法 JSON' })
+    }
     sendJson(res, 500, { error: 'internal', detail: err instanceof Error ? err.message : String(err) })
   }
 })
