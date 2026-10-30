@@ -735,13 +735,28 @@ const tools = [
   {
     name: 'fjsp_experience_query',
     description:
-      '查询扰动处置经验库：历史同类事件采用的重调度模式/权重及结果（KPI 差值、扰动率、是否发布）。决定重调度策略前调用；recommendation 按模式统计历史平均加权拖期差值并给出表现最好的模式，经验为空时为 null（此时按默认策略：LOCAL 优先）。',
+      '查询扰动处置经验库：历史同类事件采用的重调度模式/权重及结果（KPI 差值、扰动率、是否发布）。决定重调度策略前调用；传 query（当前情景的自然语言描述，如「M-05 主轴过热停机」）时走 agent-bff 的 RAG 语义检索（e5 向量 + BM25 混合召回，返回带 score 的最相似历史记录），BFF 不在线时回退本地统计；recommendation 按模式统计历史平均加权拖期差值并给出表现最好的模式，经验为空时为 null（此时按默认策略：LOCAL 优先）。',
     parameters: Obj({
       eventType: S({ description: 'BREAKDOWN（设备故障）或 NEW_ORDER（插单）；不传返回全部类型' }),
+      query: S({ description: '当前情景的自然语言描述，用于语义检索最相似的历史处置（如「M-05 主轴过热停机，维修 2 小时」）；不传则按时间倒序' }),
       limit: I({ description: '最多返回条数，默认 10' }),
     }),
     meta: READ,
-    async execute({ eventType, limit }) {
+    async execute({ eventType, limit, query }) {
+      // RAG 语义检索优先：agent-bff 的 /rag/experience-query（本地 e5 向量 + BM25 混合召回）。
+      // BFF 不在线或失败时回退到下方本地统计逻辑，保证工具永远可用。
+      try {
+        const res = await fetch(process.env.FJSP_RAG_URL || 'http://127.0.0.1:4178/agent-api/rag/experience-query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventType, query, limit: limit ?? 10 }),
+          signal: AbortSignal.timeout(4000),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data && data.ok) return result(data)
+        }
+      } catch { /* BFF 不可达：回退本地逻辑 */ }
       const all = readExperience()
       const matched = (eventType ? all.filter((r) => r.eventType === eventType) : all)
         .slice(-Math.min(Math.max(limit ?? 10, 1), 100))
@@ -849,3 +864,6 @@ export const fjspTools = {
     })
   },
 }
+
+// MCP Server（agent-bff/mcp-server.mts）复用同一套工具实现：AGH 插件与 MCP 双形态暴露。
+export { tools }

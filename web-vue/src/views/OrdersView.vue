@@ -7,6 +7,7 @@
         <button class="btn primary" v-role="['ADMIN']" @click="openAdd">+ 新增订单</button>
       </div>
     </div>
+    <AiInsightCard title="AI 订单风险扫描" :actions="aiActions" style="margin-bottom:12px" />
     <section class="card table-card">
       <div class="table-wrap">
         <table class="data-table">
@@ -181,8 +182,16 @@ import { toast, toastErr } from '../utils/ui';
 import { errMsg, fmtDateTime, isoToLocalInput, localInputToIso } from '../utils/format';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const FIELD_LABEL = { productFamily: '产品族', templateId: '工艺模板', quantity: '数量', priority: '优先级', arrivalAt: '到达时间', dueAt: '交期' };
+
+/* 页内 AI 卡片：评估当前发布计划下的订单拖期风险并给出缓解建议（只读分析） */
+const aiActions = [{
+  label: 'AI 拖期风险扫描',
+  primary: true,
+  prompt: '请评估当前发布计划下的订单拖期风险：用 fjsp_get_dashboard 和 fjsp_get_plan 取当前发布计划的 KPI 与订单交期/优先级信息，列出高拖期风险订单（订单号、优先级、预计拖期量）、主要原因（设备瓶颈 / 开工太晚 / 优先级倒挂），以及可操作的缓解建议（哪些工序可换机、哪些订单值得提前或用完全重排）。只读分析，不要做任何写操作。',
+}];
 
 const orders = ref([]);
 const templates = ref([]);

@@ -1,12 +1,17 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'nav-open': mobileNavOpen }">
+    <button v-if="mobileNavOpen" class="nav-backdrop" type="button" aria-label="关闭导航" @click="mobileNavOpen = false"></button>
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark">▣</span><span>柔性车间调度</span></div>
+      <div class="brand">
+        <span class="brand-mark">▦</span>
+        <span class="brand-copy"><strong>FJSP OPS</strong><small>柔性车间控制台</small></span>
+      </div>
+      <div class="brand-context"><span class="live-dot"></span><span>计划调度 · 仿真决策</span></div>
       <nav class="menu" id="navMenu">
         <template v-for="(entry, i) in menu" :key="i">
           <div v-if="entry.section" v-show="!entry.roles || auth.hasAnyRole(...entry.roles)" class="menu-section">{{ entry.section }}</div>
           <div v-else-if="entry.group" class="menu-group">
-            <div class="menu-parent" @click="toggleGroup(entry.group)">
+            <div class="menu-parent" role="button" tabindex="0" :aria-expanded="!collapsed.has(entry.group)" @click="toggleGroup(entry.group)" @keydown.enter.space.prevent="toggleGroup(entry.group)">
               <span class="menu-label"><span class="menu-icon" v-html="entry.icon"></span>{{ entry.group }}</span>
               <span class="chev" :class="{ collapsed: collapsed.has(entry.group) }">▾</span>
             </div>
@@ -21,22 +26,26 @@
                class="menu-item" :class="{ active: route.name === entry.id }"
                role="button" tabindex="0"
                @click="goTo(entry.id)" @keydown.enter.space.prevent="goTo(entry.id)">
-            <span class="menu-icon" v-html="entry.icon"></span>{{ entry.title }}</div>
+            <span class="menu-icon" v-html="entry.icon"></span>{{ entry.title }}<span
+              v-if="entry.id === '__agent-panel' && agent.unread"
+              style="margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#f56c6c;color:#fff;font-size:11px;line-height:18px;text-align:center"
+            >{{ agent.unread > 99 ? '99+' : agent.unread }}</span></div>
         </template>
       </nav>
     </aside>
     <main class="main">
       <header class="topbar">
         <div class="topbar-left">
-          <button type="button" class="btn" v-show="route.name !== 'board'" @click="goBack">← 返回</button>
-          <div class="crumb"><b>{{ route.meta.section }}</b><span>/</span>{{ route.meta.title }}</div>
+          <button type="button" class="nav-toggle" aria-label="打开导航" @click="mobileNavOpen = true">☰</button>
+          <button type="button" class="btn back-btn" v-show="route.name !== 'board'" @click="goBack">← 返回</button>
+          <div class="crumb"><span class="crumb-section">{{ route.meta.section }}</span><span>/</span><b>{{ route.meta.title }}</b></div>
         </div>
         <div class="top-actions">
-          <span class="muted" v-html="apiStatus"></span>
+          <span class="api-status" v-html="apiStatus"></span>
           <div class="operator">
             <span class="avatar">{{ initial }}</span>
-            <span>{{ auth.user?.displayName || auth.user?.username }} · {{ roleText(auth.role) }}</span>
-            <button class="btn small" style="margin-left:8px" @click="logout">退出</button>
+            <span class="operator-name">{{ auth.user?.displayName || auth.user?.username }} · {{ roleText(auth.role) }}</span>
+            <button class="btn small logout-btn" @click="logout">退出</button>
           </div>
         </div>
       </header>
@@ -44,27 +53,31 @@
         <router-view />
       </div>
     </main>
-    <AgentPanel />
+    <AgentSidebar />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, roleText } from '../stores/auth';
 import { useSharedStore } from '../stores/shared';
+import { useAgentStore } from '../stores/agent';
 import { esc } from '../utils/format';
-import AgentPanel from '../components/AgentPanel.vue';
+import AgentSidebar from '../components/AgentSidebar.vue';
 import { toggleAgentPanel } from '../stores/agentPanel';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const shared = useSharedStore();
+const agent = useAgentStore();
+const mobileNavOpen = ref(false);
 
 const menu = [
   { section: '工作台' },
   { id: 'board', title: '调度看板', icon: '▧' },
+  { id: 'twin', title: '数字孪生', icon: '▣' },
   { section: '基础数据' },
   {
     group: '基础数据', icon: '⚙', children: [
@@ -108,7 +121,7 @@ const menu = [
   { id: 'admin-configs', title: '字典维护', icon: '☷', roles: ['ADMIN'] },
   { section: '智能体' },
   { id: 'agent-trace', title: '处置时间线', icon: '⌚', roles: ['ADMIN'] },
-  { id: '__agent-panel', title: '智能体工作台', icon: '<span style="font-size:11px">AI</span>' },
+  { id: '__agent-panel', title: 'AI 调度副驾', icon: '<span style="font-size:11px">AI</span>' },
 ];
 
 const collapsed = reactive(new Set());
@@ -117,6 +130,7 @@ function toggleGroup(g) {
 }
 
 function goTo(name) {
+  mobileNavOpen.value = false;
   if (name === '__agent-panel') { toggleAgentPanel(); return; }
   if (route.name !== name) router.push({ name });
 }
@@ -144,5 +158,6 @@ function logout() {
   router.push({ name: 'login' });
 }
 
-onMounted(() => { shared.refreshDashboard(); });
+onMounted(() => { shared.refreshDashboard(); agent.connect(); agent.refreshHealth(); });
+watch(() => route.name, () => { mobileNavOpen.value = false; });
 </script>

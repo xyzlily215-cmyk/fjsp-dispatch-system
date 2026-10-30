@@ -11,6 +11,7 @@
         <button class="btn" @click="exportCsv">导出候选版本 CSV</button>
       </div>
     </div>
+    <AiInsightCard title="AI 方案顾问" :actions="aiActions" style="margin-bottom:12px" />
     <section class="card section-card">
       <div class="toolbar"><div class="filters">
         <span class="filter-label">基准版本</span>
@@ -117,6 +118,7 @@ import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
 import EmptyScreen from '../components/EmptyScreen.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const shared = useSharedStore();
 
@@ -131,6 +133,18 @@ const candidateId = ref(null);
 
 const diff = ref(null);
 const candVer = ref(null);
+
+/* 页内 AI 卡片：把当前选择的两个版本交给副驾做对比解读与推荐（可解释性） */
+const aiActions = [{
+  label: 'AI 推荐方案',
+  primary: true,
+  prompt: () => {
+    if (!selBaseline.value || !selCandidate.value || selBaseline.value === selCandidate.value) {
+      return '请先在下拉框选择两个不同的版本（基准与候选），然后告诉我两个版本的 id，我来对比并给出推荐。';
+    }
+    return `请用 fjsp_compare_plans 对比基准版本（id=${selBaseline.value}）与候选版本（id=${selCandidate.value}），给出推荐意见：推荐采用哪个版本？理由要说清 KPI 差值（makespan、加权拖期、拖期订单数）、扰动率 Delta_plan 与换机/换序/平移数量，以及需要关注的风险点。`;
+  },
+}];
 const diffLoading = ref(false);
 const diffError = ref(null);
 

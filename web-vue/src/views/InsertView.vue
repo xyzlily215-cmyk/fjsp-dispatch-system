@@ -11,6 +11,7 @@
     <div v-if="reviseFrom" class="success-box" style="margin-bottom:12px">
       <b>修订模式</b>原事件 {{ reviseFrom.eventCode }}（{{ reviseFrom.orderId || '-' }}）；订单号、产品族、数量等订单字段不可随事件修订更改。
     </div>
+    <AiInsightCard v-if="!reviseFrom" title="AI 插单助手" :free-input="aiFreeInput" style="margin-bottom:12px" />
     <div class="grid-2" style="grid-template-columns:1fr 1fr;align-items:start">
       <section class="card"><div class="section-pad">
         <h3 style="margin:0 0 14px;font-size:15px">{{ reviseFrom ? '修订内容' : '新订单事件' }}</h3>
@@ -83,8 +84,16 @@ import { toast } from '../utils/ui';
 import { isoToLocalInput, localInputToIso } from '../utils/format';
 import ErrorBox from '../components/ErrorBox.vue';
 import EventsImpactPanel from '../components/EventsImpactPanel.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const route = useRoute();
+
+/* 页内 AI 卡片：自然语言插单——副驾解析描述并调 fjsp_insert_order（写操作走页内审批） */
+const aiFreeInput = {
+  placeholder: '用一句话描述插单，如：插一单 P-A 产品 50 件，明天 10 点到，周五 18 点交，优先级 8',
+  button: 'AI 提交插单',
+  wrap: (t) => `请按以下描述调用 fjsp_insert_order 完成插单（写操作我会人工审批）：${t}。缺失的参数参考现有订单的产品族命名与合理默认值；成功后告诉我事件 ID，并评估对当前发布计划的影响（可参考 fjsp_experience_query 的同类历史）。`,
+};
 
 const templates = ref([]);
 const loading = ref(true);

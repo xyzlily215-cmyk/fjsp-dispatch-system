@@ -4,6 +4,7 @@
       <div><h1>重调度向导</h1>
         <p>基于原计划与事件生成候选重调度方案；已完成、加工中与冻结窗口内工序硬锁定不可变更</p></div>
     </div>
+    <AiInsightCard title="AI 策略顾问" :actions="aiActions" style="margin-bottom:12px" />
     <section class="card"><div class="section-pad">
       <div style="margin-bottom:16px">
         <span v-for="(s, i) in WIZARD_STEPS" :key="s" class="tag"
@@ -146,11 +147,24 @@ import { useSharedStore } from '../stores/shared';
 import { useRescheduleStore } from '../stores/reschedule';
 import AsyncPage from '../components/AsyncPage.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const WIZARD_STEPS = ['选择原计划', '选择事件', '影响范围预览', '模式与参数', '确认提交'];
 
 /* 向导状态在 Pinia（src/stores/reschedule.js）：跨页面访问保留步骤/模式/参数，生命周期同旧模块级单例 */
 const { wizard } = useRescheduleStore();
+
+/* 页内 AI 卡片：针对选中事件做经验检索并推荐模式/权重（只读建议，不触发重调度） */
+const aiActions = [{
+  label: 'AI 策略推荐',
+  primary: true,
+  prompt: () => {
+    const ev = selectedEvent.value;
+    if (!ev) return '请先在向导第 2 步选择一个扰动事件，然后我来推荐重调度策略。';
+    const scenario = `事件 ${ev.eventCode}（${ev.subType || ev.eventType}，设备 ${ev.machineId || '-'}，发生时间 ${ev.occurredAt}）`;
+    return `针对${scenario}（事件 id=${wizard.eventId}），请用 fjsp_experience_query 查询同类历史处置（query 参数传该情景的自然语言描述），推荐重调度模式（LOCAL_RESCHEDULE / FULL_RESCHEDULE）与权重配置，并说明历史依据。只给建议，不要执行 fjsp_reschedule。`;
+  },
+}];
 
 const route = useRoute();
 const router = useRouter();

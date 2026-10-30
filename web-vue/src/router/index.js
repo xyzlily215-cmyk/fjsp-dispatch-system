@@ -12,6 +12,7 @@ const routes = [
     children: [
       { path: '', redirect: { name: 'board' } },
       { path: 'board', name: 'board', component: () => import('../views/BoardView.vue'), meta: { section: '工作台', title: '调度看板' } },
+      { path: 'twin', name: 'twin', component: () => import('../views/TwinView.vue'), meta: { section: '工作台', title: '数字孪生车间' } },
       { path: 'machines', name: 'machines', component: () => import('../views/MachinesView.vue'), meta: { section: '基础数据', title: '设备管理' } },
       { path: 'calendar', name: 'calendar', component: () => import('../views/CalendarView.vue'), meta: { section: '基础数据', title: '设备日历' } },
       { path: 'templates', name: 'templates', component: () => import('../views/TemplatesView.vue'), meta: { section: '基础数据', title: '工艺模板' } },

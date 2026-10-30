@@ -7,7 +7,16 @@
       <button class="btn primary" @click="load">重试</button>
     </div></section>
   </div>
-  <div v-else>
+  <div v-else class="board-page">
+    <section class="board-welcome">
+      <div class="board-welcome-copy">
+        <span class="board-eyebrow">PRODUCTION OVERVIEW</span>
+        <h2>每一次调度，都有序可循。</h2>
+        <p>从生产计划到执行反馈，让车间运行一目了然。</p>
+        <div class="board-plan"><span class="live-dot"></span>{{ filters.planVersionId ? '所选计划' : '当前发布计划' }} <strong>{{ plan?.versionCode || '暂无发布计划' }}</strong><StatusTag v-if="plan" :status="plan.status" /></div>
+      </div>
+      <img src="/images/factory-control.webp" alt="" width="1536" height="1024" class="board-factory">
+    </section>
     <div class="page-header">
       <div><h1>调度看板</h1><p>生产运行概览（时间窗口：{{ windowLabel }}<template v-if="win.from"> {{ fmtTime(win.from) }} ~ {{ fmtTime(win.to) }}</template>）</p></div>
       <div class="buttons">
@@ -43,7 +52,7 @@
       </EmptyScreen>
     </section>
     <div v-else class="kpis">
-      <article v-for="c in kpiCards" :key="c.jump" class="card kpi" title="点击查看详情" @click="kpiJump(c.jump)">
+      <article v-for="c in kpiCards" :key="c.jump" class="card kpi" role="button" tabindex="0" :aria-label="c.label + '，' + c.value + (c.unit || '') + '，查看详情'" title="点击查看详情" @click="kpiJump(c.jump)" @keydown.enter.space.prevent="kpiJump(c.jump)">
         <div class="kpi-label">{{ c.label }}</div>
         <div class="kpi-value">{{ c.value }}<span class="kpi-unit">{{ c.unit || '' }}</span></div>
         <div class="trend" style="color:#909399">{{ c.sub || '' }}</div>

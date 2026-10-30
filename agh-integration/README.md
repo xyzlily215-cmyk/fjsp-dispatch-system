@@ -7,11 +7,13 @@
 ```
 agh-integration/
 ├── agnes-harness/            # 可选 AGH 源码（未随本仓库分发，构建后入口 packages/cli/dist/local/agnes.mjs）
+├── agent-bff/                # Web 前端桥：AGH daemon → HTTP/SSE（web-vue「AI 调度副驾」的后端）
+│   └── server.mts            # 单文件 Node 服务（tsx 运行，默认 127.0.0.1:4178）
 ├── fjsp-tools/               # 后端工具插件（agnes.plugins 入口）
 │   ├── package.json
 │   └── index.mjs             # 16 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
 ├── mhs-devices/              # MHS 虚拟设备（agnes_mhs Python 库）
-│   └── machine-m03.py        # CNC 机床 M-01~M-08 + AGV-01（workshop 地图：分区 + grid 平面图 + 位姿）：温度/振动 + 面板画面（image）+ 故障注入（SIGUSR1/SIGUSR2）
+│   └── machine-m03.py        # CNC 机床 M-01~M-08 + AGV-01（workshop 地图：分区 + grid 平面图 + 位姿）：温度/振动 + 面板画面（image）+ 任意机床故障注入（/tmp/mhs-fault-M-XX 触发文件）
 ├── skills/fjsp-dispatch/SKILL.md   # 调度处置方法论 Skill（工程副本，含 MHS 告警处置流程）
 ├── driver/fjsp-agent.mts     # 端到端验证驱动（SDK 直连 daemon，操作员角色程序化审批）
 ├── driver/fjsp-watch.mts     # MHS 值守驱动：附着已有会话，等 watch_device 唤醒并审批
@@ -40,9 +42,22 @@ AGNES_HUB_ORIGIN=http://127.0.0.1:4180 \
 
 ## 模型配置（Agnes AI）
 
-凭据在 `~/.config/fjsp/agnes.env`（不打印明文）。**本提交包已随附评审专用 Key**：`agh-integration/agnes.env`，评审方执行 `mkdir -p ~/.config/fjsp && cp agh-integration/agnes.env ~/.config/fjsp/agnes.env` 即可，无需自备 Key。实测该 Key 是**中国区网关**（`https://api.agnes-ai.cn/v1`，AGH 内置 Agnes AI Provider 的默认地址）的 Key，且只授权了 **agnes-3.0-flash**；`agnes.env` 里的国际站 base URL / agnes-2.0-flash 对该 Key 不可用（401/403）。
+凭据在 `~/.config/fjsp/agnes.env`（不进仓库、不打印明文），需自备模型 Key：Agnes AI（中国区网关 `https://api.agnes-ai.cn/v1`，模型 `agnes-3.0-flash`）或下列任意 Provider。文件格式：`AGNES_API_KEY=...` / `AGNES_BASE_URL=...` / `AGNES_MODEL=...`。
 
-配置方式（交互向导支持管道输入；Agnes AI 是列表第 12 项）：
+**多 Provider 切换（2026-10 起）**：AI Web 开发挑战赛允许任意主流大模型 API，AGH 内置 12 家 Provider（Kimi / GLM / Qwen / DeepSeek / OpenAI / Claude / Gemini / OpenRouter / MiniMax / xAI / Agnes AI 等）。Agnes 评审 Key 被网关封禁后，本环境默认模型已切换为 **DeepSeek `deepseek-flash`**（2026-10-21，经 `config.test` 验证 + 全链路联调通过），切换用脚本化工具 `agent-bff/model-config.mts`（Key 走环境变量，只存 daemon profile，不落仓库）：
+
+```sh
+cd agh-integration/agent-bff
+../agnes-harness/node_modules/.bin/tsx model-config.mts list                 # 当前账号/默认模型
+../agnes-harness/node_modules/.bin/tsx model-config.mts providers            # Provider 目录
+export AGH_MODEL_API_KEY='<provider 的 key>'
+../agnes-harness/node_modules/.bin/tsx model-config.mts test <providerId> <model>   # 验证连通性
+../agnes-harness/node_modules/.bin/tsx model-config.mts save <providerId> <model> --default [--base-url <url>]
+```
+
+注意：可保存的模型受 AGH 内置目录限制（`config.test` 返回的清单为准），目录外模型（如已下线的 glm-4.5-flash）会被 `CONFIG_MODEL_UNAVAILABLE` 拒绝；`effect: new-sessions` 表示新会话立即生效，旧会话保持原绑定。
+
+以下为 Agnes AI 的原始配置方式（交互向导支持管道输入；Agnes AI 是列表第 12 项）：
 
 ```sh
 set -a; source ~/.config/fjsp/agnes.env; set +a
@@ -51,6 +66,53 @@ printf 'Agnes\n12\n\n%s\n1\n' "$AGNES_API_KEY" | node agnes-harness/packages/cli
 
 （依次为：账号名 / Provider=Agnes AI / Base URL 留空用默认 / API Key / 模型选 1 = agnes-3.0-flash。）
 也可在 Web 工作台「Provider 设置」里完成同样配置。验证：`node .../agnes.mjs -p "你好，一句话介绍你自己"`。
+
+## agent-bff（Web 前端桥）
+
+web-vue 的「AI 调度副驾」侧栏不嵌 iframe，而是通过 `agent-bff/server.mts` 原生接入 AGH：BFF 用 AGH Node SDK 经 unix socket 直连 daemon（与 driver 同方式），对前端暴露同源 HTTP/SSE API。前端经 Vite 代理 `/agent-api` → `127.0.0.1:4178`（可用 `?bff=` 或 localStorage `fjsp.agentBff` 覆盖，仅信任 loopback）。
+
+启动（需 daemon 已运行）：
+
+```sh
+cd agh-integration/agent-bff
+../agnes-harness/node_modules/.bin/tsx server.mts   # 默认 127.0.0.1:4178，AGENT_BFF_PORT 可改
+```
+
+API：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/agent-api/health` | daemon 连通性 |
+| GET | `/agent-api/stream?conversationId=…` | SSE 事件流（user_message / assistant_delta / assistant_message / tool_call / tool_result / permission_request / permission_resolved / turn_end / turn_error），支持 Last-Event-ID 增量重连，事件缓冲可整段回放重建页面 |
+| POST | `/agent-api/chat` | `{conversationId?, message, context?}`，context 为前端当前页面（section/title/route/query），随提示词注入 |
+| POST | `/agent-api/cancel` | 停止当前轮次 |
+| POST | `/agent-api/permission` | `{conversationId, requestId, verdict: allowed-once\|rejected}`，对应 fjsp-tools 三级审批的人工确认 |
+| GET | `/agent-api/twin/snapshot` | MHS 设备快照（状态/健康/位姿/最新指标）+ 车间地图，供数字孪生页 |
+| GET | `/agent-api/twin/stream` | SSE 1Hz 设备快照推送 |
+| GET | `/agent-api/twin/device/:id/panel` | 设备 panel 画面（JPEG，BFF 侧 1.5s 缓存） |
+| GET | `/agent-api/twin/grid` | 车间平面图 PNG（长缓存） |
+| POST | `/agent-api/twin/device/:id/fault` / `:id/recover` | 任意机床（cnc-mXX）故障注入/恢复：写 `/tmp/mhs-fault-M-XX` / `/tmp/mhs-recover-M-XX` 触发文件，设备循环下一拍消费（与 machine-m03.py 约定一致，文件无条件消费防二次触发） |
+| POST | `/agent-api/twin/sim/start` / `sim/stop` | 虚拟车间进程启停（spawn/pgrep + SIGTERM，默认 M-01~M-08 + AGV-01，PYTHONPATH 与 start-demo.sh 一致）；快照含 `sim.running`，页面上可直接启停，免脚本 |
+| POST | `/agent-api/rag/experience-query` | 处置经验库 RAG 语义检索（fjsp_experience_query 的后端）：`{eventType?, query?, limit?}`，返回 `retrieval`（hybrid/bm25/recency）与带 score 的记录 |
+
+RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（4s 超时回退本地统计），推荐口径不变（按模式平均加权拖期差值最优）。
+
+## MCP Server（fjsp-mcp）
+
+`agent-bff/mcp-server.mts` 把 18 个 fjsp_* 工具经 **Model Context Protocol**（stdio/NDJSON，protocol 2025-06-18）暴露给任意 MCP 客户端——与 AGH 插件共用 `fjsp-tools/index.mjs` 的同一套工具实现（`export { tools }`），AGH 插件与 MCP 是同一代码的两种暴露形态。
+
+```sh
+cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-server.mts
+# MCP 客户端配置：{ "command": "<tsx 绝对路径>", "args": ["<agent-bff 绝对路径>/mcp-server.mts"] }
+```
+
+审批语义与 AGH 对齐：`tools/list` 的 annotations 带 readOnlyHint/destructiveHint；`requiresApproval=always` 的工具（写/高风险/破坏性）必须在 arguments 里显式带 `"_confirm": true`，否则返回 `CONFIRM_REQUIRED`——这是 MCP 侧与 AGH 人工审批等价的显式确认。冒烟测试：`node agent-bff/mcp-smoke.mjs`（initialize → tools/list 18 个 → 只读调用 → 未确认拒绝 → 确认后执行）。
+
+数字孪生通道：BFF 作为 AgnesHub 北向客户端（`ws://127.0.0.1:4180/ws/hub`，role=ui，与 Devices 面板同协议），缓存 `hub/devices` + `hub/changed` + `hub/state`，并按 1Hz 轮询 `hub/read` 取各设备 metrics 最新值；断线自动重连。web-vue「数字孪生车间」页（`/twin`）为**座舱布局**：左侧 SVG 车间地图（分区多边形 + 设备状态色 + 告警点 + AGV 位姿）、设备指标卡片、panel 画面轮询、设备控制（启停虚拟车间、任意机床注入/恢复、随机故障注入）、告警条「让副驾处置」；右侧**内嵌** AI 调度副驾对话栏（`AgentChat.vue`，与抽屉侧栏 `AgentSidebar.vue` 共用，衔接 SKILL 第三节的 MHS 告警处置流程）。对话栏多模态：语音输入（Web Speech API 中文识别，浏览器不支持时自动隐藏）、TTS 播报开关（朗读副驾答复）、设备 panel 画面视觉理解（deepseek-flash 支持 text+image 输入，`read_device` 的 returnsImages 把画面直接给模型，实测可描述状态灯/温度/曲线）。
+
+**全站 AI 融合（不止孪生页）**：通用页内组件 `AiInsightCard.vue`（动作按钮/自由输入 → agent store → 内联展示答复流 + 页内审批卡片 `AgentApprovalCards.vue`，与侧栏共享同一个 Agent 会话）已接入 5 个核心业务页——甘特图「AI 解读方案」（瓶颈/拖期分布/改进建议）、方案对比「AI 推荐方案」（KPI 差值 + 扰动率理由）、基线排程「AI 一键基线」（全流程带审批）、订单插单「AI 提交插单」（自然语言解析下单）、重调度向导「AI 策略推荐」（经验检索给模式/权重建议）；侧栏快捷指令按路由感知（`AgentChat.vue` 的 ROUTE_HINTS，每个页面提示语不同）。标签页隐藏时自动暂停孪生 SSE 与画面轮询。
+
+要点：会话以 `conversationId` 为 `sessionKey` 在 daemon 侧建独立 AGH 会话（不传 sessionKey 时 daemon 会把同一 workspace 的 new() 归并到默认会话，多浏览器会串历史）；映射持久化在 `agent-bff/.conversations.json`（已 gitignore）；接受对话时把 AGH 会话 ID 写入 `agh-integration/.agh-session-id`，与 fjsp-tools 的 `X-AGH-Session-Id` 审计头联动，处置时间线（AgentTraceView）可按会话对照。BFF 仅绑定 127.0.0.1 且校验 Origin 为 loopback，未做用户鉴权（演示环境前提，生产化需接 JWT）。
 
 ## fjsp-tools 插件
 
@@ -133,7 +195,7 @@ node agnes-harness/packages/cli/dist/local/agnes.mjs resources list --kind skill
 
 车间设备经 MHS（Model Hardware Standard）接入 AGH 内置的 AgnesHub，扰动由设备通道自动暴露，Agent 被唤醒后仍走 fjsp-dispatch 处置流程与 fjsp_* 审批链。
 
-- **虚拟机床设备**：`mhs-devices/machine-m03.py`（Python，`agnes_mhs` 库）。默认只起 M-03；`machine-m03.py <hub-url> M-01 M-02 ... M-08 AGV-01` 一次拉起整个车间（与业务系统设备清单 M-01~M-08 对齐，`scripts/start-demo.sh` 用 `FJSP_MHS_MACHINES` 控制）。每台机床：状态（status/current_job/spindle_load）+ metrics 数据源（温度/振动/转速，2 Hz）+ panel 画面数据源（image，1 Hz JPEG，状态灯 + 温度曲线 + 负载条，由 Pillow 实时渲染，Hub 订阅才推流；工作台 Devices 面板直接显示，对应火星基地案例的相机画面）。车间地图（对应火星基地案例的世界地图）：机床声明 `placement` + `localization="fixed"`（**两者必须成对**，否则 Hub 不算位置、World 页 0 台设备），两排各 4 台面对面朝向中间通道（yaw 90/270）；地图 places 用多边形分区（上料区/加工区/检验区，Hub 自动标注设备所在 zone）；每台机床还带一份 grid 数据源（PNG 灰度平面图：外墙 + 分区隔墙 + 出入口，World 页取一台的作为地面底图）。追加 `AGV-01` 可起一台 AGV 搬运车（`localization="self"` + pose 源 5 Hz），沿中间通道在上料区/检验区之间往返。故障注入（仅 M-03）：`kill -USR1 <pid>` 或 `touch /tmp/m03-fault`；恢复：`kill -USR2 <pid>`。
+- **虚拟机床设备**：`mhs-devices/machine-m03.py`（Python，`agnes_mhs` 库）。默认只起 M-03；`machine-m03.py <hub-url> M-01 M-02 ... M-08 AGV-01` 一次拉起整个车间（与业务系统设备清单 M-01~M-08 对齐，`scripts/start-demo.sh` 用 `FJSP_MHS_MACHINES` 控制）。每台机床：状态（status/current_job/spindle_load）+ metrics 数据源（温度/振动/转速，2 Hz）+ panel 画面数据源（image，1 Hz JPEG，状态灯 + 温度曲线 + 负载条，由 Pillow 实时渲染，Hub 订阅才推流；工作台 Devices 面板直接显示，对应火星基地案例的相机画面）。车间地图（对应火星基地案例的世界地图）：机床声明 `placement` + `localization="fixed"`（**两者必须成对**，否则 Hub 不算位置、World 页 0 台设备），两排各 4 台面对面朝向中间通道（yaw 90/270）；地图 places 用多边形分区（上料区/加工区/检验区，Hub 自动标注设备所在 zone）；每台机床还带一份 grid 数据源（PNG 灰度平面图：外墙 + 分区隔墙 + 出入口，World 页取一台的作为地面底图）。追加 `AGV-01` 可起一台 AGV 搬运车（`localization="self"` + pose 源 5 Hz），沿中间通道在上料区/检验区之间往返。故障注入（**任意机床**）：`touch /tmp/mhs-fault-M-05`；恢复：`touch /tmp/mhs-recover-M-05`（旧版 `kill -USR1/-USR2` 与 `/tmp/m03-fault` 仍兼容，仅作用于 M-03）；数字孪生页工具栏「随机故障注入」与详情卡「注入过热故障/恢复正常」走 agent-bff 的 `:id/fault`、`:id/recover` 端点，免脚本。
 - **运行**：`python3 -m venv mhs-devices/.venv && mhs-devices/.venv/bin/pip install jsonschema websockets pillow`，然后
   ```sh
   R=agh-integration 的绝对路径

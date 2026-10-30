@@ -40,6 +40,12 @@ export default defineConfig({
         changeOrigin: true,
         headers: { Origin: 'http://127.0.0.1:8082' },
       },
+      /* AI 调度副驾 BFF（agh-integration/agent-bff，默认 4178）：SSE 长连接经同源代理，
+       * BFF 自身也校验 Origin 仅放行 loopback，双保险。 */
+      '/agent-api': {
+        target: 'http://127.0.0.1:4178',
+        changeOrigin: true,
+      },
     },
   },
   preview: {
@@ -51,6 +57,10 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
         headers: { Origin: 'http://127.0.0.1:8082' },
+      },
+      '/agent-api': {
+        target: 'http://127.0.0.1:4178',
+        changeOrigin: true,
       },
     },
   },

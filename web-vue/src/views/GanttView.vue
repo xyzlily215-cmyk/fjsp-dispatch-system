@@ -22,6 +22,7 @@
         <button class="btn" @click="load">&#8635; 刷新</button>
       </div>
     </div>
+    <AiInsightCard title="AI 方案解读" :actions="aiActions" style="margin-bottom:12px" />
     <section class="card section-card">
       <div class="gantt-header">
         <div class="filters" style="display:flex;gap:10px;align-items:center">
@@ -55,6 +56,7 @@ import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
 import EmptyScreen from '../components/EmptyScreen.vue';
 import GanttChart from '../components/GanttChart.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -76,6 +78,15 @@ const chartRef = ref(null);
 
 const currentId = computed(() => (dash.value && dash.value.currentPlan && dash.value.currentPlan.id) || null);
 const kpi = computed(() => (plan.value && plan.value.kpi) || {});
+
+/* 页内 AI 卡片：解读当前甘特图选中的计划版本（瓶颈、拖期分布、改进建议） */
+const aiActions = [{
+  label: 'AI 解读方案',
+  primary: true,
+  prompt: () => (selectedId.value
+    ? `请用 fjsp_get_plan 解读计划版本（id=${selectedId.value}）：当前 KPI 如何（makespan、加权拖期、拖期订单数、负载不均衡度）？瓶颈设备是哪些？拖期订单集中在哪？如果要改善，建议从哪入手？`
+    : '请先在甘特图顶部选择一个计划版本，然后我来解读它的瓶颈与拖期分布。'),
+}];
 
 async function load() {
   loading.value = true;

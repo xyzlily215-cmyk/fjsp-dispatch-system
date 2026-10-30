@@ -14,13 +14,14 @@
 往返，通过 pose 数据源实时上报位姿。工作台 Devices 面板显示车间布局与设备点位，
 对应火星基地案例的世界地图。
 
-默认健康运行；M-03 是约定的故障演示机：注入故障后温度爬升越过告警阈值、状态变
+默认健康运行；任意机床都可注入故障：注入后温度爬升越过告警阈值、状态变
 down，Agent 侧的 watch_device 条件成立即被唤醒，走 fjsp-dispatch 处置流程。
 
-故障注入（仅 M-03，进程运行中任选其一）：
-    kill -USR1 <pid>          # 立即开始故障序列
-    touch /tmp/m03-fault      # 下一次循环检测到该文件即注入
-恢复：kill -USR2 <pid>（或重启进程）。
+故障注入（进程运行中，对任意机床生效，如 M-05）：
+    touch /tmp/mhs-fault-M-05    # 下一次循环检测到该文件即注入
+恢复：
+    touch /tmp/mhs-recover-M-05  # 或直接重启进程
+旧版兼容：kill -USR1/-USR2 <pid> 与 touch /tmp/m03-fault 仍只作用于 M-03。
 
 panel 画面数据源依赖 Pillow（pip install pillow）；未安装时跳过该数据源，其余功能不受影响。
 
@@ -47,8 +48,14 @@ try:
 except ImportError:  # 未安装 Pillow：不提供 panel 画面数据源
     Image = None
 
-FAULT_MACHINE = "M-03"  # 约定的故障演示机
-FAULT_TRIGGER_FILE = "/tmp/m03-fault"
+FAULT_MACHINE = "M-03"  # 旧版演示约定机（/tmp/m03-fault 与 SIGUSR1/2 仍指向它）
+LEGACY_FAULT_FILE = "/tmp/m03-fault"
+
+def fault_trigger_file(code: str) -> str:
+    return f"/tmp/mhs-fault-{code}"
+
+def recover_trigger_file(code: str) -> str:
+    return f"/tmp/mhs-recover-{code}"
 
 # 故障序列参数：注入后经过 RAMP_SECONDS 温度从正常爬升到峰值
 FAULT_RAMP_SECONDS = 20.0
@@ -266,6 +273,16 @@ class MachineSim:
         )
         self.dev.update(status="running", current_job=self.job, spindle_load=self.load_base)
 
+    @staticmethod
+    def _consume(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+
     def inject_fault(self) -> None:
         if not self.faulted:
             self.faulted = True
@@ -281,12 +298,16 @@ class MachineSim:
     async def run(self) -> None:
         while True:
             now = time.time()
-            if not self.faulted and self.code == FAULT_MACHINE and os.path.exists(FAULT_TRIGGER_FILE):
-                try:
-                    os.remove(FAULT_TRIGGER_FILE)
-                except OSError:
-                    pass
-                self.inject_fault()
+            # 任意机床都可注入/恢复：按机台号的触发文件（BFF 数字孪生页与演示脚本共用）。
+            # 文件无条件消费——已故障时再到的注入文件、未故障时再到的恢复文件都直接丢弃，
+            # 避免残留文件在状态翻转后被二次消费。/tmp/m03-fault 保留为 M-03 的旧版兼容入口。
+            if self._consume(fault_trigger_file(self.code)) or (
+                self.code == FAULT_MACHINE and self._consume(LEGACY_FAULT_FILE)
+            ):
+                if not self.faulted:
+                    self.inject_fault()
+            if self._consume(recover_trigger_file(self.code)) and self.faulted:
+                self.recover()
 
             if self.faulted:
                 ramp = min(1.0, (now - self.fault_at) / FAULT_RAMP_SECONDS)

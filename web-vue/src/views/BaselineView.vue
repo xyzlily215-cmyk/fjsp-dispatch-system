@@ -3,6 +3,7 @@
     <div class="page-header">
       <div><h1>基线排程</h1><p>选择待排订单并配置算法参数，创建 BASELINE 求解任务</p></div>
     </div>
+    <AiInsightCard title="AI 排程助手" :actions="aiActions" style="margin-bottom:12px" />
     <div class="grid-2" style="grid-template-columns:1.5fr 1fr;align-items:start">
       <section class="card table-card">
         <div class="toolbar">
@@ -65,9 +66,17 @@ import { fmtDateTime, localInputToIso } from '../utils/format';
 import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import AiInsightCard from '../components/AiInsightCard.vue';
 
 const router = useRouter();
 const shared = useSharedStore();
+
+/* 页内 AI 卡片：一句话发起完整基线流程（建任务→轮询→校验→提交评审，写操作走页内审批） */
+const aiActions = [{
+  label: 'AI 一键基线排程',
+  primary: true,
+  prompt: '请执行一次完整的基线排程流程：fjsp_create_baseline 创建任务 → fjsp_task_status 轮询至完成 → 校验 resultStatus 为 FEASIBLE 且 conflicts 为空 → 通过后 fjsp_submit_review 提交评审（先用 fjsp_get_plan 取最新 version）。每步写操作我会逐一人工审批，完成后汇报 KPI（makespan、加权拖期、拖期订单数、负载不均衡度）。',
+}];
 
 const orders = ref([]);
 const loading = ref(true);

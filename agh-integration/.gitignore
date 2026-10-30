@@ -1,6 +1,16 @@
 # runtime artifact written by driver/fjsp-agent.mts, read by fjsp-tools plugin
 .agh-session-id
 
+# local model credentials — never commit (use ~/.config/fjsp/agnes.env)
+agnes.env
+
 # MHS device runtime artifacts
 mhs-devices/.venv/
 mhs-devices/m03.pid
+
+# agent-bff conversation -> AGH session mapping (runtime artifact)
+agent-bff/.conversations.json
+
+# agent-bff runtime deps & local models
+agent-bff/node_modules/
+agent-bff/models/
