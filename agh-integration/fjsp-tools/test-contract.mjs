@@ -69,6 +69,14 @@ for (const tool of tools) {
   assertErrEnvelope(out, 'FJSP_INVALID_PARAMS', `${tool.name} 非法参数`)
 }
 
+// ---- 1a. 调用方完全省略参数（MCP arguments 可省略）：有必填字段的工具必须挡在执行前 ----
+{
+  const before = fetchCalls.length
+  const out = await toolMap.get('fjsp_task_status').execute()
+  assert(fetchCalls.length === before, 'fjsp_task_status 省略全部参数未发 HTTP 请求')
+  assertErrEnvelope(out, 'FJSP_INVALID_PARAMS', 'fjsp_task_status 省略全部参数')
+}
+
 // ---- 1b. 错类型（含嵌套对象） ----
 resetFetch()
 {
@@ -181,6 +189,18 @@ resetFetch(() => {
   assertErrEnvelope(out, 'FJSP_UNREACHABLE', '服务不可达')
   assert(out.structured.error.category === 'retryable' && out.structured.error.retryable === true, 'FJSP_UNREACHABLE 分类 retryable')
 }
+// 响应不可解析（FJSP_BAD_RESPONSE）：message 必须非空（envelope 五字段契约）
+resetFetch(() => ({ ok: false, status: 502, json: async () => { throw new Error('bad json') } }))
+{
+  const out = await toolMap.get('fjsp_get_dashboard').execute({})
+  assertErrEnvelope(out, 'FJSP_BAD_RESPONSE', '响应不可解析')
+}
+// 业务错误无 code/message（FJSP_HTTP_* 兜底）：message 必须非空
+resetFetch(() => jsonRes(503, {}))
+{
+  const out = await toolMap.get('fjsp_get_dashboard').execute({})
+  assertErrEnvelope(out, 'FJSP_HTTP_503', '无 code 的业务错误兜底')
+}
 // 本地成功路径（经验库写入，不走 HTTP）
 resetFetch()
 {
@@ -197,7 +217,9 @@ resetFetch()
   assert(validateParams(schema, { orderCode: 'O1' }).some((i) => i.path === 'quantity'), 'validateParams 缺必填被检出')
   assert(validateParams(schema, { extra: 1 }).some((i) => i.message === '未定义的字段'), 'validateParams 未定义字段被检出')
   assert(validateParams(toolMap.get('fjsp_get_dashboard').parameters, {}).length === 0, 'validateParams 空 schema 接受 {}')
-  assert(validateParams(toolMap.get('fjsp_get_dashboard').parameters, null).length === 0, 'validateParams 接受缺省参数（MCP arguments 可省略）')
+  assert(validateParams(toolMap.get('fjsp_get_dashboard').parameters, null).length === 0, 'validateParams 无必填工具接受省略参数')
+  assert(validateParams(toolMap.get('fjsp_task_status').parameters, null).some((i) => i.path === 'taskId'), 'validateParams 省略参数时有必填字段被检出')
+  assert(validateParams(toolMap.get('fjsp_task_status').parameters, undefined).some((i) => i.path === 'taskId'), 'validateParams undefined 参数同样触发必填拦截')
 }
 
 rmSync(tmpDir, { recursive: true, force: true })

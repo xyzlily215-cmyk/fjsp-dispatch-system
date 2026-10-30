@@ -90,7 +90,7 @@ function validateValue(schema, value, path, issues) {
 }
 
 function validateParams(schema, args) {
-  if (args === undefined || args === null) return []
+  if (args === undefined || args === null) args = {} // 省略参数规整为 {}，必填字段照常拦截
   if (typeof args !== 'object' || Array.isArray(args)) return [{ path: '(root)', message: '参数必须是对象' }]
   const issues = []
   validateValue(schema, args, '', issues)
@@ -273,7 +273,10 @@ async function apiWithRetry(method, path, body, allowReauth) {
   try {
     env = await res.json()
   } catch {
-    return { ok: false, error: { code: 'FJSP_BAD_RESPONSE', httpStatus: res.status } }
+    return {
+      ok: false,
+      error: { code: 'FJSP_BAD_RESPONSE', message: `业务服务返回了无法解析的响应（HTTP ${res.status}）`, httpStatus: res.status },
+    }
   }
   if (res.status === 401) {
     return {
@@ -286,7 +289,7 @@ async function apiWithRetry(method, path, body, allowReauth) {
       ok: false,
       error: {
         code: (env && env.code) || `FJSP_HTTP_${res.status}`,
-        message: (env && env.message) || '',
+        message: (env && env.message) || `业务服务返回 HTTP ${res.status}`,
         httpStatus: res.status,
         requestId: env && env.requestId,
       },
