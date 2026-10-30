@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="600" viewBox="0 0 1080 600" font-family="PingFang SC, Hiragino Sans GB, sans-serif">
+<rect x="0" y="0" width="1080" height="600" fill="#ffffff"/>
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 Z" fill="#222222"/></marker><marker id="arrR" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0,0 L8,4.5 L0,9 Z" fill="#000000"/></marker></defs>
+<rect x="30" y="40" width="1020" height="200" rx="8" fill="#F4F4F4" stroke="#999999" stroke-width="1.2" stroke-dasharray="5,4"/>
+<text x="44" y="66" font-size="14" font-weight="bold" fill="#222222">业务服务（Spring Boot）</text>
+<rect x="30" y="270" width="1020" height="160" rx="8" fill="#F4F4F4" stroke="#999999" stroke-width="1.2" stroke-dasharray="5,4"/>
+<text x="44" y="296" font-size="14" font-weight="bold" fill="#222222">调度算法服务（Python/FastAPI）</text>
+<rect x="45" y="123" width="64" height="46" rx="6" fill="#FFFFFF" stroke="#222222" stroke-width="1.3"/>
+<text x="77.0" y="149.0" font-size="12" text-anchor="middle" fill="#222222">开始</text>
+<rect x="124" y="115" width="140" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="194.0" y="140.0" font-size="12" text-anchor="middle" fill="#222222">① 动态事件登记</text>
+<text x="194.0" y="158.0" font-size="12" text-anchor="middle" fill="#222222">（插单/设备故障）</text>
+<rect x="279" y="115" width="140" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="349.0" y="140.0" font-size="12" text-anchor="middle" fill="#222222">② 读取输入快照</text>
+<text x="349.0" y="158.0" font-size="12" text-anchor="middle" fill="#222222">识别排程模式</text>
+<rect x="434" y="115" width="140" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="504.0" y="140.0" font-size="12" text-anchor="middle" fill="#222222">③ 影响集合计算</text>
+<text x="504.0" y="158.0" font-size="12" text-anchor="middle" fill="#222222">锁定状态划分</text>
+<rect x="589" y="115" width="140" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="659.0" y="140.0" font-size="12" text-anchor="middle" fill="#222222">⑥ 结果复核</text>
+<text x="659.0" y="158.0" font-size="12" text-anchor="middle" fill="#222222">生成 DRAFT 版本</text>
+<rect x="744" y="115" width="115" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="801.5" y="140.0" font-size="12" text-anchor="middle" fill="#222222">⑦ 方案对比</text>
+<text x="801.5" y="158.0" font-size="12" text-anchor="middle" fill="#222222">人工审核</text>
+<rect x="874" y="115" width="96" height="62" rx="6" fill="#F2F2F2" stroke="#222222" stroke-width="1.3"/>
+<text x="922.0" y="149.0" font-size="12" text-anchor="middle" fill="#222222">⑧ 发布</text>
+<rect x="985" y="123" width="64" height="46" rx="6" fill="#FFFFFF" stroke="#222222" stroke-width="1.3"/>
+<text x="1017.0" y="149.0" font-size="12" text-anchor="middle" fill="#222222">结束</text>
+<rect x="330" y="320" width="380" height="64" rx="6" fill="#FFFFFF" stroke="#222222" stroke-width="1.3"/>
+<text x="520.0" y="346.0" font-size="12" text-anchor="middle" fill="#222222">④ 混合遗传算法求解</text>
+<text x="520.0" y="364.0" font-size="12" text-anchor="middle" fill="#222222">两层编码·启发式初始化·进化·邻域搜索</text>
+<rect x="770" y="320" width="160" height="64" rx="6" fill="#FFFFFF" stroke="#222222" stroke-width="1.3"/>
+<text x="850.0" y="355.0" font-size="12" text-anchor="middle" fill="#222222">⑤ 可行性校验</text>
+<rect x="770" y="462" width="240" height="52" rx="6" fill="#FFFFFF" stroke="#000000" stroke-width="1.3"/>
+<text x="890.0" y="482.0" font-size="12" text-anchor="middle" fill="#222222">校验失败：返回冲突明细</text>
+<text x="890.0" y="500.0" font-size="12" text-anchor="middle" fill="#222222">保留重试信息</text>
+<rect x="850" y="546" width="80" height="40" rx="6" fill="#FFFFFF" stroke="#222222" stroke-width="1.3"/>
+<text x="890.0" y="569.0" font-size="12" text-anchor="middle" fill="#222222">结束</text>
+<line x1="109" y1="146" x2="124" y2="146" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="264" y1="146.0" x2="279" y2="146.0" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="419" y1="146.0" x2="434" y2="146.0" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="504" y1="177" x2="504" y2="320" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="710" y1="352" x2="770" y2="352" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<path d="M 850,320 L 850,255 L 659,255 L 659,177" fill="none" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="729" y1="146.0" x2="744" y2="146.0" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="859" y1="146.0" x2="874" y2="146.0" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="970" y1="146" x2="985" y2="146" stroke="#222222" stroke-width="1.4" marker-end="url(#arr)"/>
+<line x1="850" y1="384" x2="850" y2="462" stroke="#000000" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrR)"/>
+<line x1="890" y1="514" x2="890" y2="546" stroke="#000000" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#arrR)"/>
+</svg>

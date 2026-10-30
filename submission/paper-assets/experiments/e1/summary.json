@@ -1,0 +1,1235 @@
+{
+  "generated_at": "2026-10-20T14:26:00+0800",
+  "total_wall_s": 402.1,
+  "algo_seeds": [
+    20260916,
+    101,
+    202,
+    303,
+    404
+  ],
+  "instance_seeds": [
+    11,
+    22
+  ],
+  "scales": {
+    "small": {
+      "n_orders": 20,
+      "n_machines": 8,
+      "work_days": 5
+    },
+    "medium": {
+      "n_orders": 40,
+      "n_machines": 10,
+      "work_days": 5
+    },
+    "large": {
+      "n_orders": 80,
+      "n_machines": 12,
+      "work_days": 10
+    }
+  },
+  "configs": {
+    "HGA-full": {
+      "algo_overrides": {},
+      "stagnation_disabled": false
+    },
+    "Pure-GA": {
+      "algo_overrides": {
+        "initMix": {
+          "edd": 0.0,
+          "spt": 0.0,
+          "mwkr": 0.0,
+          "random": 1.0
+        },
+        "localSearchTrials": 0
+      },
+      "stagnation_disabled": true
+    },
+    "w/o-init": {
+      "algo_overrides": {
+        "initMix": {
+          "edd": 0.0,
+          "spt": 0.0,
+          "mwkr": 0.0,
+          "random": 1.0
+        }
+      },
+      "stagnation_disabled": false
+    },
+    "w/o-ls": {
+      "algo_overrides": {
+        "localSearchTrials": 0
+      },
+      "stagnation_disabled": false
+    },
+    "w/o-perturb": {
+      "algo_overrides": {},
+      "stagnation_disabled": true
+    },
+    "Heuristic-only": {
+      "algo_overrides": {
+        "maxGenerations": 1,
+        "localSearchTrials": 0
+      },
+      "stagnation_disabled": false
+    }
+  },
+  "groups": {
+    "small|HGA-full": {
+      "n_runs": 10,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 1952.6,
+        "std": 24.563749261417275,
+        "min": 1908
+      },
+      "tardiness": {
+        "mean": 33512,
+        "std": 9966.79432471199,
+        "min": 21771
+      },
+      "elapsed_s": {
+        "mean": 7.5777,
+        "std": 0.9387833793444224,
+        "min": 6.636
+      },
+      "generations_mean": 200,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "small|Pure-GA": {
+      "n_runs": 10,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 1933.9,
+        "std": 33.45129128881109,
+        "min": 1869
+      },
+      "tardiness": {
+        "mean": 33390.7,
+        "std": 4755.242908855679,
+        "min": 26764
+      },
+      "elapsed_s": {
+        "mean": 7.7123,
+        "std": 0.5071484660990969,
+        "min": 7.005
+      },
+      "generations_mean": 200,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "small|w/o-init": {
+      "n_runs": 10,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 1934.1,
+        "std": 16.947303948153852,
+        "min": 1907
+      },
+      "tardiness": {
+        "mean": 33180.9,
+        "std": 6582.928552112822,
+        "min": 24004
+      },
+      "elapsed_s": {
+        "mean": 7.7802,
+        "std": 0.32706737328365026,
+        "min": 7.358
+      },
+      "generations_mean": 200,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "small|w/o-ls": {
+      "n_runs": 10,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 1937.9,
+        "std": 25.427238238637802,
+        "min": 1907
+      },
+      "tardiness": {
+        "mean": 29957,
+        "std": 6749.110278811241,
+        "min": 21732
+      },
+      "elapsed_s": {
+        "mean": 7.6017,
+        "std": 0.15841159469348623,
+        "min": 7.379
+      },
+      "generations_mean": 200,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "small|w/o-perturb": {
+      "n_runs": 10,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 2048.7,
+        "std": 313.663673382813,
+        "min": 1908
+      },
+      "tardiness": {
+        "mean": 33085.9,
+        "std": 8584.117160974292,
+        "min": 21824
+      },
+      "elapsed_s": {
+        "mean": 7.6352,
+        "std": 0.1573289547413317,
+        "min": 7.456
+      },
+      "generations_mean": 200,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "small|Heuristic-only": {
+      "n_runs": 2,
+      "n_ops": 76,
+      "cmax": {
+        "mean": 3133.5,
+        "std": 207.18228688765842,
+        "min": 2987
+      },
+      "tardiness": {
+        "mean": 65740.5,
+        "std": 7822.722320266776,
+        "min": 60209
+      },
+      "elapsed_s": {
+        "mean": 0.0915,
+        "std": 0.012020815280171309,
+        "min": 0.083
+      },
+      "generations_mean": 1,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|HGA-full": {
+      "n_runs": 10,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4277,
+        "std": 469.021439926909,
+        "min": 3375
+      },
+      "tardiness": {
+        "mean": 234062.9,
+        "std": 47914.27953810383,
+        "min": 179763
+      },
+      "elapsed_s": {
+        "mean": 19.2266,
+        "std": 0.8298275858407111,
+        "min": 18.141
+      },
+      "generations_mean": 194,
+      "statuses": [
+        "SUCCESS",
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|Pure-GA": {
+      "n_runs": 10,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4090,
+        "std": 620.1071591982219,
+        "min": 3345
+      },
+      "tardiness": {
+        "mean": 235486.1,
+        "std": 38287.76680887919,
+        "min": 189713
+      },
+      "elapsed_s": {
+        "mean": 19.4854,
+        "std": 0.5981326868773442,
+        "min": 18.398
+      },
+      "generations_mean": 189.4,
+      "statuses": [
+        "SUCCESS",
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|w/o-init": {
+      "n_runs": 10,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4097.8,
+        "std": 627.5245546324595,
+        "min": 3350
+      },
+      "tardiness": {
+        "mean": 235313.2,
+        "std": 37594.09014962029,
+        "min": 179779
+      },
+      "elapsed_s": {
+        "mean": 19.4886,
+        "std": 0.5586062417600907,
+        "min": 18.783
+      },
+      "generations_mean": 182.5,
+      "statuses": [
+        "SUCCESS",
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|w/o-ls": {
+      "n_runs": 10,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4400.9,
+        "std": 353.89623400715135,
+        "min": 3397
+      },
+      "tardiness": {
+        "mean": 223687.7,
+        "std": 47060.91265831266,
+        "min": 169428
+      },
+      "elapsed_s": {
+        "mean": 19.585,
+        "std": 0.5920551776087538,
+        "min": 18.436
+      },
+      "generations_mean": 185.6,
+      "statuses": [
+        "SUCCESS",
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|w/o-perturb": {
+      "n_runs": 10,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4276.4,
+        "std": 468.67548592934867,
+        "min": 3375
+      },
+      "tardiness": {
+        "mean": 234186,
+        "std": 49072.66300090102,
+        "min": 178043
+      },
+      "elapsed_s": {
+        "mean": 19.7316,
+        "std": 0.42130806886278416,
+        "min": 18.902
+      },
+      "generations_mean": 184.7,
+      "statuses": [
+        "SUCCESS",
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "medium|Heuristic-only": {
+      "n_runs": 2,
+      "n_ops": 152,
+      "cmax": {
+        "mean": 4796.5,
+        "std": 48.79036790187178,
+        "min": 4762
+      },
+      "tardiness": {
+        "mean": 375362,
+        "std": 88041.86532553703,
+        "min": 313107
+      },
+      "elapsed_s": {
+        "mean": 0.286,
+        "std": 0.09899494936611665,
+        "min": 0.216
+      },
+      "generations_mean": 1,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|HGA-full": {
+      "n_runs": 10,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 8128.5,
+        "std": 653.1721314732689,
+        "min": 7421
+      },
+      "tardiness": {
+        "mean": 888861.3,
+        "std": 94553.56480623386,
+        "min": 755747
+      },
+      "elapsed_s": {
+        "mean": 20.0091,
+        "std": 0.0036347092196091593,
+        "min": 20.006
+      },
+      "generations_mean": 88.9,
+      "statuses": [
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|Pure-GA": {
+      "n_runs": 10,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 7717.6,
+        "std": 396.60733449821345,
+        "min": 7429
+      },
+      "tardiness": {
+        "mean": 1088903.9,
+        "std": 91800.63400343886,
+        "min": 972607
+      },
+      "elapsed_s": {
+        "mean": 20.0101,
+        "std": 0.0022827858224357673,
+        "min": 20.006
+      },
+      "generations_mean": 85.8,
+      "statuses": [
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|w/o-init": {
+      "n_runs": 10,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 7635.5,
+        "std": 92.56019062690444,
+        "min": 7398
+      },
+      "tardiness": {
+        "mean": 1104066.7,
+        "std": 118676.4270115735,
+        "min": 933944
+      },
+      "elapsed_s": {
+        "mean": 20.0095,
+        "std": 0.0017159383568311935,
+        "min": 20.006
+      },
+      "generations_mean": 81.9,
+      "statuses": [
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|w/o-ls": {
+      "n_runs": 10,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 8083.1,
+        "std": 591.484281748514,
+        "min": 7594
+      },
+      "tardiness": {
+        "mean": 897205.4,
+        "std": 92168.4378445849,
+        "min": 783178
+      },
+      "elapsed_s": {
+        "mean": 20.009900000000002,
+        "std": 0.00510881590977772,
+        "min": 20.005
+      },
+      "generations_mean": 87.1,
+      "statuses": [
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|w/o-perturb": {
+      "n_runs": 10,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 8135.8,
+        "std": 647.5642911025215,
+        "min": 7421
+      },
+      "tardiness": {
+        "mean": 884374.1,
+        "std": 97033.26951841483,
+        "min": 753431
+      },
+      "elapsed_s": {
+        "mean": 20.0072,
+        "std": 0.0019321835661580522,
+        "min": 20.004
+      },
+      "generations_mean": 97.6,
+      "statuses": [
+        "TIME_LIMIT"
+      ],
+      "constraint_all_passed": true
+    },
+    "large|Heuristic-only": {
+      "n_runs": 2,
+      "n_ops": 331,
+      "cmax": {
+        "mean": 8991.5,
+        "std": 201.52543263816605,
+        "min": 8849
+      },
+      "tardiness": {
+        "mean": 1016363,
+        "std": 110052.68521031189,
+        "min": 938544
+      },
+      "elapsed_s": {
+        "mean": 0.5814999999999999,
+        "std": 0.014849242404917511,
+        "min": 0.571
+      },
+      "generations_mean": 1,
+      "statuses": [
+        "SUCCESS"
+      ],
+      "constraint_all_passed": true
+    }
+  },
+  "wilcoxon_purega_vs_hgafull": {
+    "small": {
+      "p": 0.30078125,
+      "method": "scipy",
+      "n": 10,
+      "pairs": 10,
+      "note": "双侧 Wilcoxon 符号秩检验，H0: Pure-GA 与 HGA-full 的 Cmax 无差异；配对键=(instance_seed, algo_seed)；n=10 较小，p 仅作参考"
+    },
+    "medium": {
+      "p": 0.607421875,
+      "method": "scipy",
+      "n": 10,
+      "pairs": 10,
+      "note": "双侧 Wilcoxon 符号秩检验，H0: Pure-GA 与 HGA-full 的 Cmax 无差异；配对键=(instance_seed, algo_seed)；n=10 较小，p 仅作参考"
+    },
+    "large": {
+      "p": 0.130859375,
+      "method": "scipy",
+      "n": 10,
+      "pairs": 10,
+      "note": "双侧 Wilcoxon 符号秩检验，H0: Pure-GA 与 HGA-full 的 Cmax 无差异；配对键=(instance_seed, algo_seed)；n=10 较小，p 仅作参考"
+    }
+  },
+  "anomalies": [
+    {
+      "scale": "medium",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "medium",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "HGA-full",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "HGA-full",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "HGA-full",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "HGA-full",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "HGA-full",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "Pure-GA",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "Pure-GA",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "Pure-GA",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "Pure-GA",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "Pure-GA",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-init",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-init",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-init",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-init",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-init",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-ls",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 11,
+      "config": "w/o-perturb",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "HGA-full",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "Pure-GA",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-init",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-ls",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 20260916,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 101,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 202,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 303,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    },
+    {
+      "scale": "large",
+      "instance_seed": 22,
+      "config": "w/o-perturb",
+      "algo_seed": 404,
+      "status": "TIME_LIMIT",
+      "constraint_passed": true,
+      "termination": "timeLimit"
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "experiment": "E2 设备故障动态重调度",
+  "seed": 20260916,
+  "fault": {
+    "machine": "M-06",
+    "faultStartMinutes": 1440,
+    "criticalOperation": "O015-50",
+    "criticalOpEndMinutes": 3055
+  },
+  "freezeWindowMinutes": 480,
+  "rescheduleWeights": {
+    "makespan": 0.3,
+    "weightedTardiness": 0.4,
+    "deltaPlan": 0.2,
+    "machineChange": 0.1
+  },
+  "lockings": {
+    "completed": 41,
+    "in_progress": 0,
+    "total": 41
+  },
+  "affectedCount": 8,
+  "affectedOperationIds": [
+    "O008-20",
+    "O008-30",
+    "O015-50",
+    "O016-10",
+    "O016-20",
+    "O016-30",
+    "O018-30",
+    "O018-40"
+  ],
+  "affectedScope": "故障设备上 start>=1440 的未完成工序 + 其所属订单全部后继工序",
+  "baseline": {
+    "status": "SUCCESS",
+    "resultStatus": "FEASIBLE",
+    "feasible": true,
+    "constraint_passed": true,
+    "cmax": 3055,
+    "weighted_tardiness": 35545,
+    "n_tardy": 13,
+    "deltaPlan": null,
+    "startTimeShiftRate": null,
+    "machineChangeRate": null,
+    "sequenceChangeRate": null,
+    "nMachineChange": null,
+    "elapsed_ms": 8484,
+    "termination": "localSearch",
+    "n_conflicts": 0
+  },
+  "scenarios": {
+    "repair600_LOCAL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3419,
+      "weighted_tardiness": 51857,
+      "n_tardy": 13,
+      "deltaPlan": 0.439113,
+      "startTimeShiftRate": 0.875,
+      "machineChangeRate": 0.0,
+      "sequenceChangeRate": 0.008065,
+      "nMachineChange": 0,
+      "elapsed_ms": 308,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        2040
+      ],
+      "mode": "LOCAL_RESCHEDULE",
+      "repairMinutes": 600
+    },
+    "repair600_FULL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3286,
+      "weighted_tardiness": 47234,
+      "n_tardy": 13,
+      "deltaPlan": 0.166819,
+      "startTimeShiftRate": 0.314286,
+      "machineChangeRate": 0.028571,
+      "sequenceChangeRate": 0.005525,
+      "nMachineChange": 1,
+      "elapsed_ms": 5748,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        2040
+      ],
+      "mode": "FULL_RESCHEDULE",
+      "repairMinutes": 600
+    },
+    "repair300_LOCAL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3109,
+      "weighted_tardiness": 40559,
+      "n_tardy": 13,
+      "deltaPlan": 0.501613,
+      "startTimeShiftRate": 1.0,
+      "machineChangeRate": 0.0,
+      "sequenceChangeRate": 0.008065,
+      "nMachineChange": 0,
+      "elapsed_ms": 341,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        1740
+      ],
+      "mode": "LOCAL_RESCHEDULE",
+      "repairMinutes": 300
+    },
+    "repair300_FULL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3055,
+      "weighted_tardiness": 36379,
+      "n_tardy": 13,
+      "deltaPlan": 0.241176,
+      "startTimeShiftRate": 0.428571,
+      "machineChangeRate": 0.085714,
+      "sequenceChangeRate": 0.005882,
+      "nMachineChange": 3,
+      "elapsed_ms": 5887,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        1740
+      ],
+      "mode": "FULL_RESCHEDULE",
+      "repairMinutes": 300
+    },
+    "repair1200_LOCAL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3419,
+      "weighted_tardiness": 51857,
+      "n_tardy": 13,
+      "deltaPlan": 0.439113,
+      "startTimeShiftRate": 0.875,
+      "machineChangeRate": 0.0,
+      "sequenceChangeRate": 0.008065,
+      "nMachineChange": 0,
+      "elapsed_ms": 288,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        2640
+      ],
+      "mode": "LOCAL_RESCHEDULE",
+      "repairMinutes": 1200
+    },
+    "repair1200_FULL": {
+      "status": "SUCCESS",
+      "resultStatus": "FEASIBLE",
+      "feasible": true,
+      "constraint_passed": true,
+      "cmax": 3286,
+      "weighted_tardiness": 47234,
+      "n_tardy": 13,
+      "deltaPlan": 0.166819,
+      "startTimeShiftRate": 0.314286,
+      "machineChangeRate": 0.028571,
+      "sequenceChangeRate": 0.005525,
+      "nMachineChange": 1,
+      "elapsed_ms": 5573,
+      "termination": "localSearch",
+      "n_conflicts": 0,
+      "faultInterval": [
+        1440,
+        2640
+      ],
+      "mode": "FULL_RESCHEDULE",
+      "repairMinutes": 1200
+    }
+  }
+}

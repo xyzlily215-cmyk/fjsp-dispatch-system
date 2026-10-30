@@ -1,0 +1,786 @@
+{
+  "summary": {
+    "cmax": 3055,
+    "weighted_tardiness": 35545,
+    "n_orders": 20,
+    "n_machines": 8,
+    "n_operations": 76,
+    "seed": 20260916,
+    "solve_seconds": 5.322
+  },
+  "algorithm": {
+    "algorithmVersion": "event-adaptive-hga-1.0.0",
+    "populationSize": 100,
+    "maxGenerations": 200,
+    "timeLimitSeconds": 20,
+    "generationsRun": 200,
+    "terminationReason": "localSearch",
+    "objectiveWeights": {
+      "makespan": 0.4,
+      "weightedTardiness": 0.4,
+      "loadImbalance": 0.2
+    }
+  },
+  "operations": [
+    {
+      "order_id": "O012",
+      "op_index": 10,
+      "machine_id": "M-01",
+      "start": 0,
+      "setup": 11,
+      "proc": 60,
+      "end": 71,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O012",
+      "op_index": 20,
+      "machine_id": "M-01",
+      "start": 71,
+      "setup": 12,
+      "proc": 49,
+      "end": 132,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O012",
+      "op_index": 40,
+      "machine_id": "M-01",
+      "start": 300,
+      "setup": 7,
+      "proc": 83,
+      "end": 390,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O015",
+      "op_index": 10,
+      "machine_id": "M-01",
+      "start": 1440,
+      "setup": 14,
+      "proc": 66,
+      "end": 1520,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O015",
+      "op_index": 20,
+      "machine_id": "M-01",
+      "start": 1520,
+      "setup": 9,
+      "proc": 21,
+      "end": 1550,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O016",
+      "op_index": 20,
+      "machine_id": "M-01",
+      "start": 1740,
+      "setup": 13,
+      "proc": 70,
+      "end": 1823,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O008",
+      "op_index": 10,
+      "machine_id": "M-02",
+      "start": 0,
+      "setup": 6,
+      "proc": 31,
+      "end": 37,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O008",
+      "op_index": 30,
+      "machine_id": "M-02",
+      "start": 1583,
+      "setup": 9,
+      "proc": 77,
+      "end": 1669,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O002",
+      "op_index": 10,
+      "machine_id": "M-03",
+      "start": 0,
+      "setup": 6,
+      "proc": 58,
+      "end": 64,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O003",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 64,
+      "setup": 6,
+      "proc": 23,
+      "end": 93,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O003",
+      "op_index": 30,
+      "machine_id": "M-03",
+      "start": 93,
+      "setup": 11,
+      "proc": 34,
+      "end": 138,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O007",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 141,
+      "setup": 8,
+      "proc": 59,
+      "end": 208,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O017",
+      "op_index": 10,
+      "machine_id": "M-03",
+      "start": 300,
+      "setup": 13,
+      "proc": 85,
+      "end": 398,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O006",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 398,
+      "setup": 10,
+      "proc": 80,
+      "end": 488,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O019",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 488,
+      "setup": 7,
+      "proc": 35,
+      "end": 530,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O017",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 1440,
+      "setup": 13,
+      "proc": 81,
+      "end": 1534,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O003",
+      "op_index": 40,
+      "machine_id": "M-03",
+      "start": 1534,
+      "setup": 9,
+      "proc": 85,
+      "end": 1628,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O014",
+      "op_index": 10,
+      "machine_id": "M-03",
+      "start": 1740,
+      "setup": 9,
+      "proc": 78,
+      "end": 1827,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O014",
+      "op_index": 20,
+      "machine_id": "M-03",
+      "start": 1827,
+      "setup": 12,
+      "proc": 36,
+      "end": 1875,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O014",
+      "op_index": 40,
+      "machine_id": "M-03",
+      "start": 1918,
+      "setup": 15,
+      "proc": 33,
+      "end": 1966,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O015",
+      "op_index": 40,
+      "machine_id": "M-03",
+      "start": 2910,
+      "setup": 14,
+      "proc": 65,
+      "end": 2989,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O004",
+      "op_index": 10,
+      "machine_id": "M-04",
+      "start": 0,
+      "setup": 7,
+      "proc": 31,
+      "end": 38,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O011",
+      "op_index": 20,
+      "machine_id": "M-04",
+      "start": 56,
+      "setup": 8,
+      "proc": 28,
+      "end": 92,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O002",
+      "op_index": 30,
+      "machine_id": "M-04",
+      "start": 99,
+      "setup": 5,
+      "proc": 41,
+      "end": 145,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O006",
+      "op_index": 10,
+      "machine_id": "M-04",
+      "start": 145,
+      "setup": 7,
+      "proc": 78,
+      "end": 230,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O007",
+      "op_index": 30,
+      "machine_id": "M-04",
+      "start": 300,
+      "setup": 15,
+      "proc": 59,
+      "end": 374,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O019",
+      "op_index": 10,
+      "machine_id": "M-04",
+      "start": 374,
+      "setup": 12,
+      "proc": 86,
+      "end": 472,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O005",
+      "op_index": 40,
+      "machine_id": "M-04",
+      "start": 472,
+      "setup": 13,
+      "proc": 53,
+      "end": 538,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O006",
+      "op_index": 30,
+      "machine_id": "M-04",
+      "start": 1440,
+      "setup": 11,
+      "proc": 25,
+      "end": 1476,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O018",
+      "op_index": 20,
+      "machine_id": "M-04",
+      "start": 1511,
+      "setup": 11,
+      "proc": 54,
+      "end": 1576,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O017",
+      "op_index": 40,
+      "machine_id": "M-04",
+      "start": 1627,
+      "setup": 5,
+      "proc": 43,
+      "end": 1675,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O017",
+      "op_index": 50,
+      "machine_id": "M-04",
+      "start": 1740,
+      "setup": 7,
+      "proc": 45,
+      "end": 1792,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O014",
+      "op_index": 30,
+      "machine_id": "M-04",
+      "start": 1875,
+      "setup": 9,
+      "proc": 34,
+      "end": 1918,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O003",
+      "op_index": 10,
+      "machine_id": "M-05",
+      "start": 0,
+      "setup": 15,
+      "proc": 39,
+      "end": 54,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O002",
+      "op_index": 20,
+      "machine_id": "M-05",
+      "start": 64,
+      "setup": 13,
+      "proc": 22,
+      "end": 99,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O005",
+      "op_index": 20,
+      "machine_id": "M-05",
+      "start": 99,
+      "setup": 5,
+      "proc": 25,
+      "end": 129,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O005",
+      "op_index": 30,
+      "machine_id": "M-05",
+      "start": 129,
+      "setup": 12,
+      "proc": 88,
+      "end": 229,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O018",
+      "op_index": 10,
+      "machine_id": "M-05",
+      "start": 360,
+      "setup": 13,
+      "proc": 71,
+      "end": 444,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O004",
+      "op_index": 20,
+      "machine_id": "M-05",
+      "start": 479,
+      "setup": 7,
+      "proc": 21,
+      "end": 507,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O004",
+      "op_index": 30,
+      "machine_id": "M-05",
+      "start": 1440,
+      "setup": 9,
+      "proc": 30,
+      "end": 1479,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O017",
+      "op_index": 30,
+      "machine_id": "M-05",
+      "start": 1534,
+      "setup": 12,
+      "proc": 81,
+      "end": 1627,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O004",
+      "op_index": 50,
+      "machine_id": "M-05",
+      "start": 1627,
+      "setup": 5,
+      "proc": 46,
+      "end": 1678,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O013",
+      "op_index": 30,
+      "machine_id": "M-05",
+      "start": 1775,
+      "setup": 7,
+      "proc": 53,
+      "end": 1835,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O020",
+      "op_index": 50,
+      "machine_id": "M-05",
+      "start": 1835,
+      "setup": 14,
+      "proc": 69,
+      "end": 1918,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O009",
+      "op_index": 10,
+      "machine_id": "M-06",
+      "start": 0,
+      "setup": 15,
+      "proc": 52,
+      "end": 67,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O009",
+      "op_index": 20,
+      "machine_id": "M-06",
+      "start": 67,
+      "setup": 10,
+      "proc": 50,
+      "end": 127,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O001",
+      "op_index": 10,
+      "machine_id": "M-06",
+      "start": 127,
+      "setup": 15,
+      "proc": 76,
+      "end": 218,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O010",
+      "op_index": 20,
+      "machine_id": "M-06",
+      "start": 300,
+      "setup": 10,
+      "proc": 64,
+      "end": 374,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O010",
+      "op_index": 30,
+      "machine_id": "M-06",
+      "start": 374,
+      "setup": 14,
+      "proc": 77,
+      "end": 465,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O020",
+      "op_index": 20,
+      "machine_id": "M-06",
+      "start": 465,
+      "setup": 6,
+      "proc": 60,
+      "end": 531,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O008",
+      "op_index": 20,
+      "machine_id": "M-06",
+      "start": 1480,
+      "setup": 14,
+      "proc": 89,
+      "end": 1583,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O016",
+      "op_index": 10,
+      "machine_id": "M-06",
+      "start": 1583,
+      "setup": 6,
+      "proc": 89,
+      "end": 1678,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O018",
+      "op_index": 30,
+      "machine_id": "M-06",
+      "start": 1780,
+      "setup": 10,
+      "proc": 21,
+      "end": 1811,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O018",
+      "op_index": 40,
+      "machine_id": "M-06",
+      "start": 1811,
+      "setup": 15,
+      "proc": 29,
+      "end": 1855,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O015",
+      "op_index": 50,
+      "machine_id": "M-06",
+      "start": 2989,
+      "setup": 11,
+      "proc": 55,
+      "end": 3055,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O005",
+      "op_index": 10,
+      "machine_id": "M-07",
+      "start": 0,
+      "setup": 11,
+      "proc": 50,
+      "end": 61,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O011",
+      "op_index": 30,
+      "machine_id": "M-07",
+      "start": 92,
+      "setup": 12,
+      "proc": 62,
+      "end": 166,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O012",
+      "op_index": 30,
+      "machine_id": "M-07",
+      "start": 196,
+      "setup": 6,
+      "proc": 37,
+      "end": 239,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O009",
+      "op_index": 30,
+      "machine_id": "M-07",
+      "start": 340,
+      "setup": 6,
+      "proc": 44,
+      "end": 390,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O001",
+      "op_index": 20,
+      "machine_id": "M-07",
+      "start": 390,
+      "setup": 7,
+      "proc": 71,
+      "end": 468,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O013",
+      "op_index": 10,
+      "machine_id": "M-07",
+      "start": 468,
+      "setup": 14,
+      "proc": 23,
+      "end": 505,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O006",
+      "op_index": 40,
+      "machine_id": "M-07",
+      "start": 1476,
+      "setup": 12,
+      "proc": 29,
+      "end": 1517,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O004",
+      "op_index": 40,
+      "machine_id": "M-07",
+      "start": 1517,
+      "setup": 5,
+      "proc": 54,
+      "end": 1576,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O020",
+      "op_index": 30,
+      "machine_id": "M-07",
+      "start": 1611,
+      "setup": 6,
+      "proc": 47,
+      "end": 1664,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O020",
+      "op_index": 40,
+      "machine_id": "M-07",
+      "start": 1740,
+      "setup": 8,
+      "proc": 81,
+      "end": 1829,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O013",
+      "op_index": 40,
+      "machine_id": "M-07",
+      "start": 1835,
+      "setup": 9,
+      "proc": 35,
+      "end": 1879,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O013",
+      "op_index": 50,
+      "machine_id": "M-07",
+      "start": 1879,
+      "setup": 15,
+      "proc": 21,
+      "end": 1915,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O011",
+      "op_index": 10,
+      "machine_id": "M-08",
+      "start": 0,
+      "setup": 11,
+      "proc": 45,
+      "end": 56,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O007",
+      "op_index": 10,
+      "machine_id": "M-08",
+      "start": 56,
+      "setup": 7,
+      "proc": 78,
+      "end": 141,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O010",
+      "op_index": 10,
+      "machine_id": "M-08",
+      "start": 176,
+      "setup": 13,
+      "proc": 30,
+      "end": 219,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O020",
+      "op_index": 10,
+      "machine_id": "M-08",
+      "start": 360,
+      "setup": 14,
+      "proc": 77,
+      "end": 451,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O001",
+      "op_index": 30,
+      "machine_id": "M-08",
+      "start": 468,
+      "setup": 5,
+      "proc": 44,
+      "end": 517,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O019",
+      "op_index": 30,
+      "machine_id": "M-08",
+      "start": 1475,
+      "setup": 10,
+      "proc": 66,
+      "end": 1551,
+      "product_family": "盘类B"
+    },
+    {
+      "order_id": "O013",
+      "op_index": 20,
+      "machine_id": "M-08",
+      "start": 1586,
+      "setup": 6,
+      "proc": 77,
+      "end": 1669,
+      "product_family": "壳体C"
+    },
+    {
+      "order_id": "O015",
+      "op_index": 30,
+      "machine_id": "M-08",
+      "start": 1780,
+      "setup": 9,
+      "proc": 90,
+      "end": 1879,
+      "product_family": "轴类A"
+    },
+    {
+      "order_id": "O016",
+      "op_index": 30,
+      "machine_id": "M-08",
+      "start": 1879,
+      "setup": 8,
+      "proc": 53,
+      "end": 1940,
+      "product_family": "轴类A"
+    }
+  ]
+}

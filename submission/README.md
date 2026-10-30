@@ -10,7 +10,7 @@
 | ② | 技术信息（AGH 作用、Agnes 模型名称/版本/环节/调用方式、数据/代码/专业软件/仿真环境/API/设备接口） | `submission/02-技术信息.md` | 已就绪 |
 | ③ | 可运行作品（在线体验链接、代码仓库、安装包或可复现运行说明） | `submission/03-可运行作品与复现说明.md`；根目录同名 ZIP | 已就绪：公开仓库 <https://github.com/xyzlily215-cmyk/fjsp-dispatch-system> 更新至 `3da326d`；以「代码仓库 + ZIP + 复现说明」提交，不提供在线体验 |
 | ④ | 演示视频（3–5 分钟，仅提交链接，1 主链接 + 可选备用链接，评审期间有效、不得要求登录参赛者账号） | `submission/04-演示视频脚本.md` 顶部主链接与提取码；`submission/04a-比赛导向演示视频脚本.md` 拍摄脚本 | 主链接已回填，分享页可打开且标注永久有效；【待核查】点击播放时本机提示加载失败，需匿名确认可播放、时长 3–5 分钟及音画正常 |
-| ⑤ | 运行证据（AGH 执行记录、≥1 条工具/设备调用链、Agnes 模型参与核心任务证据、关键配置与专业验证结果） | `submission/05-运行证据说明.md`；`agh-integration/evidence/`；`agh-integration/agh-trace-20261010.zip`（含 2026-10-02/03/10 全部证据）；`submission/screenshots/agh-workbench-trace-20261013.png` | 已就绪 |
+| ⑤ | 运行证据（AGH 执行记录、≥1 条工具/设备调用链、Agnes 模型参与核心任务证据、关键配置与专业验证结果） | `submission/05-运行证据说明.md`；`agh-integration/evidence/`；`agh-integration/agh-trace-20261015.zip`（含 2026-10-02/03/10 全部证据及 10-15 官方导出）；`submission/screenshots/agh-workbench-trace-20261013.png` | 已就绪 |
 | ⑥ | 测试样例（正常、边界、失败三类） | `submission/06-测试样例.md`；`algorithm-service/tests/`、`business-service/src/test/`、`scripts/` | 已就绪 |
 | ⑦ | 成员声明 | `submission/07-成员声明.md` | 【待办】学校、本人签名及声明日期待填 |
 | ⑧ | 公开内容（≥1 条真实项目内容，含平台、有效链接、截图与发布日期） | `submission/08-公开内容.md`；`submission/screenshots/github-public-repository-20261013.png` | 已就绪：GitHub 公开仓库于 2026-10-09 上线、2026-10-13 更新 |

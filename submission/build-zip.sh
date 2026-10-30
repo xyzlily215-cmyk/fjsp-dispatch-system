@@ -3,7 +3,7 @@
 # 内容 = git archive HEAD 源码快照 + submission/（工作区强制覆盖）
 #      + agh-integration/ 工作区（含未跟踪/被忽略的 driver、mhs-devices、evidence）
 #      + agh-integration/agnes-harness 嵌套仓库的 git archive 源码快照
-#      + agh-integration/agh-trace-20261010.zip 证据包
+#      + agh-integration/agh-trace-20261015.zip 证据包
 set -euo pipefail
 
 LIMIT_BYTES=$((200 * 1024 * 1024)) # 200MB
@@ -40,10 +40,10 @@ if [ -n "${DIRTY}" ]; then
   exit 1
 fi
 
-EVIDENCE_ZIP="agh-integration/agh-trace-20261010.zip"
+EVIDENCE_ZIP="agh-integration/agh-trace-20261015.zip"
 if [ ! -f "${EVIDENCE_ZIP}" ]; then
   echo "错误: 未找到证据包 ${EVIDENCE_ZIP}。" >&2
-  echo "请先在 agh-integration/evidence/ 下执行: zip -r ../agh-trace-20261010.zip ." >&2
+  echo "请先在 agh-integration/evidence/ 下执行: zip -r ../agh-trace-20261015.zip ." >&2
   exit 1
 fi
 
