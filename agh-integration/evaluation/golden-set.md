@@ -43,7 +43,7 @@ agh-integration/evaluation/
 
 - `DemoService.reset()`（`business-service/src/main/java/com/fjsp/business/service/DemoService.java:91-121`）清空全部业务表后调用 `SeedService.seed()` 重灌；`audit_log` 故意保留（`DemoService.java:112`），评估运行时注意审计查询需按对象过滤而非按全表计数。
 - 种子内容本身完全确定（JSON 在仓库内）；唯一的非确定项是**仿真起点**：`SeedService.seedSimulationStartAt()`（`SeedService.java:280-293`）在默认 `RELATIVE` 模式（`FjspProperties.java:90`）下取当前时间截断到分钟。
-- 因此 Golden 运行要求业务服务以 **`FJSP_SIMULATION_MODE=FIXED`** 启动（Spring relaxed binding 映射 `fjsp.simulation.mode=FIXED`），此时起点固定为种子文件的 `simulationStartAt`（`SeedService.java:281-288`）。按 relaxed binding 规则该环境变量应生效，**首次 Golden 运行时实测确认（待核实）**。
+- 因此 Golden 运行要求业务服务以 **`FJSP_SIMULATION_MODE=FIXED`** 启动（Spring relaxed binding 映射 `fjsp.simulation.mode=FIXED`），此时起点固定为种子文件的 `simulationStartAt`（`SeedService.java:281-288`）。**已于 2026-10-30（任务 0.3）实测生效**：以该环境变量重启后 `/demo/reset` 返回 `simulationStartAt=2026-09-16T08:00+08:00`；注意 Jackson 序列化零秒时省略 `:SS`，`restore-snapshot.sh` 按解析后的时刻比较而非字符串相等。
 - 重灌后订单/设备/工序的业务主键（`O001…O020`、`M-01…M-08`、订单工序 ID）来自种子 JSON，逐次复位保持一致；工艺模板/候选的内部 UUID 每次随机（`SeedService.java:144` 等），场景脚本与断言均不引用这些 UUID。
 
 **备选方案（未选）**：`pg_dump` 导出数据库快照到本目录。未选理由：① 导出仍要先有一次确定性复位才能得到干净内容，不省步骤；② dump 含每次复位随机生成的 UUID 与时间戳，位级对比噪声大；③ 还原依赖 PostgreSQL 客户端与 Compose 数据卷细节，成本高于一个 HTTP 调用。若后续需要跨版本固化"已演化"的库状态，再补 `pg_dump` 归档脚本。
@@ -148,7 +148,8 @@ node s01-machine-breakdown.mjs     # 依此类推 s02…s06；--help 查看参�
 
 ## 8. 已知限制与待核实
 
-- `FJSP_SIMULATION_MODE=FIXED` 经 Spring relaxed binding 生效属标准行为，但本任务未启动演示环境实测，0.3 首次运行时用 `restore-snapshot.sh` 的 `simulationStartAt` 校验确认（脚本会 FAIL 并提示）。
+- ~~`FJSP_SIMULATION_MODE=FIXED` 经 Spring relaxed binding 生效属标准行为，但本任务未启动演示环境实测~~ 已由任务 0.3（2026-10-30）实测确认生效，见第 2.2 节。
+- 0.3 实测补充：不带 sessionKey 新建的 AGH 会话会被 daemon 归并到 workspace 默认会话（钉在首次绑定时的模型账号上）；Golden 运行必须为每场景指定独立 `AGH_SESSION_KEY=golden-<场景>-run<N>`，否则在默认模型切换后会命中已封禁的旧账号（AUTH 403）。
 - s04 的"全车间停摆"依赖种子 horizon 6300 分钟（`demo_instance.json` 可用区间末端）；种子变更时需同步脚本内 `HORIZON_MINUTES`。
 - s05 的幂等回放依赖 24h TTL（`FjspProperties.java:46`）且要求复位后首次投递；`--no-reset` 重跑会因指纹/订单号去重被拒（符合预期，不属于脚本失败）。
 - `audit_log` 在 reset 中保留（`DemoService.java:112`），跨多次运行的审计统计必须按对象过滤。
