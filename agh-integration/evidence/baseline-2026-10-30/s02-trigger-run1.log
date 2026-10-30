@@ -1,0 +1,24 @@
+== 登录 http://localhost:8081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=48ffab93-e2d6-4dca-8fee-c9990cb53b4d versionCode=PV-000056 status=PUBLISHED
+== 触发：紧急插单事件（ORD-GOLDEN-S02，壳体C ×10，优先级 1）==
+PASS 插单事件已登记 EVT-000046
+PASS 订单实例已创建 ORD-GOLDEN-S02
+PASS 工序实例已创建（5 道）
+PASS 响应含 impactSummary.total（实际 5）
+PASS 事件详情 NEW_ORDER/URGENT_INSERT/CONFIRMED（实际 NEW_ORDER/URGENT_INSERT/CONFIRMED）
+SCENARIO_RESULT {"scenario":"s02-urgent-order","triggered":{"type":"NEW_ORDER","subType":"URGENT_INSERT","orderCode":"ORD-GOLDEN-S02","productFamily":"壳体C","quantity":10,"priority":1},"eventId":"479634f0-71f0-4ac5-a37e-068fdd98919d","eventCode":"EVT-000046","orderId":"ORD-GOLDEN-S02","operationIds":["ORD-GOLDEN-S02-10","ORD-GOLDEN-S02-20","ORD-GOLDEN-S02-30","ORD-GOLDEN-S02-40","ORD-GOLDEN-S02-50"],"impactSummary":{"total":5,"byType":{"NEW_ORDER":5}},"basePlanVersionId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","baseTaskId":"0679be58-e786-46b2-8b22-f71b3e27ed2e","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 以该 eventId 对 basePlanVersionId 做重调度，把插单排入并走评审；终态候选版本含 ORD-GOLDEN-S02 的工序"}

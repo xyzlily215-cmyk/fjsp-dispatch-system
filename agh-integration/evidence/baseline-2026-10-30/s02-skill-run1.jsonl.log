@@ -1,0 +1,41 @@
+2026-10-30T07:00:00.106Z [session] golden-s02-run1
+2026-10-30T07:00:01.965Z [tool:call] skill_read {"name":"fjsp-dispatch"}
+2026-10-30T07:00:01.981Z [tool:result] ok resourceId: skill/user/user-agnes/0fc8b2b49f4a296c2c9ab853c63ca79063107db63a5bd5f8a0e5f27a9ab0d81a
+revision: 1f763e93767026d237e37f57b9bf295105f0cf7d6f0d633c1598d60d1f163053
+directory: /Users/xiongyingzi/.agh/skills/fjsp
+2026-10-30T07:00:03.045Z [tool:call] fjsp_get_dashboard {}
+2026-10-30T07:00:03.082Z [tool:result] ok {"ok":true,"currentPlan":{"id":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","versionCode":"PV-000056","status":"PUBLISHED","publishedAt":"2026-10-30T06:59:50.237101Z","kpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":58639,
+2026-10-30T07:00:04.436Z [tool:call] fjsp_experience_query {"eventType":"NEW_ORDER","query":"壳体C 紧急插单 10 件 优先级1，交期 6 小时内，2026-09-17 08:00 到达"}
+2026-10-30T07:00:04.444Z [tool:result] ok {"ok":true,"total":5,"matched":0,"records":[],"recommendation":null}
+2026-10-30T07:00:05.709Z [tool:call] fjsp_experience_query {"eventType":"NEW_ORDER"}
+2026-10-30T07:00:05.716Z [tool:result] ok {"ok":true,"total":5,"matched":0,"records":[],"recommendation":null}
+2026-10-30T07:00:06.613Z [tool:call] fjsp_experience_query {}
+2026-10-30T07:00:06.622Z [tool:result] ok {"ok":true,"total":5,"matched":5,"records":[{"ts":"2026-10-30T06:59:22.258Z","eventType":"BREAKDOWN","mode":"LOCAL_RESCHEDULE","machineId":"M-03","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultSt
+2026-10-30T07:00:08.091Z [tool:call] fjsp_reschedule {"mode":"LOCAL_RESCHEDULE","eventId":"479634f0-71f0-4ac5-a37e-068fdd98919d","oldPlanVersionId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d"}
+2026-10-30T07:00:08.095Z [approval] operator approves {"toolCallId":"t5-885b90d89c7eff1c9f9668f35cd0f3d9","title":"fjsp_reschedule mode=\"LOCAL_RESCHEDULE\" eventId=\"479634f0-71f0-4ac5-a37e-068fdd98919d\" oldPlanVersionId=\"48ffab93-e2d6-4dca-8fee-c9990cb53b4d\"","rawInput":{"mode":"LOCAL_RESCHEDULE","eventId":"479634f0-71f0-4ac5-a37e-068fdd98919d","o
+2026-10-30T07:00:08.165Z [tool:result] ok {"ok":true,"task":{"taskId":"b768da09-47f8-4c76-9e69-79a25a574d70","taskCode":"TSK-000066","status":"PENDING"}}
+2026-10-30T07:00:09.281Z [tool:call] fjsp_task_status {"taskId":"b768da09-47f8-4c76-9e69-79a25a574d70","waitSeconds":60}
+2026-10-30T07:00:09.299Z [tool:result] ok {"ok":true,"task":{"taskId":"b768da09-47f8-4c76-9e69-79a25a574d70","taskCode":"TSK-000066","mode":"LOCAL_RESCHEDULE","status":"SUCCESS","progress":100,"resultStatus":"FEASIBLE","planVersionId":"bb7f66c8-696c-4517-a029-fb
+2026-10-30T07:00:10.364Z [tool:call] fjsp_compare_plans {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0","baselineVersionId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d"}
+2026-10-30T07:00:10.392Z [tool:result] ok {"ok":true,"diff":{"baselineVersionCode":"PV-000056","candidateVersionCode":"PV-000057","summary":{"comparedOperations":76,"addedOperations":["ORD-GOLDEN-S02-30","ORD-GOLDEN-S02-40","ORD-GOLDEN-S02-10","ORD-GOLDEN-S02-50
+2026-10-30T07:00:11.783Z [tool:call] fjsp_get_plan {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0"}
+2026-10-30T07:00:11.784Z [tool:call] fjsp_get_workpiece_position {"orderRef":"ORD-GOLDEN-S02"}
+2026-10-30T07:00:11.808Z [tool:result] ok {"ok":true,"position":{"orderId":"ORD-GOLDEN-S02","orderCode":"ORD-GOLDEN-S02","productFamily":"壳体C","quantity":10,"priority":1,"orderStatus":"WAITING","planPublished":true,"planVersionId":"48ffab93-e2d6-4dca-8fee-c9990c
+2026-10-30T07:00:11.817Z [tool:result] ok {"ok":true,"plan":{"id":"bb7f66c8-696c-4517-a029-fb9b849869e0","versionCode":"PV-000057","status":"DRAFT","candidateType":"LOCAL","version":0,"parentId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","taskId":"b768da09-47f8-4c76
+2026-10-30T07:00:12.912Z [tool:call] fjsp_submit_review {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0","version":0}
+2026-10-30T07:00:12.913Z [approval] operator approves {"toolCallId":"t10-9befabe666a88e0c41e507d067356241","title":"fjsp_submit_review planVersionId=\"bb7f66c8-696c-4517-a029-fb9b849869e0\" version=0","rawInput":{"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0","version":0},"kind":"other","status":"pending","_meta":{"ai.agnes.harness":{"tool":"fj
+2026-10-30T07:00:12.969Z [tool:result] ok {"ok":true,"plan":{"id":"bb7f66c8-696c-4517-a029-fb9b849869e0","versionCode":"PV-000057","status":"REVIEW_PENDING","candidateType":"LOCAL","version":1,"parentId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","taskId":"b768da09-
+2026-10-30T07:00:17.394Z [turn] stopReason=end_turn reason=completed lastSeq=206
+2026-10-30T07:00:50.003Z [session] golden-s02-run1
+2026-10-30T07:00:51.310Z [tool:call] fjsp_get_plan {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0"}
+2026-10-30T07:00:51.350Z [tool:result] ok {"ok":true,"plan":{"id":"bb7f66c8-696c-4517-a029-fb9b849869e0","versionCode":"PV-000057","status":"REVIEW_PENDING","candidateType":"LOCAL","version":1,"parentId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","taskId":"b768da09-
+2026-10-30T07:00:52.712Z [tool:call] fjsp_approve_review {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0","decision":"APPROVE","comment":"插单局部重排零扰动（Delta_plan 0，零换机零平移），makespan 不变，同意评审通过"}
+2026-10-30T07:00:52.714Z [approval] operator approves {"toolCallId":"t1-75465763ec067e73a6bca14790209c42","title":"fjsp_approve_review planVersionId=\"bb7f66c8-696c-4517-a029-fb9b849869e0\" decision=\"APPROVE\" comment=\"插单局部重排零扰动（Delta_plan 0，零换机零平移），makespan 不变，同意评审通过\"","rawInput":{"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0","decision":"A
+2026-10-30T07:00:52.751Z [tool:result] ok {"ok":true,"plan":{"id":"bb7f66c8-696c-4517-a029-fb9b849869e0","versionCode":"PV-000057","status":"REVIEWED","candidateType":"LOCAL","version":2,"parentId":"48ffab93-e2d6-4dca-8fee-c9990cb53b4d","taskId":"b768da09-47f8-4
+2026-10-30T07:00:53.880Z [tool:call] fjsp_publish {"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0"}
+2026-10-30T07:00:53.883Z [approval] operator approves {"toolCallId":"t2-1261716177c6f08c0027a2de68d59dae","title":"fjsp_publish planVersionId=\"bb7f66c8-696c-4517-a029-fb9b849869e0\"","rawInput":{"planVersionId":"bb7f66c8-696c-4517-a029-fb9b849869e0"},"kind":"other","status":"pending","_meta":{"ai.agnes.harness":{"tool":"fjsp_publish"}}}
+2026-10-30T07:00:53.944Z [tool:result] ok {"ok":true,"ganttUrl":"http://localhost:5173/#/resource-gantt?planVersion=bb7f66c8-696c-4517-a029-fb9b849869e0","plan":{"id":"bb7f66c8-696c-4517-a029-fb9b849869e0","versionCode":"PV-000057","status":"PUBLISHED","candidat
+2026-10-30T07:00:56.171Z [tool:call] fjsp_experience_record {"eventType":"NEW_ORDER","mode":"LOCAL_RESCHEDULE","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultStatus":"FEASIBLE","kpiDiff":{"weightedTardinessMinutes":98,"cMaxMinutes":0,"deltaPlan":0},"published":"true","note":"壳体C ×10 优先级1 紧急插单（ORD-GOLDEN-S02，交期仿真14:00），局部重排即可：零换机、零平移、换序13，Delta_plan 0，makespan 不变、拖期 +98min、拖期订单 12→13，已发布 PV-000057。"}
+2026-10-30T07:00:56.175Z [approval] operator approves {"toolCallId":"t3-f0c05d0035a4655c33d3af64d4ba0c53","title":"fjsp_experience_record eventType=\"NEW_ORDER\" mode=\"LOCAL_RESCHEDULE\" weights={\"loadImbalance\":1,\"makespan\":1,\"weightedTardiness\":1} resultStatus=\"FEASIBLE\" published=\"true\" …[2 more fields not shown]","rawInput":{"eventType":
+2026-10-30T07:00:56.203Z [tool:result] ok {"ok":true,"recorded":{"ts":"2026-10-30T07:00:56.188Z","eventType":"NEW_ORDER","mode":"LOCAL_RESCHEDULE","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultStatus":"FEASIBLE","kpiDiff":{"weightedTard
+2026-10-30T07:00:59.082Z [turn] stopReason=end_turn reason=completed lastSeq=303

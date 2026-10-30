@@ -1,0 +1,30 @@
+明白。先拿最新乐观锁 version，再发起评审通过。
+---
+评审已通过（REVIEWED，version=2）。现在发起发布。
+---
+发布成功。现在补正经验库记录（写一条 published=true 的正式记录）。
+---
+PV-000055 已评审通过并发布，车间执行计划已切换。
+
+**执行结果**
+- `fjsp_approve_review`：REVIEW_PENDING (v1) → **REVIEWED (v2)**
+- `fjsp_publish`：REVIEWED → **PUBLISHED**，发布时间 2026-10-30T06:59:20Z，v3
+- 看板复核：currentPlan 已是 PV-000055；原 PV-000054 转 SUPERSEDED；事件 EVT-000045 状态变为 `USED_FOR_SOLVE`
+- 甘特图：http://localhost:5173/#/resource-gantt?planVersion=fe2668f9-d9a2-4ef5-bac5-8a069a718ff7
+
+**最终 KPI（当前发布版 PV-000055）**
+
+| 指标 | PV-000054（旧） | PV-000055（新） | 差值 |
+|---|---|---|---|
+| makespan | 3355 min | 3355 min | 0 |
+| 加权拖期 | 58639 min | 60199 min | +1560 |
+| 拖期订单数 | 12 | 12 | 0 |
+| 负载不均衡 | 0.101042 | 0.102175 | +0.00113 |
+| Delta_plan | — | 0.128166 | 换机 0 / 换序 5 / 平移 3 |
+
+**经验库补正**
+`fjsp_experience_record` 没有更新既有记录的入参，所以我写入了一条内容一致、`published=true` 的正式记录（总数 4 → 5），备注里注明"补正此前 published=false 记录（PV-000055）"，并记录了"设备通道 running 经确认为演示映射差异"。原来那条 published=false 的记录仍留在库里，我没有能力删除或改它。
+
+**未做／注意**
+- 发布前的 `read_device` 复核结果为 M-03 `running`（OP-2026-1010，温度 40.41 °C、振动 2.2 mm/s），按你的判断 3 作为演示映射差异处理，已在审批意见与经验记录中留痕。
+- 事件登记时间为 `2026-09-17T00:00:00Z`（即北京 08:00），全程未改动。

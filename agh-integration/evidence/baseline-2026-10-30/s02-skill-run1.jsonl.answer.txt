@@ -1,0 +1,21 @@
+评审通过，状态为 REVIEWED（version=2）。现在发布。
+---
+PV-000057 已发布，经验也写入了。
+
+## 处置闭环结果
+
+| 步骤 | 结果 |
+|---|---|
+| 评审 | REVIEWED（version 2）→ 用户确认通过 |
+| 发布 | **PUBLISHED**，PV-000057，publishedAt 2026-10-30T07:00:53Z（原 PV-000056 转 SUPERSEDED） |
+| 经验沉淀 | 已记录（NEW_ORDER / LOCAL_RESCHEDULE / FEASIBLE / published=true），经验库现共 6 条 |
+
+**发布版 KPI**：makespan 3355 min；加权拖期 58737 min；拖期订单 13；负载不均衡度 0.109062；Delta_plan 0（换机 0、平移 0、换序 13）。
+
+**相对 PV-000056 的变化**：makespan 不变，加权拖期 +98 min，拖期订单 12→13，负载度 +0.00802。插单 ORD-GOLDEN-S02 的 5 道工序已排入，其余工序只发生班次内部换序，零换机、零时间平移。
+
+**经验条目要点**：壳体C 紧急插单走局部重排即可满足可行约束，扰动率 0；这是经验库第一条 NEW_ORDER 记录，以后同类插单可直接参考。
+
+甘特图：http://localhost:5173/#/resource-gantt?planVersion=bb7f66c8-696c-4517-a029-fb9b849869e0
+
+流程已结束，没有遗留的待确认操作。

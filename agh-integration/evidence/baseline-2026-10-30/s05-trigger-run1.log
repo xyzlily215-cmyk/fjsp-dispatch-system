@@ -1,0 +1,23 @@
+== 登录 http://localhost:8081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=a934c286-1b7c-4598-b532-0198af975be7 versionCode=PV-000063 status=PUBLISHED
+== 触发：同一故障告警投递 3 次（同键×2 + 换键×1）==
+PASS 第 1 次投递登记成功 EVT-000057
+PASS 第 2 次投递（同键同体）回放首次响应 eventId=5f7393d9-acea-4dd6-b9df-d4ec97b17be5
+PASS 第 3 次投递（换键同体）被拒 HTTP 409 E_DUPLICATE
+PASS BREAKDOWN 事件总数净增 1（实际 0 -> 1）
+SCENARIO_RESULT {"scenario":"s05-duplicate-alert","triggered":{"type":"BREAKDOWN","machineId":"M-05","occurredAt":"2026-09-17T02:00:00.000Z","repairDurationMinutes":90,"deliveries":3},"eventId":"5f7393d9-acea-4dd6-b9df-d4ec97b17be5","eventCode":"EVT-000057","idempotentReplay":true,"fingerprintRejected":true,"eventCountDelta":1,"simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent/上游重复投递同一告警时系统不产生第二次事件写入；agent 侧应识别重复告警，不重复发起重调度"}

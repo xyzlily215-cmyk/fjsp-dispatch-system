@@ -1,0 +1,33 @@
+2026-10-30T06:50:59.677Z [session] agnes:local:local-dev:cli:workspace:d6ddad1d7401c1d4
+/Users/xiongyingzi/Desktop/bysj/agh-integration/agnes-harness/packages/sdk/src/rpc.ts:233
+        if (r.error) p.reject(new JsonRpcError(r.error))
+                              ^
+
+JsonRpcError: INTERNAL_ERROR (-32603)
+    at RpcConnection.dispatch (/Users/xiongyingzi/Desktop/bysj/agh-integration/agnes-harness/packages/sdk/src/rpc.ts:233:31)
+    at Object.onMessage (/Users/xiongyingzi/Desktop/bysj/agh-integration/agnes-harness/packages/sdk/src/rpc.ts:105:25)
+    at Socket.<anonymous> (/Users/xiongyingzi/Desktop/bysj/agh-integration/agnes-harness/packages/sdk/src/transport/unix.node.ts:79:24)
+    at Socket.emit (node:events:514:28)
+    at addChunk (node:internal/streams/readable:568:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:519:3)
+    at Readable.push (node:internal/streams/readable:399:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23) {
+  kind: 'json-rpc',
+  code: -32603,
+  data: {
+    code: 'TURN_ERROR',
+    turnEnd: { reason: 'error' },
+    error: { code: 'AUTH', message: 'status=403' }
+  },
+  rpc: {
+    code: -32603,
+    message: 'INTERNAL_ERROR',
+    data: {
+      code: 'TURN_ERROR',
+      turnEnd: { reason: 'error' },
+      error: { code: 'AUTH', message: 'status=403' }
+    }
+  }
+}
+
+Node.js v24.21.0

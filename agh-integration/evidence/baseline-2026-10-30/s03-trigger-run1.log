@@ -1,0 +1,24 @@
+== 登录 http://localhost:8081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=c881c989-d970-4b0c-ab24-73b0eec19022 versionCode=PV-000058 status=PUBLISHED
+== 触发 1/2：设备故障事件（M-03，+24h，维修 120min）==
+PASS 故障事件已登记 EVT-000047
+== 触发 2/2：紧急插单事件（ORD-GOLDEN-S03，盘类B ×10，优先级 1）==
+PASS 插单事件已登记 EVT-000048
+PASS 两个扰动为相互独立的事件
+PASS 两事件均 CONFIRMED（实际 CONFIRMED/CONFIRMED）
+SCENARIO_RESULT {"scenario":"s03-mixed-disturbance","triggered":[{"type":"BREAKDOWN","machineId":"M-03","occurredAt":"2026-09-17T00:00:00.000Z","repairDurationMinutes":120},{"type":"NEW_ORDER","subType":"URGENT_INSERT","orderCode":"ORD-GOLDEN-S03","productFamily":"盘类B","quantity":10,"priority":1}],"breakdownEventId":"daadcc40-59a7-49ba-8b20-460bafab37b2","breakdownEventCode":"EVT-000047","newOrderEventId":"16b3f869-d800-4e81-8c4f-6ef427dc411a","newOrderEventCode":"EVT-000048","orderId":"ORD-GOLDEN-S03","operationIds":["ORD-GOLDEN-S03-10","ORD-GOLDEN-S03-20","ORD-GOLDEN-S03-30","ORD-GOLDEN-S03-40","ORD-GOLDEN-S03-50"],"basePlanVersionId":"c881c989-d970-4b0c-ab24-73b0eec19022","baseTaskId":"4374519f-a4ed-4fcb-9bc0-e67219d774c2","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 按发生先后处置两个事件（可先故障重调度再插单重调度，或合并评估），最终候选版本同时吸收两类扰动并走评审"}

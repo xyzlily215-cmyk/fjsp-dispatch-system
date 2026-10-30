@@ -1,0 +1,9 @@
+2026-10-30T07:06:09.505Z [session] golden-s05-run1
+2026-10-30T07:06:11.029Z [tool:call] fjsp_get_dashboard {}
+2026-10-30T07:06:11.065Z [tool:result] ok {"ok":true,"currentPlan":{"id":"a934c286-1b7c-4598-b532-0198af975be7","versionCode":"PV-000063","status":"PUBLISHED","publishedAt":"2026-10-30T07:05:55.377038Z","kpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":58639,
+2026-10-30T07:06:12.256Z [tool:call] fjsp_experience_query {"eventType":"BREAKDOWN","machineId":"M-05","query":"M-05 铣削设备故障，预计维修 90 分钟"}
+2026-10-30T07:06:12.256Z [tool:result] TOOL_ARGS_INVALID tool arguments do not match the registered schema: invalid parameter type or value. Retry with complete arguments matching the tool schema.
+2026-10-30T07:06:13.139Z [tool:call] fjsp_experience_query {"eventType":"BREAKDOWN","query":"M-05 铣削设备故障，预计维修 90 分钟"}
+2026-10-30T07:06:13.156Z [tool:result] ok {"ok":true,"total":8,"matched":6,"records":[{"ts":"2026-10-30T07:04:38.936Z","eventType":"BREAKDOWN","mode":"FULL_RESCHEDULE","machineId":"M-03","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultSta
+2026-10-30T07:06:25.366Z [approval] operator approves {"toolCallId":"r-133183474bede16f66510a02663c43d7","title":"verifier failed: schema_invalid","kind":"other","status":"pending"}
+2026-10-30T07:06:25.372Z [turn] stopReason=end_turn reason=completed lastSeq=133

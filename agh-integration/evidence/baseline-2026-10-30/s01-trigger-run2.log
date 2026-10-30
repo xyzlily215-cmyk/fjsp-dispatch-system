@@ -1,0 +1,24 @@
+== 登录 http://localhost:8081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 审批发布 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS 任务 randomSeed=20260916（实际 20260916）
+PASS 基线任务产出 planVersionId
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+PASS review APPROVE 后 REVIEWED（实际 REVIEWED）
+PASS publish 后 PUBLISHED
+[基线] planVersionId=8483803a-99b1-4152-a25c-7fe58806d182 versionCode=PV-000054 status=PUBLISHED
+== 触发：设备故障事件（M-03，+24h，维修 120min）==
+PASS 故障事件已登记 EVT-000045
+PASS 响应含 impactSummary.total（实际 12）
+PASS 事件详情 BREAKDOWN/M-03/CONFIRMED（实际 BREAKDOWN/M-03/CONFIRMED）
+PASS 事件详情含 impacts 影响集合
+PASS reschedule-preview 可取（供局部/全量重调度决策）
+SCENARIO_RESULT {"scenario":"s01-machine-breakdown","triggered":{"type":"BREAKDOWN","machineId":"M-03","occurredAt":"2026-09-17T00:00:00.000Z","repairDurationMinutes":120},"eventId":"59ced85a-8826-4ca9-b1a6-2ff6e315fdd2","eventCode":"EVT-000045","impactSummary":{"total":12,"byType":{"SAME_MACHINE_CONFLICT":2,"MACHINE_BREAKDOWN":4,"SUCCESSOR":6}},"impactCount":12,"basePlanVersionId":"8483803a-99b1-4152-a25c-7fe58806d182","baseTaskId":"7139ef59-e944-47ea-a0f0-38208225797d","simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"agent 以该 eventId 对 basePlanVersionId 做 LOCAL_RESCHEDULE（必要时升级 FULL_RESCHEDULE），产出新候选版本并走评审"}

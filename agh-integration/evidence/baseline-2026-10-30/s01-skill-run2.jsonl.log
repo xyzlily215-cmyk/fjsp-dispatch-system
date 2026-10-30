@@ -1,0 +1,52 @@
+2026-10-30T06:57:53.415Z [session] golden-s01-run2
+2026-10-30T06:57:54.663Z [tool:call] skill_read {"name":"fjsp-dispatch"}
+2026-10-30T06:57:54.675Z [tool:result] ok resourceId: skill/user/user-agnes/0fc8b2b49f4a296c2c9ab853c63ca79063107db63a5bd5f8a0e5f27a9ab0d81a
+revision: 1f763e93767026d237e37f57b9bf295105f0cf7d6f0d633c1598d60d1f163053
+directory: /Users/xiongyingzi/.agh/skills/fjsp
+2026-10-30T06:57:55.790Z [tool:call] fjsp_get_dashboard {}
+2026-10-30T06:57:55.791Z [tool:call] fjsp_get_plan {"planVersionId":"8483803a-99b1-4152-a25c-7fe58806d182"}
+2026-10-30T06:57:55.870Z [tool:result] ok {"ok":true,"currentPlan":{"id":"8483803a-99b1-4152-a25c-7fe58806d182","versionCode":"PV-000054","status":"PUBLISHED","publishedAt":"2026-10-30T06:57:36.742828Z","kpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":58639,
+2026-10-30T06:57:55.873Z [tool:result] ok {"ok":true,"plan":{"id":"8483803a-99b1-4152-a25c-7fe58806d182","versionCode":"PV-000054","status":"PUBLISHED","candidateType":"BASELINE","version":3,"parentId":null,"taskId":"7139ef59-e944-47ea-a0f0-38208225797d","publis
+2026-10-30T06:57:57.232Z [tool:call] fjsp_experience_query {"eventType":"BREAKDOWN","query":"M-03 设备故障停机，预计维修 120 分钟"}
+2026-10-30T06:57:57.242Z [tool:result] ok {"ok":true,"total":3,"matched":3,"records":[{"ts":"2026-10-30T06:57:08.741Z","eventType":"BREAKDOWN","mode":"LOCAL_RESCHEDULE","machineId":"M-03","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultSt
+2026-10-30T06:57:58.764Z [tool:call] fjsp_reschedule {"mode":"LOCAL_RESCHEDULE","eventId":"59ced85a-8826-4ca9-b1a6-2ff6e315fdd2","oldPlanVersionId":"8483803a-99b1-4152-a25c-7fe58806d182"}
+2026-10-30T06:57:58.768Z [approval] operator approves {"toolCallId":"t4-2230df9589d2cb11c3568aad278bd3e6","title":"fjsp_reschedule mode=\"LOCAL_RESCHEDULE\" eventId=\"59ced85a-8826-4ca9-b1a6-2ff6e315fdd2\" oldPlanVersionId=\"8483803a-99b1-4152-a25c-7fe58806d182\"","rawInput":{"mode":"LOCAL_RESCHEDULE","eventId":"59ced85a-8826-4ca9-b1a6-2ff6e315fdd2","o
+2026-10-30T06:57:58.863Z [tool:result] ok {"ok":true,"task":{"taskId":"cf800f8a-8620-45ac-aeac-19d8c1144c7c","taskCode":"TSK-000064","status":"PENDING"}}
+2026-10-30T06:58:00.360Z [tool:call] fjsp_task_status {"taskId":"cf800f8a-8620-45ac-aeac-19d8c1144c7c","waitSeconds":60}
+2026-10-30T06:58:00.378Z [tool:result] ok {"ok":true,"task":{"taskId":"cf800f8a-8620-45ac-aeac-19d8c1144c7c","taskCode":"TSK-000064","mode":"LOCAL_RESCHEDULE","status":"SUCCESS","progress":100,"resultStatus":"FEASIBLE","planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a
+2026-10-30T06:58:02.025Z [tool:call] fjsp_compare_plans {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","baselineVersionId":"8483803a-99b1-4152-a25c-7fe58806d182"}
+2026-10-30T06:58:02.026Z [tool:call] fjsp_get_plan {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"}
+2026-10-30T06:58:02.053Z [tool:result] ok {"ok":true,"diff":{"baselineVersionCode":"PV-000054","candidateVersionCode":"PV-000055","summary":{"comparedOperations":76,"addedOperations":[],"removedOperations":[],"timeShiftedCount":3,"machineChangedCount":0,"sequenc
+2026-10-30T06:58:02.059Z [tool:result] ok {"ok":true,"plan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"DRAFT","candidateType":"LOCAL","version":0,"parentId":"8483803a-99b1-4152-a25c-7fe58806d182","taskId":"cf800f8a-8620-45ac
+2026-10-30T06:58:03.509Z [tool:call] fjsp_submit_review {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","version":0}
+2026-10-30T06:58:03.512Z [approval] operator approves {"toolCallId":"t8-aa3c3b9c7eef1c9819949f98674623f8","title":"fjsp_submit_review planVersionId=\"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7\" version=0","rawInput":{"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","version":0},"kind":"other","status":"pending","_meta":{"ai.agnes.harness":{"tool":"fjs
+2026-10-30T06:58:03.568Z [tool:result] ok {"ok":true,"plan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"REVIEW_PENDING","candidateType":"LOCAL","version":1,"parentId":"8483803a-99b1-4152-a25c-7fe58806d182","taskId":"cf800f8a-
+2026-10-30T06:58:05.408Z [tool:call] fjsp_experience_record {"eventType":"BREAKDOWN","mode":"LOCAL_RESCHEDULE","machineId":"M-03","resultStatus":"FEASIBLE","published":"false","kpiDiff":{"weightedTardinessMinutes":1560,"cMaxMinutes":0,"deltaPlan":0.128166},"weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"note":"M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min；PV-000055 已提交评审待人工确认发布"}
+2026-10-30T06:58:05.415Z [tool:call] fjsp_get_gantt_link {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"}
+2026-10-30T06:58:05.419Z [approval] operator approves {"toolCallId":"t9-21bbca77c57bdbbf8ef7f50ff0c5d00e","title":"fjsp_experience_record eventType=\"BREAKDOWN\" mode=\"LOCAL_RESCHEDULE\" machineId=\"M-03\" resultStatus=\"FEASIBLE\" published=\"false\" kpiDiff={\"cMaxMinutes\":0,\"deltaPlan\":0.128166,\"weightedTardinessMinutes\":1560} …[2 more fields 
+2026-10-30T06:58:05.428Z [tool:result] ok {"ok":true,"recorded":{"ts":"2026-10-30T06:58:05.423Z","eventType":"BREAKDOWN","mode":"LOCAL_RESCHEDULE","machineId":"M-03","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultStatus":"FEASIBLE","kpiD
+2026-10-30T06:58:05.441Z [tool:result] ok {"ok":true,"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","ganttUrl":"http://localhost:5173/#/resource-gantt?planVersion=fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"}
+2026-10-30T06:58:10.320Z [turn] stopReason=end_turn reason=completed lastSeq=185
+2026-10-30T06:58:36.401Z [session] golden-s01-run2
+2026-10-30T06:58:37.506Z [tool:call] read_device {"device":"cnc-m03"}
+2026-10-30T06:58:37.517Z [tool:result] ok cnc-m03 is available. Installed at (2.5, 2.5) facing 90° on map workshop, in zone 加工区 (machining). State: status running, current_job OP-2026-1010, spindle_load 63 %.
+No tools.
+Data sources (read_device sources; watch_de
+2026-10-30T06:58:38.369Z [tool:call] read_device {"device":"cnc-m03","sources":["metrics"]}
+2026-10-30T06:58:38.458Z [tool:result] ok cnc-m03 is available. Installed at (2.5, 2.5) facing 90° on map workshop, in zone 加工区 (machining). State: status running, current_job OP-2026-1010, spindle_load 63 %. cnc-m03 metrics: temperature 40.41 °C, vibration 2.2 
+2026-10-30T06:58:42.970Z [turn] stopReason=end_turn reason=completed lastSeq=242
+2026-10-30T06:59:16.659Z [session] golden-s01-run2
+2026-10-30T06:59:17.658Z [tool:call] fjsp_get_plan {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"}
+2026-10-30T06:59:17.716Z [tool:result] ok {"ok":true,"plan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"REVIEW_PENDING","candidateType":"LOCAL","version":1,"parentId":"8483803a-99b1-4152-a25c-7fe58806d182","taskId":"cf800f8a-
+2026-10-30T06:59:19.100Z [tool:call] fjsp_approve_review {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","decision":"APPROVE","comment":"M-03 故障局部重排，零换机、Delta_plan 0.128，加权拖期 +1560min，KPI 符合预期；设备通道 running 经确认为演示映射差异，业务事件有效。"}
+2026-10-30T06:59:19.105Z [approval] operator approves {"toolCallId":"t1-9d26c57a1c770f5dc4e5aea138d83646","title":"fjsp_approve_review planVersionId=\"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7\" decision=\"APPROVE\" comment=\"M-03 故障局部重排，零换机、Delta_plan 0.128，加权拖期 +1560min，KPI 符合预期；设备通道 running 经确认为演示映射差异…[showing 80 of 89 chars]","rawInput":{"planVersionId"
+2026-10-30T06:59:19.160Z [tool:result] ok {"ok":true,"plan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"REVIEWED","candidateType":"LOCAL","version":2,"parentId":"8483803a-99b1-4152-a25c-7fe58806d182","taskId":"cf800f8a-8620-4
+2026-10-30T06:59:20.470Z [tool:call] fjsp_publish {"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"}
+2026-10-30T06:59:20.472Z [approval] operator approves {"toolCallId":"t2-d8906ade7b1dca2454f2a5926583a7e5","title":"fjsp_publish planVersionId=\"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7\"","rawInput":{"planVersionId":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7"},"kind":"other","status":"pending","_meta":{"ai.agnes.harness":{"tool":"fjsp_publish"}}}
+2026-10-30T06:59:20.527Z [tool:result] ok {"ok":true,"ganttUrl":"http://localhost:5173/#/resource-gantt?planVersion=fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","plan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"PUBLISHED","candidat
+2026-10-30T06:59:22.253Z [tool:call] fjsp_experience_record {"eventType":"BREAKDOWN","machineId":"M-03","mode":"LOCAL_RESCHEDULE","note":"M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min，已发布 PV-000055（补正此前 published=false 记录）；设备通道显示 running，经用户确认为演示映射差异、业务事件有效。","published":"true","resultStatus":"FEASIBLE","kpiDiff":{"cMaxMinutes":0,"deltaPlan":0.128166,"weightedTardinessMinutes":1560},"weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1}}
+2026-10-30T06:59:22.255Z [approval] operator approves {"toolCallId":"t3-8bdcfa21dd734d8a7fba39de1ca67d7c","title":"fjsp_experience_record eventType=\"BREAKDOWN\" machineId=\"M-03\" mode=\"LOCAL_RESCHEDULE\" note=\"M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128…[showing 80 of 180 chars] published=\"true\" …[3 more fields
+2026-10-30T06:59:22.262Z [tool:result] ok {"ok":true,"recorded":{"ts":"2026-10-30T06:59:22.258Z","eventType":"BREAKDOWN","mode":"LOCAL_RESCHEDULE","machineId":"M-03","weights":{"makespan":1,"weightedTardiness":1,"loadImbalance":1},"resultStatus":"FEASIBLE","kpiD
+2026-10-30T06:59:23.161Z [tool:call] fjsp_get_dashboard {}
+2026-10-30T06:59:23.212Z [tool:result] ok {"ok":true,"currentPlan":{"id":"fe2668f9-d9a2-4ef5-bac5-8a069a718ff7","versionCode":"PV-000055","status":"PUBLISHED","publishedAt":"2026-10-30T06:59:20.510764Z","kpi":{"cMaxMinutes":3355,"weightedTardinessMinutes":60199,
+2026-10-30T06:59:26.295Z [turn] stopReason=end_turn reason=completed lastSeq=355

@@ -1,0 +1,22 @@
+== 登录 http://localhost:8081/api/v1（user=admin）==
+== 复位快照（/demo/reset）==
+PASS demo/reset 返回 reset=true
+PASS seed 设备数=8（实际 8）
+PASS seed 工艺模板数=3（实际 3）
+PASS seed 订单数=20（实际 20）
+PASS seed 工序数=76（实际 76）
+PASS seed 含 simulationStartAt（2026-09-16T08:00+08:00）
+[快照] simulationStartAt=2026-09-16T08:00+08:00
+== 前置：基线排程 + 提交评审 ==
+PASS 基线任务 SUCCESS/TIME_LIMIT+FEASIBLE（实际 status=SUCCESS resultStatus=FEASIBLE）
+PASS submit-review 后 REVIEW_PENDING（实际 REVIEW_PENDING）
+== 触发：评审拒绝（decision=REJECT）==
+PASS review REJECT 后 REJECTED（实际 REJECTED）
+PASS 驳回意见已落库
+== 断言：无发布副作用 ==
+PASS dashboard.currentPlan 为空（实际 null）
+PASS REJECTED 版本上 publish 被拒 HTTP 409 E_STATE_CONFLICT
+PASS publish 尝试后状态仍 REJECTED（实际 REJECTED）
+PASS 审计含 PLAN_SUBMIT_REVIEW 与 PLAN_REVIEW_REJECT（实际 PLAN_REVIEW_REJECT,PLAN_SUBMIT_REVIEW）
+PASS 审计不含 PLAN_PUBLISH（无发布副作用）
+SCENARIO_RESULT {"scenario":"s06-review-reject","triggered":{"type":"REVIEW_REJECT","planVersionId":"0b767506-d16a-46b2-8a19-e80e28bde4b6","comment":"golden-s06 演练驳回：KPI 不达标，退回调整"},"planVersionId":"0b767506-d16a-46b2-8a19-e80e28bde4b6","taskId":"52e9ace1-35de-4da6-b72b-219ecf7c6c2c","finalStatus":"REJECTED","auditActions":["PLAN_REVIEW_REJECT","PLAN_SUBMIT_REVIEW"],"simulationStartAt":"2026-09-16T08:00+08:00","expectedTerminal":"评审被拒后计划版本停留 REJECTED、无 PUBLISHED 副作用；agent 可建议 fjsp_revise_plan 退回修改后重新提审，不得绕过评审直接发布"}
