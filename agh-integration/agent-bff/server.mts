@@ -3,21 +3,29 @@
 // workbench on :4177; this service gives the Vue app a first-class HTTP/SSE
 // API so the agent is native UI instead of an iframe.
 //
-//   GET  /agent-api/health                     daemon/connectivity status
-//   GET  /agent-api/stream?conversationId=...  SSE event stream (replay via sinceId / Last-Event-ID)
+//   GET  /agent-api/health                     daemon/connectivity status（公开）
+//   POST /agent-api/stream-ticket              换取 SSE ticket（需 Bearer JWT）
+//   GET  /agent-api/stream?conversationId=...&ticket=...  SSE event stream (replay via sinceId / Last-Event-ID)
 //   POST /agent-api/chat       { conversationId?, message, context? }
 //   POST /agent-api/cancel     { conversationId }
 //   POST /agent-api/permission { conversationId, requestId, verdict: 'allowed-once' | 'rejected' }
 //   GET  /agent-api/twin/snapshot              MHS device snapshot (digital twin page)
-//   GET  /agent-api/twin/stream                SSE 1Hz device snapshot ticks
-//   GET  /agent-api/twin/device/:id/panel      latest panel JPEG of a device
-//   GET  /agent-api/twin/grid                  workshop floor-plan PNG
+//   GET  /agent-api/twin/stream?ticket=...     SSE 1Hz device snapshot ticks
+//   GET  /agent-api/twin/device/:id/panel      latest panel JPEG（公开：<img> 无法带请求头）
+//   GET  /agent-api/twin/grid                  workshop floor-plan PNG（公开，同上）
+//
+// 鉴权：除健康检查与两张孪生图片外，所有端点要求 business-service 签发的 JWT
+// （Authorization: Bearer，BFF 向 FJSP_API_BASE/auth/me 内检），SSE 走一次性语义
+// 等价的限时 ticket（EventSource 不能带请求头；ticket 60s 内可复用以支持自动重连）。
+// 会话绑定属主：创建会话记录 username，跨用户访问 403；无属主的历史会话一律 403（legacy）。
 //
 // Run:  ../agnes-harness/node_modules/.bin/tsx server.mts
 // Env:  AGENT_BFF_PORT (default 4178), AGENT_BFF_HOST (default 127.0.0.1),
-//       AGNES_HUB_URL (default ws://127.0.0.1:4180/ws/hub)
+//       AGNES_HUB_URL (default ws://127.0.0.1:4180/ws/hub),
+//       FJSP_API_BASE (default http://localhost:8081/api/v1，JWT 内检地址),
+//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE（测试隔离覆盖用）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createClient, type PermissionOutcome, type Session } from '../agnes-harness/packages/sdk/src/index.node.ts'
 import { mhsHub } from './mhs.mts'
@@ -27,9 +35,13 @@ import { experienceQuery } from './rag.mts'
 const PORT = Number(process.env.AGENT_BFF_PORT ?? 4178)
 const HOST = process.env.AGENT_BFF_HOST ?? '127.0.0.1'
 const AGH_HOME = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
-const OWNER_FILE = `${process.env.HOME}/.agh/data/daemon/owner.json`
-const SESSION_ID_FILE = new URL('../.agh-session-id', import.meta.url)
-const STORE_FILE = new URL('./.conversations.json', import.meta.url)
+const OWNER_FILE = process.env.AGH_OWNER_FILE ?? `${process.env.HOME}/.agh/data/daemon/owner.json`
+const SESSION_ID_FILE = process.env.AGENT_BFF_SESSION_ID_FILE ?? new URL('../.agh-session-id', import.meta.url)
+const STORE_FILE = process.env.AGENT_BFF_STORE_FILE ?? new URL('./.conversations.json', import.meta.url)
+const FJSP_API_BASE = (process.env.FJSP_API_BASE ?? 'http://localhost:8081/api/v1').replace(/\/+$/, '')
+const AUTH_CACHE_OK_MS = 30_000
+const AUTH_CACHE_BAD_MS = 5_000
+const TICKET_TTL_MS = 60_000
 const BUFFER_CAP = 1000
 const HEARTBEAT_MS = 25_000
 const PERMISSION_TIMEOUT_MS = 10 * 60_000
@@ -44,6 +56,7 @@ type PendingPermission = {
 type Conversation = {
   id: string
   sessionId: string | null
+  owner: string | null // 属主 username；null = 历史遗留（legacy），一律拒绝访问
   session: Session | null
   starting: Promise<Session> | null
   pumping: boolean
@@ -56,27 +69,40 @@ type Conversation = {
 
 const conversations = new Map<string, Conversation>()
 
-function loadStore(): Record<string, string> {
+type StoreEntry = { sessionId: string | null; owner: string | null }
+
+function loadStore(): Record<string, StoreEntry> {
   try {
-    return JSON.parse(readFileSync(STORE_FILE, 'utf8'))
+    const raw = JSON.parse(readFileSync(STORE_FILE, 'utf8')) as Record<string, unknown>
+    const out: Record<string, StoreEntry> = {}
+    for (const [id, v] of Object.entries(raw)) {
+      // 旧格式为 id → sessionId 字符串，无属主记录，按 legacy 处理
+      out[id] = typeof v === 'string'
+        ? { sessionId: v, owner: null }
+        : { sessionId: (v as StoreEntry)?.sessionId ?? null, owner: (v as StoreEntry)?.owner ?? null }
+    }
+    return out
   } catch {
     return {}
   }
 }
 
 function saveStore() {
-  const map: Record<string, string> = {}
-  for (const [id, conv] of conversations) if (conv.sessionId) map[id] = conv.sessionId
+  const map: Record<string, StoreEntry> = {}
+  for (const [id, conv] of conversations) map[id] = { sessionId: conv.sessionId, owner: conv.owner }
   writeFileSync(STORE_FILE, JSON.stringify(map, null, 2))
 }
 
-function getConversation(id?: string): Conversation {
+function getConversation(id: string | undefined, owner: string): Conversation {
   const convId = id && /^[\w-]{1,80}$/.test(id) ? id : randomUUID()
   let conv = conversations.get(convId)
   if (!conv) {
+    const stored = loadStore()[convId]
     conv = {
       id: convId,
-      sessionId: loadStore()[convId] ?? null,
+      sessionId: stored?.sessionId ?? null,
+      // 已持久化的会话以存储中的属主为准；新会话绑定当前用户
+      owner: stored ? stored.owner : owner,
       session: null,
       starting: null,
       pumping: false,
@@ -89,6 +115,101 @@ function getConversation(id?: string): Conversation {
     conversations.set(convId, conv)
   }
   return conv
+}
+
+// ---- 鉴权：business-service JWT 内检 + SSE 限时 ticket ----
+// 与 business-service 共用身份的唯一事实来源：不共享密钥、不本地验签，
+// 每次（带 30s 正缓存）把 Bearer token 转发给 /auth/me 内检，tv 失效/停用/删除
+// 即时生效（最坏 30s 延迟）。内检不可达时 fail-closed：业务端点 503 auth_unavailable。
+type AuthUser = { username: string; role: string; displayName: string }
+type AuthResult = AuthUser | null | 'unavailable'
+
+const authCache = new Map<string, { user: AuthUser | null; expiresAt: number }>()
+
+async function introspectToken(token: string): Promise<AuthResult> {
+  const cached = authCache.get(token)
+  if (cached && cached.expiresAt > Date.now()) return cached.user
+  let user: AuthUser | null
+  try {
+    const res = await fetch(`${FJSP_API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(3000),
+    })
+    const env = (await res.json().catch(() => null)) as { code?: string; data?: Partial<AuthUser> } | null
+    user = res.ok && env?.code === 'OK' && typeof env.data?.username === 'string'
+      ? {
+          username: env.data.username,
+          role: typeof env.data.role === 'string' ? env.data.role : '',
+          displayName: typeof env.data.displayName === 'string' ? env.data.displayName : '',
+        }
+      : null
+  } catch {
+    return 'unavailable'
+  }
+  if (authCache.size > 500) {
+    const now = Date.now()
+    for (const [k, v] of authCache) {
+      if (v.expiresAt <= now) authCache.delete(k)
+    }
+    if (authCache.size > 500) authCache.delete(authCache.keys().next().value as string)
+  }
+  authCache.set(token, { user, expiresAt: Date.now() + (user ? AUTH_CACHE_OK_MS : AUTH_CACHE_BAD_MS) })
+  return user
+}
+
+// SSE ticket：EventSource 无法自定义请求头，JWT 进 URL 会泄露到浏览器历史/代理日志
+// （business-service StreamTicketService 的既有结论）。这里签发 60s 限时 ticket，
+// 绑定 username；与业务服务的一次性语义不同，本 ticket 在 TTL 内可复用——
+// EventSource 断线自动重连会复用同一 URL，一次性 ticket 会让重连必失败。
+const tickets = new Map<string, { username: string; expiresAt: number }>()
+
+function issueTicket(username: string): { ticket: string; expiresAt: number } {
+  const now = Date.now()
+  for (const [k, v] of tickets) if (v.expiresAt <= now) tickets.delete(k)
+  const ticket = randomBytes(32).toString('base64url')
+  const expiresAt = now + TICKET_TTL_MS
+  tickets.set(ticket, { username, expiresAt })
+  return { ticket, expiresAt }
+}
+
+function resolveTicket(ticket: string | null): string | null {
+  if (!ticket) return null
+  const t = tickets.get(ticket)
+  return t && t.expiresAt > Date.now() ? t.username : null
+}
+
+async function authenticate(req: IncomingMessage, url: URL): Promise<AuthResult> {
+  const header = req.headers.authorization ?? ''
+  if (header.startsWith('Bearer ')) return introspectToken(header.slice(7))
+  const username = resolveTicket(url.searchParams.get('ticket'))
+  return username ? { username, role: '', displayName: '' } : null
+}
+
+/** 业务端点统一入口；返回 null 时已写好错误响应。 */
+async function requireAuth(req: IncomingMessage, url: URL, res: ServerResponse): Promise<AuthUser | null> {
+  const result = await authenticate(req, url)
+  if (result === 'unavailable') {
+    sendJson(res, 503, { error: 'auth_unavailable', detail: `业务服务鉴权接口不可达（${FJSP_API_BASE}）` })
+    return null
+  }
+  if (!result) {
+    sendJson(res, 401, { error: 'unauthorized' })
+    return null
+  }
+  return result
+}
+
+/** 会话归属校验；返回 false 时已写好 403。 */
+function authorizeConversation(conv: Conversation, user: AuthUser, res: ServerResponse): boolean {
+  if (!conv.owner) {
+    sendJson(res, 403, { error: 'conversation_legacy', detail: '历史会话无属主记录，请新建会话' })
+    return false
+  }
+  if (conv.owner !== user.username) {
+    sendJson(res, 403, { error: 'conversation_forbidden', detail: '会话属于其他用户' })
+    return false
+  }
+  return true
 }
 
 let clientPromise: Promise<ReturnType<typeof createClient>> | null = null
@@ -330,7 +451,7 @@ function cors(req: IncomingMessage, res: ServerResponse) {
   const loopback = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)
   res.setHeader('Access-Control-Allow-Origin', loopback ? origin : 'null')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Last-Event-ID')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Last-Event-ID, Authorization')
 }
 
 const server = createServer(async (req, res) => {
@@ -358,25 +479,47 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 200, { ok: false, daemon: 'unavailable', hint: String(err) })
       }
     }
+    if (req.method === 'POST' && path === '/agent-api/stream-ticket') {
+      // 只接受 Bearer JWT 换票：ticket 出现在 URL 里（泄露面大），不允许用 ticket 续票
+      const header = req.headers.authorization ?? ''
+      if (!header.startsWith('Bearer ')) return sendJson(res, 401, { error: 'unauthorized' })
+      const result = await introspectToken(header.slice(7))
+      if (result === 'unavailable') return sendJson(res, 503, { error: 'auth_unavailable', detail: `业务服务鉴权接口不可达（${FJSP_API_BASE}）` })
+      if (!result) return sendJson(res, 401, { error: 'unauthorized' })
+      return sendJson(res, 200, issueTicket(result.username))
+    }
     if (req.method === 'GET' && path === '/agent-api/stream') {
-      const conv = getConversation(url.searchParams.get('conversationId') ?? undefined)
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      const conv = getConversation(url.searchParams.get('conversationId') ?? undefined, user.username)
+      if (!authorizeConversation(conv, user, res)) return
       return handleStream(conv, req, res, url)
     }
     if (req.method === 'POST' && path === '/agent-api/chat') {
+      const user = await requireAuth(req, url, res)
+      if (!user) return
       const body = await readBody(req)
-      const conv = getConversation(typeof body.conversationId === 'string' ? body.conversationId : undefined)
+      const conv = getConversation(typeof body.conversationId === 'string' ? body.conversationId : undefined, user.username)
+      if (!authorizeConversation(conv, user, res)) return
       return await handleChat(conv, body, res)
     }
     if (req.method === 'POST' && path === '/agent-api/cancel') {
+      const user = await requireAuth(req, url, res)
+      if (!user) return
       const body = await readBody(req)
       const conv = conversations.get(String(body.conversationId ?? ''))
-      if (!conv?.session) return sendJson(res, 404, { error: 'conversation_not_found' })
+      if (!conv) return sendJson(res, 404, { error: 'conversation_not_found' })
+      if (!authorizeConversation(conv, user, res)) return
+      if (!conv.session) return sendJson(res, 404, { error: 'conversation_not_found' })
       await conv.session.cancel()
       return sendJson(res, 202, { ok: true })
     }
     if (req.method === 'POST' && path === '/agent-api/permission') {
+      const user = await requireAuth(req, url, res)
+      if (!user) return
       const body = await readBody(req)
       const conv = conversations.get(String(body.conversationId ?? ''))
+      if (conv && !authorizeConversation(conv, user, res)) return
       const pending = conv?.pendingPermissions.get(String(body.requestId ?? ''))
       if (!conv || !pending) return sendJson(res, 404, { error: 'permission_not_found' })
       const verdict = body.verdict === 'allowed-once' ? 'allowed-once' : 'rejected'
@@ -384,9 +527,11 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 202, { ok: true, verdict })
     }
     if (req.method === 'GET' && path === '/agent-api/twin/snapshot') {
+      if (!(await requireAuth(req, url, res))) return
       return sendJson(res, 200, await twinSnapshot())
     }
     if (req.method === 'GET' && path === '/agent-api/twin/stream') {
+      if (!(await requireAuth(req, url, res))) return
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
@@ -414,6 +559,7 @@ const server = createServer(async (req, res) => {
       return res.end(grid.png)
     }
     if (req.method === 'POST' && path.match(/^\/agent-api\/twin\/device\/[^/]+\/(fault|recover)$/)) {
+      if (!(await requireAuth(req, url, res))) return
       // 任意机床故障注入/恢复：写按机台号的触发文件，设备循环下一拍（100ms）消费。
       // 与 machine-m03.py 的约定一致，见该文件头部注释。
       const m = path.match(/^\/agent-api\/twin\/device\/([^/]+)\/(fault|recover)$/)!
@@ -427,15 +573,18 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 202, { ok: true, device: id, action })
     }
     if (req.method === 'POST' && path === '/agent-api/twin/sim/start') {
+      if (!(await requireAuth(req, url, res))) return
       const body = await readBody(req).catch(() => ({}))
       const machines = Array.isArray(body.machines) ? body.machines.map(String) : undefined
       const r = await simStart(machines)
       return sendJson(res, r.started ? 202 : 409, r)
     }
     if (req.method === 'POST' && path === '/agent-api/twin/sim/stop') {
+      if (!(await requireAuth(req, url, res))) return
       return sendJson(res, 202, await simStop())
     }
     if (req.method === 'POST' && path === '/agent-api/rag/experience-query') {
+      if (!(await requireAuth(req, url, res))) return
       const body = await readBody(req)
       const result = await experienceQuery({
         eventType: typeof body.eventType === 'string' ? body.eventType : undefined,

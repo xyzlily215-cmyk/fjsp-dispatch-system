@@ -1,5 +1,7 @@
-/* 数字孪生（MHS 设备）访问层：经 agent-bff 的 AgnesHub 代理。 */
-import { AGENT_API_BASE } from './agent';
+/* 数字孪生（MHS 设备）访问层：经 agent-bff 的 AgnesHub 代理。
+ * 鉴权：快照/操作携带 business-service JWT（同 api/agent.ts）；SSE 流先换限时 ticket。
+ * panel/grid 两张图片经 <img>/<image> 直连 URL（无法带请求头），BFF 侧保持公开。 */
+import { AGENT_API_BASE, agentAuthHeaders, agentStreamTicket } from './agent';
 
 /** 设备健康摘要（AgnesHub 计算） */
 export interface DeviceHealth {
@@ -63,18 +65,47 @@ export interface TwinSnapshot {
 }
 
 export function twinSnapshot(): Promise<TwinSnapshot> {
-  return fetch(AGENT_API_BASE + '/twin/snapshot')
-    .then((r) => r.json())
+  return fetch(AGENT_API_BASE + '/twin/snapshot', { headers: agentAuthHeaders() })
+    .then((r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .catch(() => ({ hub: 'unavailable', time: 0, devices: [], world: null, sim: null }) as TwinSnapshot);
 }
 
-/* SSE 1Hz 设备快照流；返回关闭函数。 */
+/* SSE 1Hz 设备快照流；返回关闭函数。EventSource 不能带请求头：内部先换 ticket 再建连，
+ * ticket 过期被 401 关闭（readyState CLOSED）时自动重新取票重连。 */
 export function openTwinStream(onSnapshot: (snap: TwinSnapshot) => void): () => void {
-  const source = new EventSource(`${AGENT_API_BASE}/twin/stream`);
-  source.addEventListener('twin', (ev) => {
-    try { onSnapshot(JSON.parse((ev as MessageEvent).data)); } catch { /* 忽略坏帧 */ }
-  });
-  return () => source.close();
+  let source: EventSource | null = null;
+  let closed = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const connectOnce = () => {
+    if (closed) return;
+    agentStreamTicket().then(({ ticket }) => {
+      if (closed) return;
+      const es = new EventSource(`${AGENT_API_BASE}/twin/stream?ticket=${encodeURIComponent(ticket)}`);
+      source = es;
+      es.addEventListener('twin', (ev) => {
+        try { onSnapshot(JSON.parse((ev as MessageEvent).data)); } catch { /* 忽略坏帧 */ }
+      });
+      es.onerror = () => {
+        if (!closed && es.readyState === EventSource.CLOSED) {
+          if (source === es) source = null;
+          retryTimer = setTimeout(connectOnce, 3000);
+        }
+      };
+    }).catch(() => {
+      if (!closed) retryTimer = setTimeout(connectOnce, 3000);
+    });
+  };
+
+  connectOnce();
+  return () => {
+    closed = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    source?.close();
+  };
 }
 
 export function twinPanelUrl(deviceId: string, ts?: number): string {
@@ -88,7 +119,7 @@ export function twinGridUrl(): string {
 function postAction(path: string) {
   return fetch(AGENT_API_BASE + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...agentAuthHeaders() },
   }).then((r) => r.json());
 }
 

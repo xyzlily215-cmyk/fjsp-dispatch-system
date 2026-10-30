@@ -744,11 +744,16 @@ const tools = [
     meta: READ,
     async execute({ eventType, limit, query }) {
       // RAG 语义检索优先：agent-bff 的 /rag/experience-query（本地 e5 向量 + BM25 混合召回）。
-      // BFF 不在线或失败时回退到下方本地统计逻辑，保证工具永远可用。
+      // BFF 已加鉴权（P0）：携带业务服务 JWT（与 api() 同一来源）；未配置凭据时 BFF 返回 401，
+      // 与 BFF 不在线一样回退到下方本地统计逻辑，保证工具永远可用。
       try {
+        const ragToken = await ensureToken()
         const res = await fetch(process.env.FJSP_RAG_URL || 'http://127.0.0.1:4178/agent-api/rag/experience-query', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(ragToken ? { Authorization: `Bearer ${ragToken}` } : {}),
+          },
           body: JSON.stringify({ eventType, query, limit: limit ?? 10 }),
           signal: AbortSignal.timeout(4000),
         })

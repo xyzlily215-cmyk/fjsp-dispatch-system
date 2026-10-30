@@ -179,6 +179,15 @@ export const useAgentStore = defineStore('agent', () => {
     onError() {
       connected.value = false;
     },
+    onAuthError(message: string) {
+      connected.value = false;
+      // 未登录/登录失效给明确提示（重连场景去重，不刷屏）
+      const last = messages.value[messages.value.length - 1];
+      if (last && last.role === 'assistant' && last.error && last.text === message) return;
+      messages.value.push({
+        role: 'assistant', text: message, streaming: false, sealed: true, error: true, steps: [],
+      });
+    },
   };
 
   function connect() {

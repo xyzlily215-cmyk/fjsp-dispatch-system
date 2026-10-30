@@ -176,24 +176,27 @@ cd agh-integration/agent-bff
 ../agnes-harness/node_modules/.bin/tsx server.mts   # 默认 127.0.0.1:4178，AGENT_BFF_PORT 可改
 ```
 
+鉴权（P0，2026-10）：除 `/agent-api/health` 与两张孪生图片（`/twin/device/:id/panel`、`/twin/grid`，`<img>`/`<image>` 无法带请求头）外，所有端点要求 business-service 签发的 JWT：HTTP 请求带 `Authorization: Bearer <token>`，BFF 向 `FJSP_API_BASE/auth/me`（默认 `http://localhost:8081/api/v1`）内检（30s 正缓存，fail-closed，内检不可达 → 503 `auth_unavailable`）。SSE（`/stream`、`/twin/stream`）因 EventSource 不能带请求头，先 `POST /agent-api/stream-ticket`（Bearer）换 60s 限时 ticket 再以 `?ticket=` 连接；ticket 绑定 username、TTL 内可复用（EventSource 断线自动重连复用同一 URL），过期被 401 关闭后前端自动重新取票。会话绑定属主：创建会话记录 username，跨用户访问一律 403 `conversation_forbidden`；无属主的历史会话（旧版 `.conversations.json`）一律 403 `conversation_legacy`，需新建会话。测试隔离用环境变量：`AGH_OWNER_FILE` / `AGENT_BFF_STORE_FILE` / `AGENT_BFF_SESSION_ID_FILE`。鉴权回归：`node agent-bff/test-auth.mjs`（mock 内检 + 独立 BFF 实例，不依赖运行中的服务）。
+
 API：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/agent-api/health` | daemon 连通性 |
-| GET | `/agent-api/stream?conversationId=…` | SSE 事件流（user_message / assistant_delta / assistant_message / tool_call / tool_result / permission_request / permission_resolved / turn_end / turn_error），支持 Last-Event-ID 增量重连，事件缓冲可整段回放重建页面 |
+| GET | `/agent-api/health` | daemon 连通性（公开） |
+| POST | `/agent-api/stream-ticket` | 换 SSE 限时 ticket（60s，绑定 username） |
+| GET | `/agent-api/stream?conversationId=…&ticket=…` | SSE 事件流（user_message / assistant_delta / assistant_message / tool_call / tool_result / permission_request / permission_resolved / turn_end / turn_error），支持 Last-Event-ID 增量重连，事件缓冲可整段回放重建页面 |
 | POST | `/agent-api/chat` | `{conversationId?, message, context?}`，context 为前端当前页面（section/title/route/query），随提示词注入 |
 | POST | `/agent-api/cancel` | 停止当前轮次 |
 | POST | `/agent-api/permission` | `{conversationId, requestId, verdict: allowed-once\|rejected}`，对应 fjsp-tools 三级审批的人工确认 |
 | GET | `/agent-api/twin/snapshot` | MHS 设备快照（状态/健康/位姿/最新指标）+ 车间地图，供数字孪生页 |
-| GET | `/agent-api/twin/stream` | SSE 1Hz 设备快照推送 |
-| GET | `/agent-api/twin/device/:id/panel` | 设备 panel 画面（JPEG，BFF 侧 1.5s 缓存） |
-| GET | `/agent-api/twin/grid` | 车间平面图 PNG（长缓存） |
+| GET | `/agent-api/twin/stream?ticket=…` | SSE 1Hz 设备快照推送 |
+| GET | `/agent-api/twin/device/:id/panel` | 设备 panel 画面（JPEG，BFF 侧 1.5s 缓存；公开——`<img>` 直连无法带请求头） |
+| GET | `/agent-api/twin/grid` | 车间平面图 PNG（长缓存；公开，同上） |
 | POST | `/agent-api/twin/device/:id/fault` / `:id/recover` | 任意机床（cnc-mXX）故障注入/恢复：写 `/tmp/mhs-fault-M-XX` / `/tmp/mhs-recover-M-XX` 触发文件，设备循环下一拍消费（与 machine-m03.py 约定一致，文件无条件消费防二次触发） |
 | POST | `/agent-api/twin/sim/start` / `sim/stop` | 虚拟车间进程启停（spawn/pgrep + SIGTERM，默认 M-01~M-08 + AGV-01，PYTHONPATH 与 start-demo.sh 一致）；快照含 `sim.running`，页面上可直接启停，免脚本 |
 | POST | `/agent-api/rag/experience-query` | 处置经验库 RAG 语义检索（fjsp_experience_query 的后端）：`{eventType?, query?, limit?}`，返回 `retrieval`（hybrid/bm25/recency）与带 score 的记录 |
 
-RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（4s 超时回退本地统计），推荐口径不变（按模式平均加权拖期差值最优）。
+RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（携带业务服务 JWT，4s 超时或 401 回退本地统计），推荐口径不变（按模式平均加权拖期差值最优）。
 
 ## MCP Server（fjsp-mcp）
 
