@@ -66,7 +66,48 @@ jobs:
       - name: Check shell scripts
         run: shellcheck -S error scripts/*.sh
       - name: Validate docker compose config
-        run: docker compose --env-file .env.example -f deploy/docker-compose.yml config -q
+        run: |
+          docker compose --env-file .env.example -f deploy/docker-compose.yml config -q
+          docker compose --env-file .env.regression.example -f deploy/docker-compose.regression.yml config -q
+
+  # 隔离回归（任务 0.4）：薄封装调用 scripts/run-regression.sh——脚本自行拉起
+  # 独立 PostgreSQL（compose project fjsp-regression，端口 15432）与独立端口的两个服务，
+  # 跑 Golden 场景断言后 down -v 清理，不触碰演示库。
+  regression-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # 回归库为一次性实例，口令只需本次运行内一致；不设置时脚本也会自动生成随机口令
+      FJSP_REG_DB_PASSWORD: reg-ci-${{ github.run_id }}
+      # 服务日志落到工作区内，便于失败时上传 artifact
+      FJSP_RUNTIME_DIR: ${{ github.workspace }}/logs/fjsp-regression
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: algorithm-service/requirements.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          # 场景脚本仅需 fetch / crypto.randomUUID（Node ≥ 18），与仓库其它 job 保持一致用 22
+          node-version: "22"
+      - name: Install algorithm-service dependencies
+        run: pip install -r algorithm-service/requirements.txt
+      - name: Run isolated regression (Golden scenarios s01-s06)
+        run: ./scripts/run-regression.sh
+      - name: Upload regression logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs-${{ github.run_id }}
+          path: logs/fjsp-regression/*.log
+          if-no-files-found: warn
 
   # 全新检出的代码须能启动：push/PR 验证本地部署 + 冒烟，
   # 会重置 CI 专用库的较长 E2E 仅在定时/手动运行。

@@ -146,7 +146,17 @@ node s01-machine-breakdown.mjs     # 依此类推 s02…s06；--help 查看参�
 
 退出码：断言全过为 0，任一 FAIL 为 1；stdout 末行 `SCENARIO_RESULT {...}` 为结构化结果。
 
-## 8. 已知限制与待核实
+## 8. 隔离回归环境（任务 0.4）
+
+评估集回归在与演示环境完全隔离的环境中运行，不触碰演示库（容器 `fjsp-postgres`，5432）与演示端口（business 8081 / algorithm 8101）。
+
+- **回归 compose**：`deploy/docker-compose.regression.yml`——独立容器 `fjsp-postgres-reg`、独立数据卷 `fjsp-pgdata-reg`、固定 compose project 名 `fjsp-regression`（`down -v` 只清本项目资源）；宿主机端口 `FJSP_REG_DB_PORT`（默认 15432），凭据只读 `FJSP_REG_DB_*`（`.env.regression` 或环境变量，**不读演示用 `.env` 的 `FJSP_DB_*`**）。
+- **凭据样例**：`.env.regression.example`（占位值，可入库）；真实 `.env.regression` 已在 `.gitignore` 忽略。`FJSP_REG_DB_PASSWORD` 不设置时 `run-regression.sh` 自动生成本次运行的一次性随机口令（回归库为一次性实例，compose 与业务服务共用同一口令）。
+- **端口对应**：回归 DB 15432、business 18081、algorithm 18101（`FJSP_REG_DB_PORT` / `FJSP_REG_BUSINESS_PORT` / `FJSP_REG_ALGORITHM_PORT` 覆盖）；演示侧对应 5432 / 8081 / 8101。
+- **一键脚本**：`scripts/run-regression.sh`——拉起回归 DB → 以回归 DB + 独立端口 + `FJSP_SIMULATION_MODE=FIXED`（local profile）启动 algorithm/business 服务 → 依次跑 s01–s06 场景脚本（s05/s06 全量业务断言；s01–s04 跑扰动触发 + 脚本内业务断言，不拉起 AGH，agent 行为回归属后续阶段）→ 停服务并 `down -v` 清理（默认；`--keep` 保留现场、`--cleanup-only` 只清理）。端口占用会在启动前预检并给出可读诊断；失败时输出服务日志尾部与容器状态。场景结果汇总在 `$FJSP_RUNTIME_DIR/scenario-results.jsonl`（默认 `${TMPDIR}/fjsp-regression/`）。
+- **CI 对应**：`.github/workflows/ci.yml` 的 `regression-test` job 是对该脚本的薄封装（ubuntu-latest，Python 3.12 + JDK 17 + Node 22），`FJSP_REG_DB_PASSWORD` 用 `reg-ci-<run_id>`，失败时上传 `logs/fjsp-regression/*.log` artifact；`shellcheck` job 同时校验回归 compose 配置。
+
+## 9. 已知限制与待核实
 
 - ~~`FJSP_SIMULATION_MODE=FIXED` 经 Spring relaxed binding 生效属标准行为，但本任务未启动演示环境实测~~ 已由任务 0.3（2026-10-30）实测确认生效，见第 2.2 节。
 - 0.3 实测补充：不带 sessionKey 新建的 AGH 会话会被 daemon 归并到 workspace 默认会话（钉在首次绑定时的模型账号上）；Golden 运行必须为每场景指定独立 `AGH_SESSION_KEY=golden-<场景>-run<N>`，否则在默认模型切换后会命中已封禁的旧账号（AUTH 403）。

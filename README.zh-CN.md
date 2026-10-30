@@ -203,6 +203,11 @@ bash scripts/ui-check.sh
 
 # 采集健康检查、核心接口和服务头信息；默认输出到 /tmp
 ./scripts/collect-evidence.sh
+
+# 隔离回归环境：独立 PostgreSQL（容器 fjsp-postgres-reg，端口 15432）+ 独立端口服务
+# （18081/18101），跑 Golden 评估场景断言（s01–s06），默认跑完自动清理；
+# 不触碰演示库与演示端口。详见 agh-integration/evaluation/golden-set.md「隔离回归环境」
+./scripts/run-regression.sh
 ```
 
 停止本批次脚本启动的进程并停止 Compose 容器（保留数据卷）：

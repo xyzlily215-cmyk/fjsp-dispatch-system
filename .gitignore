@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# 隔离回归环境（任务 0.4）：真实配置不入库，样例入库
+.env.regression
+!.env.regression.example
 *.key
 *.pem
 

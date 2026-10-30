@@ -1,0 +1,34 @@
+# 隔离回归环境（任务 0.4）：回归专用 PostgreSQL，与演示库完全隔离。
+# 与演示环境（deploy/docker-compose.yml 的 fjsp-postgres）的差异：
+#   - 独立容器 fjsp-postgres-reg、独立数据卷 fjsp-pgdata-reg；
+#   - 宿主机端口默认 15432（演示库 5432），可用 FJSP_REG_DB_PORT 覆盖；
+#   - 凭据只读 FJSP_REG_DB_* 环境变量（来自 .env.regression 或 shell 导出），
+#     不读演示用 .env 的 FJSP_DB_* 同名变量。
+# 用法（独立 -f，不与演示 compose 混用）：
+#   set -a; source .env.regression; set +a   # 或先 export FJSP_REG_DB_*
+#   docker compose -f deploy/docker-compose.regression.yml up -d
+#   docker compose -f deploy/docker-compose.regression.yml down -v   # 清理含数据卷
+# 日常回归请直接使用 scripts/run-regression.sh（含服务拉起、场景断言与清理）。
+services:
+  postgres-reg:
+    image: postgres:16.15
+    container_name: fjsp-postgres-reg
+    # 回归库为一次性实例，不常驻；由 run-regression.sh 负责拉起与清理
+    restart: "no"
+    environment:
+      POSTGRES_DB: ${FJSP_REG_DB_NAME:?FJSP_REG_DB_NAME is required}
+      POSTGRES_USER: ${FJSP_REG_DB_USER:?FJSP_REG_DB_USER is required}
+      POSTGRES_PASSWORD: ${FJSP_REG_DB_PASSWORD:?FJSP_REG_DB_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${FJSP_REG_DB_PORT:-15432}:5432"
+    volumes:
+      - fjsp-pgdata-reg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  fjsp-pgdata-reg:
