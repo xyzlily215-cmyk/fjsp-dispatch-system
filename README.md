@@ -136,6 +136,10 @@ Demo accounts (local demo only, password `Fj@123456`): `dispatcher` / `reviewer`
 
 > The AGH agent integration is optional and requires your own model API key (Agnes AI or any major provider) in `~/.config/fjsp/agnes.env` — no keys are shipped in this repository.
 
+## Documentation
+
+Design documents (Chinese): [System Design](docs/系统设计说明书.md) · [PRD](docs/动态柔性车间生产调度与仿真决策系统PRD.md) · [R&D Appendix — algorithm / API / data model](docs/动态柔性车间生产调度与仿真决策系统研发附录.md) · [Feature List](docs/功能清单.md) · [Literature Notes](docs/资料收集整理.md). Module-level details: [`business-service/README.md`](business-service/README.md) · [`agh-integration/README.md`](agh-integration/README.md).
+
 ## Security & Privacy
 
 - No secrets in the repo: `.env`, API keys and credentials are gitignored; copy `.env.example` and fill in local values. `scripts/check-env.sh` refuses example passwords and never prints secrets.

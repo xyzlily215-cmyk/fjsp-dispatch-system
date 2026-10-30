@@ -228,6 +228,10 @@ JWT 密钥走 `FJSP_JWT_SECRET`（见 `.env.example`，不设置时使用仅开�
 
 > ⚠️ 种子账号由业务服务 `UserSeedRunner` 在所有 profile 下创建（Flyway V3 只建表、不再插入账号）：`local`/默认 profile 用上述演示密码；`prod` profile 禁止使用内置演示密码，初始账号密码必须经环境变量 `FJSP_SEED_ADMIN_PASSWORD` 提供，缺失则启动失败（仅用于首次创建，已有账号不覆盖），生产部署后应立即改密。登录接口有防爆破保护：同一账号连续失败 5 次锁定 10 分钟，锁定期内返回 429。
 
+## 设计文档
+
+[系统设计说明书](docs/系统设计说明书.md) · [PRD](docs/动态柔性车间生产调度与仿真决策系统PRD.md) · [研发附录（算法/接口/数据模型）](docs/动态柔性车间生产调度与仿真决策系统研发附录.md) · [功能清单](docs/功能清单.md) · [资料收集整理](docs/资料收集整理.md)。模块级细节：[`business-service/README.md`](business-service/README.md) · [`agh-integration/README.md`](agh-integration/README.md)。
+
 ## 配置与安全
 
 `POST /api/v1/demo/reset` 由配置项 `fjsp.demo.enabled` 控制（默认 `false`，`application-local.yml` 中显式开启供本地演示与脚本使用，关闭时返回 403）；重置只清空业务表并重新导入种子数据，`audit_log` 审计日志保留。
