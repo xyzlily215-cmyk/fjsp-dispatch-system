@@ -12,6 +12,11 @@ agh-integration/
 ├── fjsp-tools/               # 后端工具插件（agnes.plugins 入口）
 │   ├── package.json
 │   └── index.mjs             # 18 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
+├── workflow/                 # Workflow 运行器（可恢复工作流：检查点存储 + 恢复协议，任务 3.1）
+│   ├── checkpoint.mts        # 检查点模型 + 本地 JSON 原子写存储（默认 ~/.agh/fjsp-workflows/）
+│   ├── recovery.mts          # 恢复协议：读检查点 → 查业务现态 → 副作用/审批核对 → 恢复决策
+│   ├── test-checkpoint.mts   # 检查点测试（原子写/崩溃中断/去重键）
+│   └── test-recovery.mts     # 恢复决策全分支测试（mock）
 ├── mhs-devices/              # MHS 虚拟设备（agnes_mhs Python 库）
 │   └── machine-m03.py        # CNC 机床 M-01~M-08 + AGV-01（workshop 地图：分区 + grid 平面图 + 位姿）：温度/振动 + 面板画面（image）+ 任意机床故障注入（/tmp/mhs-fault-M-XX 触发文件）
 ├── skills/fjsp-dispatch/SKILL.md   # 调度处置方法论 Skill（工程副本，含 MHS 告警处置流程）
@@ -313,6 +318,38 @@ node agnes-harness/packages/cli/dist/local/agnes.mjs resources list --kind skill
 ```
 
 内容：基线排程流程；扰动处置流程（看板确认 → 录事件 → **查处置经验** → 重调度 → 轮询 → FEASIBLE/conflicts 校验 → 对比扰动 → 提交评审 → 停下请人工确认 → 评审通过 → 发布 → **沉淀经验** → 中文处置报告）；MHS 告警扰动发布前须 `read_device` 复核设备真实状态；E_EVENT_IN_PROCESS 识别与换时间重试；INFEASIBLE 读冲突明细改 FULL 重试；只用 fjsp_* 工具（不用 shell/文件工具）。
+
+## Workflow 运行器（任务 3.1，2026-10-31）
+
+`workflow/` 是方案第 3 节「可恢复 Workflow + Agent 决策节点」的落地基座：本任务先交付**检查点存储 + 恢复协议**，具体业务流程节点（扰动处置等）在 3.2 起接入。状态分裂防线：**业务状态一律以 business-service 为准，检查点只保存流程进度**。
+
+**检查点模型**（`checkpoint.mts`，方案 3.5 最小字段全集 + createdAt/updatedAt/状态机）：`workflowId`、触发源与去重键（`trigger.source/dedupeKey`）、业务对象 ID（`refs.eventId/taskId/planVersionId`）、当前节点（`current.node`）、尝试次数（`current.attempt`）、该步骤幂等键（`current.idempotencyKey`，形态 `wfId:node:seq`，同一步骤的重试复用同键——任务 2.B 约定）、待审批请求与截止时间（`pendingApproval`，BFF 五要素审批的句柄，任务 1.2）、`completedSteps`（步骤产出=业务证据）、`expiredApprovals`（过期审批存档，不回放）、状态机 `RUNNING / WAITING_APPROVAL / COMPLETED / FAILED / TERMINATED`。
+
+**持久化时机**：每次推进两段写——`beginStep` 推进前写「意图」（节点+attempt+幂等键，崩溃后 phase=intent 即副作用未知），`completeStep` 推进后写「结果」（业务证据入 completedSteps + refs）。
+
+**存储**：本地 JSON 文件目录，默认 `~/.agh/fjsp-workflows/`（`FJSP_WORKFLOW_DIR` 可覆盖），单实例；原子写 = 独立 tmp 文件 + fsync + rename，崩溃最多留孤儿 tmp（读/list 一律忽略），主文件损坏抛 `CheckpointCorruptError`（fail-loud，不静默采信）。触发源去重：同 `dedupeKey` 重复触发返回已有 `workflowId` 而不新建（对齐 business-service 事件幂等 E_DUPLICATE 语义）。
+
+**恢复协议**（`recovery.mts`，`recover(store, workflowId, deps)`）：读检查点 → 按存下的业务对象 ID 查 business-service 现态（默认复用 fjsp-tools 只读工具 fjsp_get_dashboard / fjsp_task_status / fjsp_get_plan，与任务 2.B 终态查询指引同源；动态 import，注入 mock 时不加载 fjsp-tools）→ 输出恢复决策：
+
+| 决策 action | 含义 |
+| --- | --- |
+| `done` / `already-terminated` / `not-found` | 终态直通，无需恢复 |
+| `needs-human` | FAILED（重试耗尽等），转人工 |
+| `unavailable` | 业务现态查询本身结果未知（不可达/5xx）——**绝不推进**，稍后重试恢复 |
+| `terminate` | 业务现态与检查点矛盾且不可调和（如已完成步骤的计划版本不存在），落 TERMINATED |
+| `await-approval` | pending 审批仍有效，继续等 |
+| `reissue-approval` | 审批过期/无法确认有效/已裁决但副作用未发生——标过期存档后重新发起，**不回放旧批准** |
+| `resume` | `skipExecute=true`：副作用已确认，补登记（recovered=true）后跳过重做；`skipExecute=false`：副作用未发生/证据不足，**复用原幂等键**重做 |
+
+要点：「结果未知」判定**不依赖客户端超时存在**（fjsp-tools 的 api() 无 AbortSignal，任务 2.B 评审留白），恢复一律以查业务终态为准；默认审批核对是保守的（BFF 审批记录为进程内存且无查询端点，只能确认「已过期」，其余一律 unknown → 过期重发），任务 3.4 接真实审批流时注入 `checkApproval`；节点级副作用核对由具体流程注入 `verifyStep`，缺省保守返回 not-done（同键重做安全：服务端同键同体回放 + 计划类写工具内部 reads-before-retry）。
+
+测试（全程 mock，无网络无副作用）：
+
+```sh
+cd agh-integration
+../agnes-harness/node_modules/.bin/tsx workflow/test-checkpoint.mts   # 33 项：schema/原子写/崩溃中断/去重键
+../agnes-harness/node_modules/.bin/tsx workflow/test-recovery.mts     # 34 项：恢复决策全分支 + 默认读取器接线
+```
 
 ## MHS 设备接入（2026-10-10 上线）
 
