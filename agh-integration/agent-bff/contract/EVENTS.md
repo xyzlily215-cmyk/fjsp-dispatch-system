@@ -41,6 +41,15 @@
 - 前端订阅的事件名集合必须是 `events.mts` 注册表的子集（契约测试
   `test-contract-api.mts` 脚本化强制，防止手写漂移复发）。
 
+## 检查边界（types.ts ↔ events.mts 防漂移）
+
+契约测试对 `types.ts`（静态类型）与 `events.mts`（运行时 schema）做**文本级字段一致性
+断言**：每条事件的字段名集合、可选性（`?`）、可空性（`| null`）必须两侧一致。
+**不覆盖**：TS 类型表达式与 schema 类型的等价性（如 `string` vs 枚举字面量、
+`unknown[]` vs `array` 的元素结构），也不覆盖 `http.mts` 的 HTTP 请求/响应类型
+（ChatRequest 等）——这些靠事件样本校验（合法样本须同时过运行时 schema）与
+前后端事件名断言兜底。修改任一侧字段时须同步另一侧，契约测试会拦下遗漏。
+
 ## 校验行为
 
 - BFF 在事件**发出前**用 `validateEvent` 校验：未知事件名、缺 `v`、payload 不符契约

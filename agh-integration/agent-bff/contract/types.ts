@@ -113,8 +113,10 @@ export interface AgentStreamEvents {
     requestId: string;
     toolCall: Record<string, unknown>;
     options: unknown[];
-    deadlineMs: number | null;
-    approval?: ApprovalInfo;
+    /** BFF 侧恒为 number（daemon 未给 deadline 时按超时上限兜底），与 events.mts schema 一致 */
+    deadlineMs: number;
+    /** 1.2 起 BFF 恒下发五要素；前端展示层如需兼容旧版 BFF，在卡片层自行做缺省兜底 */
+    approval: ApprovalInfo;
   };
   permission_resolved: { v: number; requestId: string; verdict: unknown };
   turn_end: { v: number; reason: string; stopReason: string };

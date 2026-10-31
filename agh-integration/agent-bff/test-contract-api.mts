@@ -11,7 +11,9 @@
 //      只测契约拦截路径（400 在副作用之前），合法路径不在本测试调用。
 //   C. 前后端一致性：web-vue/src/api/agent.ts 的协议类型必须 import 自契约
 //      （不允许两份手写定义）；其运行时事件名清单 STREAM_EVENTS 必须是契约
-//      注册表的子集；twin.ts 监听的 'twin' 事件必须在契约中。
+//      注册表的子集；twin.ts 监听的 'twin' 事件必须在契约中；
+//      types.ts ↔ events.mts 字段级对齐（字段名/可选性/可空性，文本级断言，
+//      检查边界见 EVENTS.md）。
 //   D. OpenAPI 导出：GET /agent-api/openapi.json 200，paths 覆盖契约端点表全量。
 //
 // 运行：../agnes-harness/node_modules/.bin/tsx test-contract-api.mts（在 agh-integration/agent-bff/ 目录下）
@@ -195,6 +197,58 @@ function partC() {
   assert.match(twinTs, /addEventListener\('twin'/)
   assert.equal(SSE_EVENTS['twin']?.stream, 'twin')
   ok('前后端一致性：twin.ts 的 twin 事件 ∈ 契约注册表（twin 流）')
+
+  // C5. types.ts ↔ events.mts 字段级一致性（文本级，防两类定义再次漂移）：
+  //     对每条事件比对 字段名集合 / 可选性（?）/ 可空性（| null）。
+  //     边界：不校验 TS 类型表达式与 schema 类型的等价性（如 string vs 枚举字面量），
+  //     也不覆盖 http.mts 的 HTTP 类型（ChatRequest 等）——见 EVENTS.md「检查边界」。
+  const typesTs = readFileSync(new URL('./contract/types.ts', import.meta.url), 'utf8')
+
+  /** 取 marker 之后第一个花括号块的文本（括号配平扫描） */
+  function extractBlock(src: string, marker: string): string {
+    const at = src.indexOf(marker)
+    assert.ok(at >= 0, `types.ts 未找到 ${marker}`)
+    const open = src.indexOf('{', at)
+    let depth = 0
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++
+      else if (src[i] === '}') {
+        depth--
+        if (!depth) return src.slice(open, i + 1)
+      }
+    }
+    throw new Error(`${marker} 花括号不配平`)
+  }
+
+  /** 从对象类型块提取字段：name → { optional, nullable }（事件 payload 字段均为单层标量类型） */
+  function extractFields(block: string): Map<string, { optional: boolean; nullable: boolean }> {
+    const fields = new Map<string, { optional: boolean; nullable: boolean }>()
+    for (const m of block.matchAll(/(\w+)(\?)?\s*:\s*([^;}]+)/g)) {
+      fields.set(m[1], { optional: !!m[2], nullable: /\bnull\b/.test(m[3]) })
+    }
+    return fields
+  }
+
+  const eventsBlock = extractBlock(typesTs, 'export interface AgentStreamEvents')
+  let checkedFields = 0
+  for (const [name, def] of Object.entries(SSE_EVENTS)) {
+    // types.ts 侧字段表：agent 事件在 AgentStreamEvents 内联，twin 事件在 TwinEventPayload
+    const block = def.stream === 'agent' ? extractBlock(eventsBlock, `${name}:`) : extractBlock(typesTs, 'export interface TwinEventPayload')
+    const fields = extractFields(block)
+    const props = def.schema.properties ?? {}
+    const required = new Set(def.schema.required ?? [])
+    assert.deepEqual([...fields.keys()].sort(), Object.keys(props).sort(), `${name}：types.ts 与 events.mts 字段名集合不一致`)
+    for (const [prop, propSchema] of Object.entries(props)) {
+      const f = fields.get(prop)!
+      assert.equal(f.optional, !required.has(prop), `${name}.${prop}：可选性不一致（types.ts ${f.optional ? '可选' : '必填'}，schema ${required.has(prop) ? '必填' : '可选'}）`)
+      if (propSchema.type) {
+        const schemaNullable = Array.isArray(propSchema.type) && propSchema.type.includes('null')
+        assert.equal(f.nullable, schemaNullable, `${name}.${prop}：可空性不一致（types.ts ${f.nullable ? '可空' : '非空'}，schema ${schemaNullable ? '可空' : '非空'}）`)
+      }
+      checkedFields++
+    }
+  }
+  ok(`前后端一致性：types.ts ↔ events.mts 字段级对齐（12 条事件 ${checkedFields} 个字段的名/可选性/可空性）`)
 }
 
 // ---- B / D. HTTP 端点契约（集成，独立 BFF 实例）----
@@ -258,7 +312,11 @@ async function partBD() {
   const badJson = await api('POST', '/chat', { token: 'tok-alice', rawBody: '{not json' })
   assert.equal(badJson.status, 400)
   assert.equal(badJson.data.error, 'invalid_request')
-  ok('HTTP：错类型/非法枚举/非法 JSON/sim-start 坏参数全部 400 invalid_request')
+  // I2 回归：sim/start 不得吞掉非法 JSON（旧行为 catch→{} 会按默认机台清单启动仿真进程）
+  const simBadJson = await api('POST', '/twin/sim/start', { token: 'tok-alice', rawBody: '{oops' })
+  assert.equal(simBadJson.status, 400, `sim/start 非法 JSON 应 400 而非触发仿真，实际 ${simBadJson.status}`)
+  assert.equal(simBadJson.data.error, 'invalid_request')
+  ok('HTTP：错类型/非法枚举/非法 JSON/sim-start 坏参数全部 400 invalid_request；sim/start 不吞非法 JSON（I2）')
 
   // B4. /stream 的 conversationId 格式校验（契约化：原静默 fallback 随机会话 → 400）
   const t1 = await api('POST', '/stream-ticket', { token: 'tok-alice' })

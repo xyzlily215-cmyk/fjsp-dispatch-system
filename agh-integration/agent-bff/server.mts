@@ -879,7 +879,8 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'POST' && path === '/agent-api/twin/sim/start') {
       if (!(await requireAuth(req, url, res))) return
-      const body = await readBody(req).catch(() => ({}))
+      // 非法 JSON 不吞：外层 catch 映射 400 invalid_request（吞掉会按默认机台清单启动仿真）
+      const body = await readBody(req)
       if (!checkBody('POST', '/agent-api/twin/sim/start', body, res)) return
       const machines = Array.isArray(body.machines) ? body.machines.map(String) : undefined
       const r = await simStart(machines)
