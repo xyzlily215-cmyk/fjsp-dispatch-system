@@ -156,6 +156,13 @@ try {
   assert.ok(r1.broadcast.approval.summary.includes('PV-1001'))
   ok('五要素审批记录：工具/风险级/角色/业务对象/摘要/指纹/有效期齐全，广播带人类可读摘要')
 
+  // 1b. 审批 TTL env 非法值兜底（终审 M1）：Number('abc')=NaN 会让 expiresAt=NaN、
+  // Date.now() > expiresAt 恒 false，审批永不过期（fail-open）；非数字回退默认 5 分钟
+  assert.equal(bff.resolveApprovalTtlMs('abc'), 5 * 60_000)
+  assert.equal(bff.resolveApprovalTtlMs(undefined), 5 * 60_000)
+  assert.equal(bff.resolveApprovalTtlMs('2500'), 2500)
+  ok('AGENT_BFF_APPROVAL_TTL_MS 非数字配置回退默认 5 分钟（不 fail-open）')
+
   // 2. 低角色属主批准自己会话的 HIGH_RISK → 403 approval_forbidden（记录仍 pending）
   const denyAlice = await api('POST', '/permission', {
     token: 'tok-alice',

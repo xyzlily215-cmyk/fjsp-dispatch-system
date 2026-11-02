@@ -86,7 +86,13 @@ const TICKET_TTL_MS = 60_000
 const BUFFER_CAP = Number(process.env.AGENT_BFF_BUFFER_CAP ?? 1000) // env 覆盖仅供测试隔离（窗口越界路径）
 const HEARTBEAT_MS = 25_000
 const PERMISSION_TIMEOUT_MS = 10 * 60_000
-const APPROVAL_TTL_MS = Number(process.env.AGENT_BFF_APPROVAL_TTL_MS ?? 5 * 60_000)
+const DEFAULT_APPROVAL_TTL_MS = 5 * 60_000
+// env 配成非数字时 Number() → NaN → expiresAt=NaN → 审批永不过期（fail-open）；回退默认值
+function resolveApprovalTtlMs(raw: string | undefined): number {
+  const v = Number(raw ?? DEFAULT_APPROVAL_TTL_MS)
+  return Number.isFinite(v) ? v : DEFAULT_APPROVAL_TTL_MS
+}
+const APPROVAL_TTL_MS = resolveApprovalTtlMs(process.env.AGENT_BFF_APPROVAL_TTL_MS)
 const AUDIT_FILE = process.env.AGENT_BFF_AUDIT_FILE ?? new URL('./.approval-audit.jsonl', import.meta.url)
 const APPROVALS_FILE = process.env.AGENT_BFF_APPROVALS_FILE ?? new URL('./.approvals.json', import.meta.url)
 
@@ -1433,5 +1439,5 @@ server.listen(PORT, HOST, () => {
 // 供 test-approval.mts（tsx 直接 import 本模块）注入审批请求、检查审批记录：
 // 不新增任何 HTTP 测试端点，生产路径无 test-only 分支。
 // loadApprovalsFromFile 供测试验证重启恢复语义（pending → expired）。
-export { conversations, approvals, onPermissionRequest, loadApprovalsFromFile }
+export { conversations, approvals, onPermissionRequest, loadApprovalsFromFile, resolveApprovalTtlMs }
 export type { Conversation, ApprovalRecord }
