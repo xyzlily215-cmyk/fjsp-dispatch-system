@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "workflowId": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b",
+  "workflowId": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea",
   "type": "DISTURBANCE",
   "status": "COMPLETED",
   "trigger": {
@@ -15,9 +15,9 @@
     }
   },
   "refs": {
-    "eventId": "76a2931b-2081-4f97-9dea-b1f411b006f4",
-    "taskId": "6486bfb1-08d4-4690-bcae-2697bdb30a9e",
-    "planVersionId": "2f5f3c3e-39eb-4da3-ae04-fefbfa93fa28"
+    "eventId": "1091143c-841b-4c9d-9c12-ba138ead3fca",
+    "taskId": "08f28d8b-6174-4199-94e5-36de678a5346",
+    "planVersionId": "e96f69b1-0ec2-4ce6-ae46-bf9df3debc4b"
   },
   "current": null,
   "completedSteps": [
@@ -25,7 +25,7 @@
       "node": "receive-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:receive-event:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:receive-event:1",
       "result": {
         "event": {
           "eventType": "BREAKDOWN",
@@ -34,7 +34,7 @@
           "repairDurationMinutes": 120,
           "note": "wf-e2e 回归触发"
         },
-        "oldPlanVersionId": "78e4ab57-3df5-4d64-87db-6f08936a7a08",
+        "oldPlanVersionId": "9a37da30-2b67-4cc5-811b-88435b5bd1a5",
         "baselineKpi": {
           "cMaxMinutes": 3355,
           "weightedTardinessMinutes": 58639,
@@ -42,15 +42,15 @@
           "loadImbalance": 0.101042
         }
       },
-      "completedAt": "2026-11-02T02:39:46.008Z"
+      "completedAt": "2026-11-02T03:20:22.363Z"
     },
     {
       "node": "register-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:register-event:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:register-event:1",
       "result": {
-        "eventId": "76a2931b-2081-4f97-9dea-b1f411b006f4",
+        "eventId": "1091143c-841b-4c9d-9c12-ba138ead3fca",
         "event": {
           "eventType": "BREAKDOWN",
           "machineId": "M-03",
@@ -59,13 +59,13 @@
           "note": "wf-e2e 回归触发"
         }
       },
-      "completedAt": "2026-11-02T02:39:46.036Z"
+      "completedAt": "2026-11-02T03:20:22.403Z"
     },
     {
       "node": "query-experience",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:query-experience:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:query-experience:1",
       "result": {
         "experience": {
           "records": [
@@ -190,23 +190,23 @@
           }
         }
       },
-      "completedAt": "2026-11-02T02:39:46.732Z"
+      "completedAt": "2026-11-02T03:20:22.912Z"
     },
     {
       "node": "suggest-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:suggest-strategy:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:suggest-strategy:1",
       "result": {
         "rawSuggestion": null
       },
-      "completedAt": "2026-11-02T02:39:46.740Z"
+      "completedAt": "2026-11-02T03:20:22.920Z"
     },
     {
       "node": "validate-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:validate-strategy:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:validate-strategy:1",
       "result": {
         "strategy": {
           "mode": "LOCAL_RESCHEDULE",
@@ -220,28 +220,28 @@
           "输出不是对象（期望 {mode, weights, rationale}）"
         ]
       },
-      "completedAt": "2026-11-02T02:39:46.748Z"
+      "completedAt": "2026-11-02T03:20:22.928Z"
     },
     {
       "node": "create-reschedule",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:create-reschedule:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:create-reschedule:1",
       "result": {
-        "taskId": "6486bfb1-08d4-4690-bcae-2697bdb30a9e",
+        "taskId": "08f28d8b-6174-4199-94e5-36de678a5346",
         "mode": "LOCAL_RESCHEDULE"
       },
-      "completedAt": "2026-11-02T02:39:46.848Z"
+      "completedAt": "2026-11-02T03:20:23.039Z"
     },
     {
       "node": "poll-task",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:poll-task:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:poll-task:1",
       "result": {
         "outcome": "feasible",
-        "taskId": "6486bfb1-08d4-4690-bcae-2697bdb30a9e",
-        "planVersionId": "2f5f3c3e-39eb-4da3-ae04-fefbfa93fa28",
+        "taskId": "08f28d8b-6174-4199-94e5-36de678a5346",
+        "planVersionId": "e96f69b1-0ec2-4ce6-ae46-bf9df3debc4b",
         "kpi": {
           "cMaxMinutes": 3355,
           "weightedTardinessMinutes": 60199,
@@ -263,20 +263,20 @@
         "conflicts": [],
         "errorMessage": null
       },
-      "completedAt": "2026-11-02T02:39:48.876Z"
+      "completedAt": "2026-11-02T03:20:25.065Z"
     },
     {
       "node": "full-retry",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:full-retry:1",
-      "completedAt": "2026-11-02T02:39:48.889Z"
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:full-retry:1",
+      "completedAt": "2026-11-02T03:20:25.076Z"
     },
     {
       "node": "compare-plans",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:compare-plans:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:compare-plans:1",
       "result": {
         "diff": {
           "baselineVersionCode": "PV-000019",
@@ -350,35 +350,35 @@
           "changedOperationsTotal": 5
         }
       },
-      "completedAt": "2026-11-02T02:39:48.924Z"
+      "completedAt": "2026-11-02T03:20:25.102Z"
     },
     {
       "node": "review-material",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:review-material:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:review-material:1",
       "result": {
-        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：BREAKDOWN\n- machineId：M-03\n- occurredAt：2026-09-17T00:00:00.000Z\n- repairDurationMinutes：120\n- note：wf-e2e 回归触发\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：6486bfb1-08d4-4690-bcae-2697bdb30a9e，结果：FEASIBLE\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3355，加权拖期=60199，拖期订单数=12，负载不均衡=0.102175\n- 差值：{\"nTardy\":0,\"cMaxMinutes\":0,\"loadImbalance\":0.0011329999999999951,\"weightedTardinessMinutes\":1560}\n\n## 扰动统计\n- 变更工序数：5；summary：{\"comparedOperations\":76,\"addedOperations\":[],\"removedOperations\":[],\"timeShiftedCount\":3,\"machineChangedCount\":0,\"sequenceChangedCount\":5}\n\n## 风险提示\n- 无（一次通过，未触发异常分支）\n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
+        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：BREAKDOWN\n- machineId：M-03\n- occurredAt：2026-09-17T00:00:00.000Z\n- repairDurationMinutes：120\n- note：wf-e2e 回归触发\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：08f28d8b-6174-4199-94e5-36de678a5346，结果：FEASIBLE\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3355，加权拖期=60199，拖期订单数=12，负载不均衡=0.102175\n- 差值：{\"nTardy\":0,\"cMaxMinutes\":0,\"loadImbalance\":0.0011329999999999951,\"weightedTardinessMinutes\":1560}\n\n## 扰动统计\n- 变更工序数：5；summary：{\"comparedOperations\":76,\"addedOperations\":[],\"removedOperations\":[],\"timeShiftedCount\":3,\"machineChangedCount\":0,\"sequenceChangedCount\":5}\n\n## 风险提示\n- 无（一次通过，未触发异常分支）\n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
       },
-      "completedAt": "2026-11-02T02:39:48.934Z"
+      "completedAt": "2026-11-02T03:20:25.112Z"
     },
     {
       "node": "submit-review",
       "seq": 1,
       "attempt": 2,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:submit-review:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:submit-review:1",
       "result": {
-        "planVersionId": "2f5f3c3e-39eb-4da3-ae04-fefbfa93fa28",
+        "planVersionId": "e96f69b1-0ec2-4ce6-ae46-bf9df3debc4b",
         "plan": {
-          "id": "2f5f3c3e-39eb-4da3-ae04-fefbfa93fa28",
+          "id": "e96f69b1-0ec2-4ce6-ae46-bf9df3debc4b",
           "versionCode": "PV-000020",
           "status": "REVIEW_PENDING",
           "candidateType": "LOCAL",
           "version": 1,
-          "parentId": "78e4ab57-3df5-4d64-87db-6f08936a7a08",
-          "taskId": "6486bfb1-08d4-4690-bcae-2697bdb30a9e",
+          "parentId": "9a37da30-2b67-4cc5-811b-88435b5bd1a5",
+          "taskId": "08f28d8b-6174-4199-94e5-36de678a5346",
           "publishedAt": null,
-          "createdAt": "2026-11-02T02:39:47.765607Z",
+          "createdAt": "2026-11-02T03:20:23.898588Z",
           "kpi": {
             "cMaxMinutes": 3355,
             "weightedTardinessMinutes": 60199,
@@ -399,22 +399,22 @@
           }
         }
       },
-      "completedAt": "2026-11-02T02:39:49.053Z"
+      "completedAt": "2026-11-02T03:20:25.223Z"
     },
     {
       "node": "await-decision",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:await-decision:1",
+      "idempotencyKey": "wf-962f18cf-7b8d-49f3-9e37-579a5f52a1ea:await-decision:1",
       "result": {
         "approvalDecision": "approved",
-        "requestId": "6e202026-feb4-4c98-a468-9db2399fcc23"
+        "requestId": "ab9a4c62-f9c8-4196-ae31-d23de93c87df"
       },
-      "completedAt": "2026-11-02T02:39:49.099Z"
+      "completedAt": "2026-11-02T03:20:25.265Z"
     }
   ],
   "pendingApproval": null,
   "expiredApprovals": [],
-  "createdAt": "2026-11-02T02:39:45.912Z",
-  "updatedAt": "2026-11-02T02:39:49.103Z"
+  "createdAt": "2026-11-02T03:20:22.268Z",
+  "updatedAt": "2026-11-02T03:20:25.270Z"
 }

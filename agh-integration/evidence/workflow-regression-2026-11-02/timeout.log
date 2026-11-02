@@ -1,15 +1,24 @@
-节点 receive-event 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:receive-event:1
-节点 register-event 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:register-event:1
-节点 query-experience 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:query-experience:1
-节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:suggest-strategy:1
+PASS 快照复位规模 8 设备/20 订单/76 工序（实际 8/20/76）
+PASS 基线任务终态可行（实际 SUCCESS/FEASIBLE）
+PASS 基线已发布（实际 PUBLISHED）
+节点 receive-event 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:suggest-strategy:1
 未注入 Agent，策略建议落默认策略
-节点 validate-strategy 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:validate-strategy:1
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:validate-strategy:1
 Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
-节点 create-reschedule 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:create-reschedule:1
-节点 poll-task 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
-节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
-节点 poll-task 第 2/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
-节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
-节点 poll-task 第 3/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
-节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:create-reschedule:1
+节点 poll-task 第 1/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:poll-task:1
+节点 poll-task 重试：任务 a112b678-bee5-4ec1-a5ec-436249acb305 未达终态（status=RUNNING），复用本节点继续轮询
+节点 poll-task 第 2/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:poll-task:1
+节点 poll-task 重试：任务 a112b678-bee5-4ec1-a5ec-436249acb305 未达终态（status=RUNNING），复用本节点继续轮询
+节点 poll-task 第 3/3 次尝试，幂等键 wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:poll-task:1
+节点 poll-task 重试：任务 a112b678-bee5-4ec1-a5ec-436249acb305 未达终态（status=RUNNING），复用本节点继续轮询
 节点 poll-task 重试 3 次未成功，转人工处理（needs-human）
+PASS 轮询超时达 maxAttempts 后 FAILED（实际 FAILED）
+PASS 失败原因含「转人工」（实际 节点 poll-task 重试 3 次未成功，转人工处理（needs-human））
+PASS 停在 poll-task 节点（实际 poll-task）
+PASS 重调度任务恰创建 1 次（重试复用同键，无重复写，实际 Δ1）
+PASS 未产出候选版本（无污染下游）
+RESULT failures=0 exitCode=0

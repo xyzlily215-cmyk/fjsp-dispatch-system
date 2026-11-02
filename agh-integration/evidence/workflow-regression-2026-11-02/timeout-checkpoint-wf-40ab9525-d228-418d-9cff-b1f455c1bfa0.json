@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "workflowId": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4",
+  "workflowId": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0",
   "type": "DISTURBANCE",
   "status": "FAILED",
   "trigger": {
@@ -15,25 +15,25 @@
     }
   },
   "refs": {
-    "eventId": "ec33edd8-0d12-46e8-9c3d-17b08904bc10",
-    "taskId": "a2b3303a-5fde-401b-b82c-fd817117933c",
+    "eventId": "4b7d59da-aa0a-47d5-8d17-c42dcf348ca9",
+    "taskId": "a112b678-bee5-4ec1-a5ec-436249acb305",
     "planVersionId": null
   },
   "current": {
     "node": "poll-task",
     "seq": 1,
     "attempt": 4,
-    "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1",
+    "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:poll-task:1",
     "phase": "intent",
-    "startedAt": "2026-11-02T02:48:15.417Z",
-    "updatedAt": "2026-11-02T02:48:17.469Z"
+    "startedAt": "2026-11-02T03:20:17.379Z",
+    "updatedAt": "2026-11-02T03:20:19.433Z"
   },
   "completedSteps": [
     {
       "node": "receive-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:receive-event:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:receive-event:1",
       "result": {
         "event": {
           "eventType": "BREAKDOWN",
@@ -42,7 +42,7 @@
           "repairDurationMinutes": 120,
           "note": "wf-e2e 回归触发"
         },
-        "oldPlanVersionId": "c3cfa61d-8c05-4542-b3dc-09540ff34c8f",
+        "oldPlanVersionId": "6b0249f6-c4aa-48f7-a65e-46adbbdefe5c",
         "baselineKpi": {
           "cMaxMinutes": 3355,
           "weightedTardinessMinutes": 58639,
@@ -50,15 +50,15 @@
           "loadImbalance": 0.101042
         }
       },
-      "completedAt": "2026-11-02T02:48:14.598Z"
+      "completedAt": "2026-11-02T03:20:16.777Z"
     },
     {
       "node": "register-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:register-event:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:register-event:1",
       "result": {
-        "eventId": "ec33edd8-0d12-46e8-9c3d-17b08904bc10",
+        "eventId": "4b7d59da-aa0a-47d5-8d17-c42dcf348ca9",
         "event": {
           "eventType": "BREAKDOWN",
           "machineId": "M-03",
@@ -67,13 +67,13 @@
           "note": "wf-e2e 回归触发"
         }
       },
-      "completedAt": "2026-11-02T02:48:14.630Z"
+      "completedAt": "2026-11-02T03:20:16.812Z"
     },
     {
       "node": "query-experience",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:query-experience:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:query-experience:1",
       "result": {
         "experience": {
           "records": [
@@ -198,23 +198,23 @@
           }
         }
       },
-      "completedAt": "2026-11-02T02:48:15.310Z"
+      "completedAt": "2026-11-02T03:20:17.293Z"
     },
     {
       "node": "suggest-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:suggest-strategy:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:suggest-strategy:1",
       "result": {
         "rawSuggestion": null
       },
-      "completedAt": "2026-11-02T02:48:15.321Z"
+      "completedAt": "2026-11-02T03:20:17.303Z"
     },
     {
       "node": "validate-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:validate-strategy:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:validate-strategy:1",
       "result": {
         "strategy": {
           "mode": "LOCAL_RESCHEDULE",
@@ -228,23 +228,23 @@
           "输出不是对象（期望 {mode, weights, rationale}）"
         ]
       },
-      "completedAt": "2026-11-02T02:48:15.332Z"
+      "completedAt": "2026-11-02T03:20:17.311Z"
     },
     {
       "node": "create-reschedule",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:create-reschedule:1",
+      "idempotencyKey": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0:create-reschedule:1",
       "result": {
-        "taskId": "a2b3303a-5fde-401b-b82c-fd817117933c",
+        "taskId": "a112b678-bee5-4ec1-a5ec-436249acb305",
         "mode": "LOCAL_RESCHEDULE"
       },
-      "completedAt": "2026-11-02T02:48:15.413Z"
+      "completedAt": "2026-11-02T03:20:17.375Z"
     }
   ],
   "pendingApproval": null,
   "expiredApprovals": [],
-  "createdAt": "2026-11-02T02:48:14.512Z",
-  "updatedAt": "2026-11-02T02:48:17.475Z",
+  "createdAt": "2026-11-02T03:20:16.693Z",
+  "updatedAt": "2026-11-02T03:20:19.438Z",
   "statusReason": "节点 poll-task 重试 3 次未成功，转人工处理（needs-human）"
 }

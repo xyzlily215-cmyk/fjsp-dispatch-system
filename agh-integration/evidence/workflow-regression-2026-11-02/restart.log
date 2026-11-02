@@ -1,9 +1,18 @@
-节点 poll-task 第 2/8 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:poll-task:1
-节点 full-retry 第 1/3 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:full-retry:2
-节点 compare-plans 第 1/3 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:compare-plans:2
-节点 review-material 第 1/3 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:review-material:2
-节点 submit-review 第 1/3 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:submit-review:2
-节点 await-decision 第 1/3 次尝试，幂等键 wf-5ef0adf7-8820-41cb-a4f5-72623897adc2:await-decision:2
+PASS 快照复位规模 8 设备/20 订单/76 工序（实际 8/20/76）
+PASS 基线任务终态可行（实际 SUCCESS/FEASIBLE）
+PASS 基线已发布（实际 PUBLISHED）
+PASS 已在 poll-task intent（任务已创建、轮询进行中）向子进程组发出 SIGKILL
+PASS 子进程（tsx 包装）确被 SIGKILL 杀死（code=null signal=SIGKILL）
+PASS 进程组零残留（pgid=72574 无存活进程，tsx 孙进程同步死亡）
+PASS kill 后 3s 静默期内检查点零变化（无孤儿进程继续推进流程）
+PASS recover() 判定 resume 重做当前步骤（实际 {"action":"resume","workflowId":"wf-d3095699-4408-4818-beef-439ecfa832b0","from":"poll-task","skipExecute":false,"idempotencyKey":"wf-d3095699-4408-4818-beef-439ecfa832b0:poll-task:1","reason":"副作用未发生，复用原幂等键重做"}）
+PASS 恢复复用原幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:poll-task:1
+节点 poll-task 第 2/8 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:poll-task:1
+节点 full-retry 第 1/3 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:full-retry:1
+节点 compare-plans 第 1/3 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:compare-plans:1
+节点 review-material 第 1/3 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:review-material:1
+节点 submit-review 第 1/3 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:submit-review:1
+节点 await-decision 第 1/3 次尝试，幂等键 wf-d3095699-4408-4818-beef-439ecfa832b0:await-decision:1
 评审材料：
 # 扰动处置评审材料
 
@@ -18,7 +27,7 @@
 - mode：LOCAL_RESCHEDULE
 - weights：{"weightedTardiness":0.4,"makespan":0.3}
 - rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）
-- 任务：1e2f3f55-13cb-4478-94b8-93da5b1ba868，结果：FEASIBLE
+- 任务：bf0f2125-33a6-4abb-ad56-aa686391f50e，结果：FEASIBLE
 
 ## KPI 对比
 - 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042
@@ -31,5 +40,20 @@
 ## 风险提示
 - 无（一次通过，未触发异常分支）
 - 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。
-节点 await-decision 审批已登记 BFF：requestId 88c95659-a447-4314-9aa7-7e0ab446b631
+节点 await-decision 审批已登记 BFF：requestId 14d6483b-1408-48b3-b738-983ccbc9b803
 节点 await-decision 挂起等待审批：候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认
+PASS 恢复续跑至挂起待审批（实际 WAITING_APPROVAL）
+PASS 恢复后 taskId 不变（bf0f2125-33a6-4abb-ad56-aa686391f50e），重调度未重复创建
+PASS 调度任务净增恰为 1（重调度未重复写入，实际 Δ1）
+PASS 事件净增恰为 1（登记未重复，实际 Δ1）
+PASS 挂起态 recover() 核对到 BFF pending 审批 → 继续等（实际 {"action":"await-approval","workflowId":"wf-d3095699-4408-4818-beef-439ecfa832b0","approval":{"requestId":"14d6483b-1408-48b3-b738-983ccbc9b803","tool":"fjsp_approve_review","bizObject":"9cf63703-5c59-4857-8bd6-79d860af6a60","issuedAt":"2026-11-02T03:19:44.621Z","expiresAt":"2026-11-02T03:24:44.628Z"}}）
+PASS BFF 裁决 approved 受理（HTTP 202）
+PASS 轮询审批结果=approved（实际 approved）
+PASS 批准后流程 COMPLETED（实际 COMPLETED）
+PASS 12 个节点各执行恰好一次、无重复（实际 12 步）
+PASS 全部步骤 seq=1（无节点被二次进入）
+PASS poll-task 以 attempt=2 沿用原幂等键完成（实际 attempt=2 key=wf-d3095699-4408-4818-beef-439ecfa832b0:poll-task:1）
+PASS BFF 审批登记恰 1 次（实际 1 条）
+PASS 唯一审批已裁决 approved、无孤儿 pending（实际 approved）
+PASS 候选版本 PLAN_SUBMIT_REVIEW 恰 1 次（实际 PLAN_SUBMIT_REVIEW）
+RESULT failures=0 exitCode=0

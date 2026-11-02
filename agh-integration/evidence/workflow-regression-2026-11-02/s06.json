@@ -1,14 +1,15 @@
 {
   "mode": "s06",
-  "finishedAt": "2026-11-02T02:39:35.205Z",
+  "finishedAt": "2026-11-02T03:20:13.998Z",
   "tokens": "N/A（未接真实 LLM）",
+  "assertionFailures": 0,
   "scenario": "s06-review-reject",
-  "workflowId": "wf-2f501185-0bf8-4f5b-9d5b-d8c19b9d7017",
+  "workflowId": "wf-0f8523e2-2966-4748-a123-2c71fca60dae",
   "terminal": "TERMINATED",
   "steps": 12,
   "approvalPoints": 1,
-  "wallMs": 3136,
-  "planVersionId": "b9e5ac87-27c9-4e68-9422-a02756a69117",
+  "wallMs": 2938,
+  "planVersionId": "8533e0f6-57eb-4b6c-b070-6d2b1a436ef9",
   "planStatus": "REVIEW_PENDING",
   "auditActions": [
     "PLAN_SUBMIT_REVIEW"

@@ -12,7 +12,7 @@
 
 | 故障模式 | 构造方式 | 结果 | 关键断言（全部 PASS） | 证据 |
 | --- | --- | --- | --- | --- |
-| 重启 | 子进程跑流程，poll-task intent（任务已创建、轮询进行中）时被 `kill -9` | recover() → resume（复用原幂等键 `wfId:poll-task:1`）→ 续跑至挂起 → 挂起态再 recover() 核对到 BFF pending 审批继续等 → 批准 → **COMPLETED** | taskId 恢复后不变；调度任务净增恰 1；事件净增恰 1；候选 PLAN_SUBMIT_REVIEW 恰 1 次；无重复写 | `restart.json/.log/-checkpoint-*` |
+| 重启 | 子进程（detached 进程组）跑到 poll-task intent 被整组 `kill -9`（exit 信号 SIGKILL + ps 组列举零残留 + 3s 检查点静默期三重实证死亡） | recover() → resume（复用原幂等键 `wfId:poll-task:1`）→ 续跑至挂起 → 挂起态再 recover() 核对到 BFF pending 审批继续等 → 批准 → **COMPLETED** | taskId 恢复后不变；调度任务/事件净增恰 1（实测值）；12 节点各执行恰一次、seq 全 1；poll-task attempt=2；BFF 审批登记恰 1 条且无孤儿 pending；PLAN_SUBMIT_REVIEW 恰 1 次 | `restart.json/.log/-checkpoint-*` |
 | 超时 | `fjsp_task_status` 脚本化恒返 RUNNING 快照（非终态），写路径全真实 | poll-task 重试 3 次（maxAttempts）→ **FAILED 转人工**，停在 poll-task | 任务恰创建 1 次（重试复用同键）；未产出候选版本；无重复副作用 | `timeout.json/.log/-checkpoint-*` |
 | 重复告警 | 业务三层（同键×2 + 换键同体×1）+ 工作流同指纹触发两次 | 同键回放同 eventId；换键 409 `E_DUPLICATE`；第二次触发返回已有 workflowId（deduplicated=true）且不推进 | 事件登记写恰 1 次、重调度写恰 1 次；BREAKDOWN 净增符合预期 | `s05.json/.log/-checkpoint-*` |
 | 乐观锁冲突 | submit-review 前注入过期 version（version-1，模拟并发修改） | 首次命中 `E_VERSION_STALE` → 节点重读最新 version → 第 2 次尝试成功 → 挂起 → 批准 → **COMPLETED** | submit-review attempt=2；PLAN_SUBMIT_REVIEW 恰 1 次；最终 REVIEW_PENDING | `stale.json/.log/-checkpoint-*` |
@@ -41,10 +41,17 @@
 - **遗留缺口（未修，建议在 fjsp-tools 侧跟进）**：fjsp-tools `WEIGHTS` schema 不透传 `deltaPlan/machineChange`，而 business+algorithm 均支持且 SeedService 默认权重含之——Agent 无法显式调节delta权重。属 fjsp-tools 契约面，按任务约束未动。
 - 事件状态口径：事件被重调度消费后 `CONFIRMED → USED_FOR_SOLVE`（驱动断言已按此口径）。
 
+## 3.1 修复轮 1（评审 Not approved：1 Critical + 1 Important + 1 Minor，同日修复重跑全过）
+
+- **Critical：restart 故障注入失效（首轮结论作废重跑）**。原实现 `spawn(tsx,…)` + `child.kill('SIGKILL')` 只杀了 tsx CLI 包装进程，node 孙进程存活并与父进程的恢复运行并发双跑（修复前证据：检查点 17 步、尾部 5 节点 seq :1/:2 各一次、BFF 审批两条含一条孤儿 pending；`PLAN_SUBMIT_REVIEW 恰 1 次` 实为业务侧 409 兜底而非恢复路径功劳）。修复：子进程 `detached:true` 独立进程组 + `process.kill(-pid,'SIGKILL')` 整组歼灭；死亡三重实证（包装进程 exit 携 SIGKILL；ps 按 pgid 列举零存活进程——macOS 上 `kill(-pgid,0)` 在组刚消亡时偶发 EPERM 而非 ESRCH，实测后弃用该探测；kill 后 3s 检查点静默期零变化，排除孤儿继续推进）。新增断言：12 节点各执行恰一次、seq 全 1、poll-task attempt=2、BFF 审批登记恰 1 条且无孤儿 pending（直读 BFF 持久化文件）。重跑结果：全部通过，`steps=12`、`bffApprovalsRegistered=1`、`orphanPending=0`、`killVerified=true`（`restart.json`）。
+- **Important：证据自证**。断言逐条落入归档 `.log`（PASS/FAIL 全量）+ 末尾 `RESULT failures=N exitCode=X`；任何断言失败进程即非零退出（本轮每模式 EXIT=0 已逐一核对）；`restart.json`/`timeout.json` 的 `taskCountDelta`/`eventCountDelta` 改为实测计算值（与断言共用同一变量），不再硬编码。
+- **Minor：残留进程核实**。PID 66103/66112（`tsx server.mts`，10:28:40 启动）经查证监听 **4178**（演示 BFF 端口）、stdout 指向 `$TMPDIR/fjsp-demo/agent-bff.log`（演示 runtime 目录）——为演示环境组件（同时段演示侧 8081/8101/4177/4180 均在线），非本任务拉起（本任务 BFF 一律进程内 14184、随驱动退出），按约束不动。本任务进程经 `ps` 全量核查无残留。
+- child-run 不再驻留（移除 `setInterval` 保活），流程跑完自然退出，从结构上消除孤儿来源。
+
 ## 4. 文件清单
 
-- `<mode>.json`：结构化指标（终态/步骤数/介入点/耗时/KPI/断言要点）
-- `<mode>.log`：流程日志（节点推进、幂等键、审批 requestId）
+- `<mode>.json`：结构化指标（终态/步骤数/介入点/耗时/KPI/断言失败数/实测 delta）
+- `<mode>.log`：流程日志 + 每条断言 PASS/FAIL + 末尾 RESULT 行（failures 与退出码）
 - `<mode>-checkpoint-wf-*.json`：终态检查点（含 completedSteps 业务证据）
 - `regression-scenarios.log` / `scenario-results.jsonl`：回归环境 golden 场景全量输出
 - 驱动源码：`../../../workflow/e2e-regression.mts`（随任务 3.5 提交）

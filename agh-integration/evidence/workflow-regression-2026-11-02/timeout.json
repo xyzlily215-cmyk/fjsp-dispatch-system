@@ -1,14 +1,15 @@
 {
   "mode": "timeout",
-  "finishedAt": "2026-11-02T02:48:17.490Z",
+  "finishedAt": "2026-11-02T03:20:19.452Z",
   "tokens": "N/A（未接真实 LLM）",
+  "assertionFailures": 0,
   "scenario": "fault-timeout",
-  "workflowId": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4",
+  "workflowId": "wf-40ab9525-d228-418d-9cff-b1f455c1bfa0",
   "terminal": "FAILED",
   "steps": 6,
   "approvalPoints": 0,
-  "wallMs": 2978,
-  "taskId": "a2b3303a-5fde-401b-b82c-fd817117933c",
+  "wallMs": 2760,
+  "taskId": "a112b678-bee5-4ec1-a5ec-436249acb305",
   "taskCountDelta": 1,
   "note": "fjsp_task_status 恒返 RUNNING 快照为脚本化 mock；创建任务为真实写"
 }

@@ -1,17 +1,22 @@
-节点 receive-event 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:receive-event:1
-节点 register-event 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:register-event:1
-节点 query-experience 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:query-experience:1
-节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:suggest-strategy:1
+PASS 快照复位规模 8 设备/20 订单/76 工序（实际 8/20/76）
+PASS 基线任务终态可行（实际 SUCCESS/FEASIBLE）
+PASS 基线已发布（实际 PUBLISHED）
+PASS 同键同体第 2 次投递回放首次 eventId=f29dcac2-adbb-46bc-9792-feeac5fd2233
+PASS 换键同体第 3 次被拒 HTTP 409 E_DUPLICATE
+节点 receive-event 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:suggest-strategy:1
 未注入 Agent，策略建议落默认策略
-节点 validate-strategy 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:validate-strategy:1
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:validate-strategy:1
 Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
-节点 create-reschedule 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:create-reschedule:1
-节点 poll-task 第 1/8 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:poll-task:1
-节点 full-retry 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:full-retry:1
-节点 compare-plans 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:compare-plans:1
-节点 review-material 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:review-material:1
-节点 submit-review 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:submit-review:1
-节点 await-decision 第 1/3 次尝试，幂等键 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:await-decision:1
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:create-reschedule:1
+节点 poll-task 第 1/8 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:poll-task:1
+节点 full-retry 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:full-retry:1
+节点 compare-plans 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:compare-plans:1
+节点 review-material 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:review-material:1
+节点 submit-review 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:submit-review:1
+节点 await-decision 第 1/3 次尝试，幂等键 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:await-decision:1
 评审材料：
 # 扰动处置评审材料
 
@@ -26,7 +31,7 @@ Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weig
 - mode：LOCAL_RESCHEDULE
 - weights：{"weightedTardiness":0.4,"makespan":0.3}
 - rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）
-- 任务：bededce5-527a-45a4-bab4-383a196a4f09，结果：FEASIBLE
+- 任务：0225f728-b78d-4da0-bbba-451ea0be45e1，结果：FEASIBLE
 
 ## KPI 对比
 - 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042
@@ -39,6 +44,16 @@ Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weig
 ## 风险提示
 - 无（一次通过，未触发异常分支）
 - 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。
-节点 await-decision 审批已登记 BFF：requestId f236794d-36fe-47ac-b33b-5eef42252c15
+节点 await-decision 审批已登记 BFF：requestId fb1b1d06-0ce3-4e03-ac40-a992f0696330
 节点 await-decision 挂起等待审批：候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认
-工作流 wf-fc699bba-0ead-4d2e-92dd-291928a8e12e 状态 COMPLETED，不推进
+PASS 首次触发的流程跑到挂起（实际 WAITING_APPROVAL）
+PASS BFF 裁决 approved 受理（HTTP 202）
+PASS 轮询审批结果=approved（实际 approved）
+PASS 首次流程 COMPLETED（实际 COMPLETED）
+工作流 wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4 状态 COMPLETED，不推进
+PASS 重复触发返回已有 workflowId=wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4（deduplicated=true）
+PASS 重复触发不推进（状态仍 COMPLETED）
+PASS BREAKDOWN 事件净增恰为 2（业务侧 1 + 工作流 1；实际 0 -> 2）
+PASS 工作流侧事件登记写恰好 1 次（实际 1）
+PASS 重调度写恰好 1 次，重复告警未重复发起（实际 1）
+RESULT failures=0 exitCode=0

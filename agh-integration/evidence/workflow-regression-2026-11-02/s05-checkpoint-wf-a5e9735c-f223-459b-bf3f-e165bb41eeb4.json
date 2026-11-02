@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "workflowId": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e",
+  "workflowId": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4",
   "type": "DISTURBANCE",
   "status": "COMPLETED",
   "trigger": {
@@ -15,9 +15,9 @@
     }
   },
   "refs": {
-    "eventId": "05013fe7-adcb-4bf5-8bef-cbdd8702806c",
-    "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
-    "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e"
+    "eventId": "0bcbf7d6-5f3b-44ec-82fa-e91a661cbe3a",
+    "taskId": "0225f728-b78d-4da0-bbba-451ea0be45e1",
+    "planVersionId": "354f803a-755a-41f6-8aab-e9e8a8a2defd"
   },
   "current": null,
   "completedSteps": [
@@ -25,7 +25,7 @@
       "node": "receive-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:receive-event:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:receive-event:1",
       "result": {
         "event": {
           "eventType": "BREAKDOWN",
@@ -34,7 +34,7 @@
           "repairDurationMinutes": 60,
           "note": "wf-e2e 回归触发"
         },
-        "oldPlanVersionId": "ad3e1274-3c77-4a88-b8ae-88d28bcdd93e",
+        "oldPlanVersionId": "0f095c72-9464-41e1-bf1d-31d418867a8b",
         "baselineKpi": {
           "cMaxMinutes": 3355,
           "weightedTardinessMinutes": 58639,
@@ -42,15 +42,15 @@
           "loadImbalance": 0.101042
         }
       },
-      "completedAt": "2026-11-02T02:39:14.595Z"
+      "completedAt": "2026-11-02T03:20:05.545Z"
     },
     {
       "node": "register-event",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:register-event:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:register-event:1",
       "result": {
-        "eventId": "05013fe7-adcb-4bf5-8bef-cbdd8702806c",
+        "eventId": "0bcbf7d6-5f3b-44ec-82fa-e91a661cbe3a",
         "event": {
           "eventType": "BREAKDOWN",
           "machineId": "M-05",
@@ -59,13 +59,13 @@
           "note": "wf-e2e 回归触发"
         }
       },
-      "completedAt": "2026-11-02T02:39:14.622Z"
+      "completedAt": "2026-11-02T03:20:05.575Z"
     },
     {
       "node": "query-experience",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:query-experience:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:query-experience:1",
       "result": {
         "experience": {
           "records": [
@@ -184,23 +184,23 @@
           }
         }
       },
-      "completedAt": "2026-11-02T02:39:15.330Z"
+      "completedAt": "2026-11-02T03:20:06.074Z"
     },
     {
       "node": "suggest-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:suggest-strategy:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:suggest-strategy:1",
       "result": {
         "rawSuggestion": null
       },
-      "completedAt": "2026-11-02T02:39:15.340Z"
+      "completedAt": "2026-11-02T03:20:06.083Z"
     },
     {
       "node": "validate-strategy",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:validate-strategy:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:validate-strategy:1",
       "result": {
         "strategy": {
           "mode": "LOCAL_RESCHEDULE",
@@ -214,28 +214,28 @@
           "输出不是对象（期望 {mode, weights, rationale}）"
         ]
       },
-      "completedAt": "2026-11-02T02:39:15.348Z"
+      "completedAt": "2026-11-02T03:20:06.095Z"
     },
     {
       "node": "create-reschedule",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:create-reschedule:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:create-reschedule:1",
       "result": {
-        "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+        "taskId": "0225f728-b78d-4da0-bbba-451ea0be45e1",
         "mode": "LOCAL_RESCHEDULE"
       },
-      "completedAt": "2026-11-02T02:39:15.445Z"
+      "completedAt": "2026-11-02T03:20:06.174Z"
     },
     {
       "node": "poll-task",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:poll-task:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:poll-task:1",
       "result": {
         "outcome": "feasible",
-        "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
-        "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e",
+        "taskId": "0225f728-b78d-4da0-bbba-451ea0be45e1",
+        "planVersionId": "354f803a-755a-41f6-8aab-e9e8a8a2defd",
         "kpi": {
           "cMaxMinutes": 3408,
           "weightedTardinessMinutes": 60864,
@@ -257,24 +257,24 @@
         "conflicts": [],
         "errorMessage": null
       },
-      "completedAt": "2026-11-02T02:39:17.476Z"
+      "completedAt": "2026-11-02T03:20:08.206Z"
     },
     {
       "node": "full-retry",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:full-retry:1",
-      "completedAt": "2026-11-02T02:39:17.489Z"
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:full-retry:1",
+      "completedAt": "2026-11-02T03:20:08.219Z"
     },
     {
       "node": "compare-plans",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:compare-plans:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:compare-plans:1",
       "result": {
         "diff": {
-          "baselineVersionCode": "PV-000015",
-          "candidateVersionCode": "PV-000016",
+          "baselineVersionCode": "PV-000013",
+          "candidateVersionCode": "PV-000014",
           "summary": {
             "comparedOperations": 76,
             "addedOperations": [],
@@ -384,35 +384,35 @@
           "changedOperationsTotal": 9
         }
       },
-      "completedAt": "2026-11-02T02:39:17.522Z"
+      "completedAt": "2026-11-02T03:20:08.245Z"
     },
     {
       "node": "review-material",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:review-material:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:review-material:1",
       "result": {
-        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：BREAKDOWN\n- machineId：M-05\n- occurredAt：2026-09-17T06:00:00.000Z\n- repairDurationMinutes：60\n- note：wf-e2e 回归触发\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：bededce5-527a-45a4-bab4-383a196a4f09，结果：FEASIBLE\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3408，加权拖期=60864，拖期订单数=12，负载不均衡=0.102042\n- 差值：{\"nTardy\":0,\"cMaxMinutes\":53,\"loadImbalance\":0.000999999999999987,\"weightedTardinessMinutes\":2225}\n\n## 扰动统计\n- 变更工序数：9；summary：{\"comparedOperations\":76,\"addedOperations\":[],\"removedOperations\":[],\"timeShiftedCount\":2,\"machineChangedCount\":1,\"sequenceChangedCount\":8}\n\n## 风险提示\n- 无（一次通过，未触发异常分支）\n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
+        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：BREAKDOWN\n- machineId：M-05\n- occurredAt：2026-09-17T06:00:00.000Z\n- repairDurationMinutes：60\n- note：wf-e2e 回归触发\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：0225f728-b78d-4da0-bbba-451ea0be45e1，结果：FEASIBLE\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3408，加权拖期=60864，拖期订单数=12，负载不均衡=0.102042\n- 差值：{\"nTardy\":0,\"cMaxMinutes\":53,\"loadImbalance\":0.000999999999999987,\"weightedTardinessMinutes\":2225}\n\n## 扰动统计\n- 变更工序数：9；summary：{\"comparedOperations\":76,\"addedOperations\":[],\"removedOperations\":[],\"timeShiftedCount\":2,\"machineChangedCount\":1,\"sequenceChangedCount\":8}\n\n## 风险提示\n- 无（一次通过，未触发异常分支）\n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
       },
-      "completedAt": "2026-11-02T02:39:17.533Z"
+      "completedAt": "2026-11-02T03:20:08.256Z"
     },
     {
       "node": "submit-review",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:submit-review:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:submit-review:1",
       "result": {
-        "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e",
+        "planVersionId": "354f803a-755a-41f6-8aab-e9e8a8a2defd",
         "plan": {
-          "id": "937cc017-5ef0-45b8-9b90-b6001148367e",
-          "versionCode": "PV-000016",
+          "id": "354f803a-755a-41f6-8aab-e9e8a8a2defd",
+          "versionCode": "PV-000014",
           "status": "REVIEW_PENDING",
           "candidateType": "LOCAL",
           "version": 1,
-          "parentId": "ad3e1274-3c77-4a88-b8ae-88d28bcdd93e",
-          "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+          "parentId": "0f095c72-9464-41e1-bf1d-31d418867a8b",
+          "taskId": "0225f728-b78d-4da0-bbba-451ea0be45e1",
           "publishedAt": null,
-          "createdAt": "2026-11-02T02:39:16.390027Z",
+          "createdAt": "2026-11-02T03:20:07.082519Z",
           "kpi": {
             "cMaxMinutes": 3408,
             "weightedTardinessMinutes": 60864,
@@ -433,22 +433,22 @@
           }
         }
       },
-      "completedAt": "2026-11-02T02:39:17.616Z"
+      "completedAt": "2026-11-02T03:20:08.321Z"
     },
     {
       "node": "await-decision",
       "seq": 1,
       "attempt": 1,
-      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:await-decision:1",
+      "idempotencyKey": "wf-a5e9735c-f223-459b-bf3f-e165bb41eeb4:await-decision:1",
       "result": {
         "approvalDecision": "approved",
-        "requestId": "f236794d-36fe-47ac-b33b-5eef42252c15"
+        "requestId": "fb1b1d06-0ce3-4e03-ac40-a992f0696330"
       },
-      "completedAt": "2026-11-02T02:39:17.648Z"
+      "completedAt": "2026-11-02T03:20:08.352Z"
     }
   ],
   "pendingApproval": null,
   "expiredApprovals": [],
-  "createdAt": "2026-11-02T02:39:14.511Z",
-  "updatedAt": "2026-11-02T02:39:17.653Z"
+  "createdAt": "2026-11-02T03:20:05.462Z",
+  "updatedAt": "2026-11-02T03:20:08.357Z"
 }

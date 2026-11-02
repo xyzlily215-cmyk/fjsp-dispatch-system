@@ -9,8 +9,10 @@
 //   s05      重复告警：业务三层（同键回放/换键 409）+ 工作流触发去重（同 dedupeKey 返回已有 wfId）
 //   s06      审批拒绝：真实 BFF 拒绝 → 流程 TERMINATED，候选停留 REVIEW_PENDING，无发布副作用
 //   s03      混合扰动口径：两条独立单事件流程先后跑完，验证不产生 E_PLAN_STALE 候选链
-//   restart  崩溃恢复：子进程跑到 poll-task intent 被 kill -9 → recover() → 复用原幂等键续跑
-//            → 挂起后再次 recover() 核对 BFF pending 审批 → 批准 → COMPLETED，全程无重复写
+//   restart  崩溃恢复：子进程（detached 进程组）跑到 poll-task intent 被整组 kill -9
+//            （exit 信号 + pgrep 无残留 + 检查点静默期三重实证死亡）→ recover() →
+//            复用原幂等键续跑 → 挂起后再次 recover() 核对 BFF pending 审批 → 批准 →
+//            COMPLETED，全程无重复写（尾部节点恰执行一次、BFF 审批登记恰一次）
 //   timeout  轮询超时：fjsp_task_status 脚本化恒返 RUNNING 快照 → 达 maxAttempts → FAILED 转人工
 //   stale    乐观锁冲突：submit-review 前注入过期 version → E_VERSION_STALE → 重读重试成功
 //   child-run  内部子命令（restart 的被杀子进程），请勿直接调用
@@ -21,7 +23,7 @@
 //   EVIDENCE_DIR（给定时把指标 JSON、日志与终态检查点拷贝进去）。
 // 退出码：全部断言 PASS 为 0，任一 FAIL 为 1。
 import { spawn } from 'node:child_process'
-import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // ---- env bootstrap：必须先于任何 workflow / fjsp-tools / server.mts 的动态 import ----
@@ -54,11 +56,11 @@ process.env.AGH_OWNER_FILE = join(MODE_DIR, 'no-owner.json') // 不存在 → da
 const BASE = process.env.FJSP_API_BASE
 const CONV_ID = `wf-e2e-${MODE || 'misc'}`
 
-// ---- 断言计数 ----
+// ---- 断言计数（每条断言同时落 logLines，归档日志可自证 PASS/FAIL 与退出码）----
 let failures = 0
 function assert(cond: unknown, msg: string) {
-  if (cond) console.log(`PASS ${msg}`)
-  else { failures++; console.log(`FAIL ${msg}`) }
+  if (cond) logLines.push(`PASS ${msg}`), console.log(`PASS ${msg}`)
+  else { failures++; logLines.push(`FAIL ${msg}`); console.log(`FAIL ${msg}`) }
 }
 const logLines: string[] = []
 const flog = (m: string) => { logLines.push(m); console.log(`[flow] ${m}`) }
@@ -195,16 +197,22 @@ async function approveAndSettle(d: Awaited<ReturnType<typeof flowDeps>>, wfId: s
 }
 
 function metricsAndEvidence(mode: string, data: Record<string, unknown>) {
-  const rec = { mode, finishedAt: new Date().toISOString(), tokens: 'N/A（未接真实 LLM）', ...data }
+  const rec = { mode, finishedAt: new Date().toISOString(), tokens: 'N/A（未接真实 LLM）', assertionFailures: failures, ...data }
   if (EVIDENCE) {
     mkdirSync(EVIDENCE, { recursive: true })
     writeFileSync(join(EVIDENCE, `${mode}.json`), JSON.stringify(rec, null, 2))
-    writeFileSync(join(EVIDENCE, `${mode}.log`), logLines.join('\n') + '\n')
     for (const f of readdirSync(process.env.FJSP_WORKFLOW_DIR!)) {
       if (f.endsWith('.json')) copyFileSync(join(process.env.FJSP_WORKFLOW_DIR!, f), join(EVIDENCE, `${mode}-checkpoint-${f}`))
     }
   }
   console.log(`WF_E2E_RESULT ${JSON.stringify(rec)}`)
+}
+
+// 归档日志在进程收尾时统一写：含每条断言 PASS/FAIL 与最终退出码，证据可自证
+function finalizeEvidence(mode: string, code: number) {
+  const tail = `RESULT failures=${failures} exitCode=${code}`
+  console.log(tail)
+  if (EVIDENCE) writeFileSync(join(EVIDENCE, `${mode}.log`), [...logLines, tail].join('\n') + '\n')
 }
 
 const bdEvent = (simStart: string, machineId = 'M-03', atMin = 24 * 60, repair = 120) => ({
@@ -349,14 +357,16 @@ async function modeS03() {
   })
 }
 
-// ================= restart：崩溃恢复（真实 kill -9） =================
+// ================= restart：崩溃恢复（真实进程组 kill -9） =================
 async function modeRestart() {
   const { simStart } = await resetAndBaseline()
   await bootBff()
   const beforeEvents = await bdEventTotal()
   const beforeTasks = await taskTotal()
   const t0 = Date.now()
-  // 子进程跑流程（共享同一 FJSP_WORKFLOW_DIR；审批通道指向本进程 BFF）
+  // 子进程跑流程（共享同一 FJSP_WORKFLOW_DIR；审批通道指向本进程 BFF）。
+  // detached:true 使子进程成为进程组组长：tsx 是「CLI 包装进程 + node 孙进程」双进程结构，
+  // 只杀包装进程会留下孙进程继续跑（修复轮 1 的 Critical）；kill 负 pid 整组歼灭。
   const detail = bdEvent(simStart)
   const tsx = process.env.FJSP_TSX || 'tsx'
   const child = spawn(tsx, [new URL(import.meta.url).pathname, 'child-run'], {
@@ -366,7 +376,10 @@ async function modeRestart() {
       E2E_BFF_URL: BFF, E2E_TOKEN: TOKEN, E2E_CONV_ID: CONV_ID, E2E_MODE_DIR: MODE_DIR,
     },
     stdio: ['ignore', 'pipe', 'inherit'],
+    detached: true,
   })
+  const childExit = new Promise<{ code: number | null; signal: string | null }>((resolve) =>
+    child.on('exit', (code, signal) => resolve({ code, signal })))
   let wfId = ''
   child.stdout.on('data', (buf) => {
     const line = String(buf)
@@ -377,20 +390,38 @@ async function modeRestart() {
   const { CheckpointStore } = await import('./checkpoint.mts')
   const store = new CheckpointStore(process.env.FJSP_WORKFLOW_DIR)
   // 等子进程把流程推进到 poll-task 的 intent（重调度任务已创建、正在轮询）
-  let killed = false
-  for (let i = 0; i < 600 && !killed; i++) {
+  let killSent = false
+  for (let i = 0; i < 600 && !killSent; i++) {
     await new Promise((r) => setTimeout(r, 200))
     if (!wfId) continue
     const cp = store.load(wfId)
     if (cp?.current?.node === 'poll-task' && cp.current.phase === 'intent' && cp.refs.taskId) {
-      child.kill('SIGKILL')
-      killed = true
+      process.kill(-child.pid!, 'SIGKILL') // 负 pid = 整个进程组（tsx 包装 + node 孙进程）
+      killSent = true
     }
   }
-  assert(killed, '子进程在 poll-task intent（任务已创建、轮询进行中）被 kill -9')
+  assert(killSent, '已在 poll-task intent（任务已创建、轮询进行中）向子进程组发出 SIGKILL')
+  // 断言进程真实死亡：① 包装进程 exit 事件携 SIGKILL；② 进程组无残留（pgrep 查不到
+  // child-run）；③ 检查点静默期——存活孤儿会继续推进流程改写检查点文件
+  const exitInfo = await childExit
+  assert(exitInfo.signal === 'SIGKILL', `子进程（tsx 包装）确被 SIGKILL 杀死（code=${exitInfo.code} signal=${exitInfo.signal}）`)
+  // 进程组残留核查：ps 枚举 pgid == child.pid 的存活进程（排除僵尸 Z 态）。
+  // 不用 kill(-pgid,0) 探测：macOS 上该调用在组刚消亡时偶发 EPERM 而非 ESRCH（修复轮 1 实测）。
+  const ps = await new Promise<string>((resolve) => {
+    const p = spawn('ps', ['-axo', 'pid=,pgid=,stat=,comm='])
+    let out = ''
+    p.stdout.on('data', (b) => (out += b))
+    p.on('exit', () => resolve(out))
+  })
+  const groupRows = ps.split('\n').map((l) => l.trim().split(/\s+/)).filter((cols) => Number(cols[1]) === child.pid && !cols[2]?.startsWith('Z'))
+  assert(groupRows.length === 0, `进程组零残留（pgid=${child.pid} 无存活进程，tsx 孙进程同步死亡${groupRows.length ? `；实际残留 ${JSON.stringify(groupRows)}` : ''}）`)
+  const groupAlive = groupRows.length > 0
   const preCp = store.load(wfId)!
   const preTaskId = preCp.refs.taskId
   const prePollKey = preCp.current!.idempotencyKey
+  const preSerialized = JSON.stringify(preCp)
+  await new Promise((r) => setTimeout(r, 3000)) // 静默期 > fjsp_task_status 轮询间隔（2s）
+  assert(JSON.stringify(store.load(wfId)) === preSerialized, 'kill 后 3s 静默期内检查点零变化（无孤儿进程继续推进流程）')
   console.log(`[现场] wfId=${wfId} taskId=${preTaskId} pollKey=${prePollKey}`)
 
   // 恢复（本进程 = 另一进程实例；真实业务现态 + 真实 BFF 审批核对）
@@ -404,23 +435,40 @@ async function modeRestart() {
   const resumed = await d.runWorkflow(wfId, nodes, { store, tools, approvalChannel: d.approvalChannel, log: flog })
   assert(resumed.status === 'WAITING_APPROVAL', `恢复续跑至挂起待审批（实际 ${resumed.status}）`)
   assert(resumed.refs.taskId === preTaskId, `恢复后 taskId 不变（${resumed.refs.taskId}），重调度未重复创建`)
-  assert((await taskTotal()) - beforeTasks === 1, `调度任务净增恰为 1（重调度未重复写入）`)
-  assert((await bdEventTotal()) - beforeEvents === 1, '事件净增恰为 1（登记未重复）')
+  const taskDelta = (await taskTotal()) - beforeTasks
+  const eventDelta = (await bdEventTotal()) - beforeEvents
+  assert(taskDelta === 1, `调度任务净增恰为 1（重调度未重复写入，实际 Δ${taskDelta}）`)
+  assert(eventDelta === 1, `事件净增恰为 1（登记未重复，实际 Δ${eventDelta}）`)
 
   // 挂起状态再恢复一次：BFF 审批 pending 有效 → 继续等（消除 3.1 误作废）
   const dec2 = await d.recover(store, wfId, { checkApproval: d.makeApprovalChecker(d.bffOpts) })
   assert(dec2.action === 'await-approval', `挂起态 recover() 核对到 BFF pending 审批 → 继续等（实际 ${JSON.stringify(dec2)}）`)
   const settled = await approveAndSettle({ ...d, store }, wfId, nodes, tools, 'approved')
   assert(settled.status === 'COMPLETED', `批准后流程 COMPLETED（实际 ${settled.status}）`)
+  // 尾部节点只执行一次：12 节点各出现一次、seq 全为 1；poll-task 以 attempt=2 完成（第 1 次被杀）
+  const names = settled.completedSteps.map((s: any) => s.node)
+  assert(settled.completedSteps.length === 12 && new Set(names).size === 12,
+    `12 个节点各执行恰好一次、无重复（实际 ${settled.completedSteps.length} 步）`)
+  assert(settled.completedSteps.every((s: any) => s.seq === 1), '全部步骤 seq=1（无节点被二次进入）')
   const pollStep = settled.completedSteps.find((s: any) => s.node === 'poll-task')
-  assert(pollStep?.idempotencyKey === prePollKey, `poll-task 完成记录沿用原幂等键 ${pollStep?.idempotencyKey}`)
+  assert(pollStep?.attempt === 2 && pollStep?.idempotencyKey === prePollKey,
+    `poll-task 以 attempt=2 沿用原幂等键完成（实际 attempt=${pollStep?.attempt} key=${pollStep?.idempotencyKey}）`)
+  // BFF 审批登记恰 1 次且无孤儿 pending（读 BFF 持久化文件实证）
+  const approvalsFile = JSON.parse(readFileSync(process.env.AGENT_BFF_APPROVALS_FILE!, 'utf8')) as Record<string, any>
+  const wfApprovals = Object.values(approvalsFile).filter((a: any) => a.tool === 'fjsp_approve_review')
+  assert(wfApprovals.length === 1, `BFF 审批登记恰 1 次（实际 ${wfApprovals.length} 条）`)
+  assert(wfApprovals[0]?.status === 'approved', `唯一审批已裁决 approved、无孤儿 pending（实际 ${wfApprovals[0]?.status}）`)
   const actions = await planAudit(resumed.refs.planVersionId!)
   assert(actions.filter((a: string) => a === 'PLAN_SUBMIT_REVIEW').length === 1, `候选版本 PLAN_SUBMIT_REVIEW 恰 1 次（实际 ${actions.join(',')}）`)
   metricsAndEvidence('restart', {
     scenario: 'fault-restart', workflowId: wfId, terminal: settled.status,
     steps: settled.completedSteps.length, approvalPoints: 1, wallMs: Date.now() - t0,
-    killPoint: 'poll-task intent（任务已创建、轮询进行中）', taskIdPreserved: resumed.refs.taskId === preTaskId,
-    taskCountDelta: 1, eventCountDelta: 1, recoveredAtSuspend: dec2.action === 'await-approval',
+    killPoint: 'poll-task intent（任务已创建、轮询进行中）',
+    killVerified: exitInfo.signal === 'SIGKILL' && !groupAlive, checkpointQuiescentAfterKill: true,
+    taskIdPreserved: resumed.refs.taskId === preTaskId,
+    taskCountDelta: taskDelta, eventCountDelta: eventDelta,
+    bffApprovalsRegistered: wfApprovals.length, orphanPending: wfApprovals.filter((a: any) => a.status === 'pending').length,
+    recoveredAtSuspend: dec2.action === 'await-approval',
   })
 }
 
@@ -436,7 +484,7 @@ async function modeChildRun() {
   console.log(`WFID ${created.checkpoint.workflowId}`)
   const nodes = d.buildDisturbanceFlow().map((n: any) => (n.name === 'poll-task' ? { ...n, maxAttempts: 8 } : n))
   await d.runWorkflow(created.checkpoint.workflowId, nodes, { store: d.store, tools, approvalChannel: channel, log: flog })
-  setInterval(() => {}, 1000) // 保持进程存活，等待父进程 SIGKILL
+  // 不驻留：流程跑完自然退出（崩溃场景由父进程对整个进程组 SIGKILL，不会留孤儿）
 }
 
 // ================= timeout：轮询超时 → maxAttempts → FAILED 转人工 =================
@@ -455,12 +503,13 @@ async function modeTimeout() {
   assert(cp.status === 'FAILED', `轮询超时达 maxAttempts 后 FAILED（实际 ${cp.status}）`)
   assert((cp.statusReason || '').includes('转人工'), `失败原因含「转人工」（实际 ${cp.statusReason}）`)
   assert(cp.current?.node === 'poll-task', `停在 poll-task 节点（实际 ${cp.current?.node}）`)
-  assert((await taskTotal()) - beforeTasks === 1, '重调度任务恰创建 1 次（重试复用同键，无重复写）')
+  const taskDelta = (await taskTotal()) - beforeTasks
+  assert(taskDelta === 1, `重调度任务恰创建 1 次（重试复用同键，无重复写，实际 Δ${taskDelta}）`)
   assert(!cp.refs.planVersionId, '未产出候选版本（无污染下游）')
   metricsAndEvidence('timeout', {
     scenario: 'fault-timeout', workflowId: cp.workflowId, terminal: cp.status,
     steps: cp.completedSteps.length, approvalPoints: 0, wallMs: Date.now() - t0,
-    taskId: cp.refs.taskId, taskCountDelta: 1, note: 'fjsp_task_status 恒返 RUNNING 快照为脚本化 mock；创建任务为真实写',
+    taskId: cp.refs.taskId, taskCountDelta: taskDelta, note: 'fjsp_task_status 恒返 RUNNING 快照为脚本化 mock；创建任务为真实写',
   })
 }
 
@@ -519,7 +568,9 @@ try {
   await MODES[MODE]()
 } catch (e) {
   failures++
+  logLines.push(`FAIL 未捕获异常：${String(e)}`)
   console.error(`FAIL 未捕获异常：${String(e)}`)
 }
-console.log(failures ? `结果：${failures} 项断言失败` : '结果：全部断言通过')
-process.exit(failures ? 1 : 0)
+const exitCode = failures ? 1 : 0
+finalizeEvidence(MODE, exitCode)
+process.exit(exitCode)
