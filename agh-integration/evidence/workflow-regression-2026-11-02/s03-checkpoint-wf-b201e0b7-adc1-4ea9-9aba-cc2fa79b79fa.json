@@ -1,0 +1,509 @@
+{
+  "version": 1,
+  "workflowId": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa",
+  "type": "DISTURBANCE",
+  "status": "COMPLETED",
+  "trigger": {
+    "source": "wf-e2e",
+    "dedupeKey": "NEW_ORDER:ORD-GOLDEN-S03:2026-09-17T01:00:00.000Z",
+    "detail": {
+      "eventType": "NEW_ORDER",
+      "subType": "URGENT_INSERT",
+      "orderCode": "ORD-GOLDEN-S03",
+      "productFamily": "盘类B",
+      "quantity": 10,
+      "arrivalAt": "2026-09-17T01:00:00.000Z",
+      "dueAt": "2026-09-17T07:00:00.000Z",
+      "priority": 1,
+      "occurredAt": "2026-09-17T01:00:00.000Z",
+      "note": "wf-e2e s03 插单"
+    }
+  },
+  "refs": {
+    "eventId": "90b550fb-5327-47ef-a220-3d39d56da787",
+    "taskId": "c785b0bc-3fb2-4b24-9097-f914da218ca2",
+    "planVersionId": "d4c15c52-8974-4264-99ef-3c20c5b9e298"
+  },
+  "current": null,
+  "completedSteps": [
+    {
+      "node": "receive-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:receive-event:1",
+      "result": {
+        "event": {
+          "eventType": "NEW_ORDER",
+          "subType": "URGENT_INSERT",
+          "orderCode": "ORD-GOLDEN-S03",
+          "productFamily": "盘类B",
+          "quantity": 10,
+          "arrivalAt": "2026-09-17T01:00:00.000Z",
+          "dueAt": "2026-09-17T07:00:00.000Z",
+          "priority": 1,
+          "occurredAt": "2026-09-17T01:00:00.000Z",
+          "note": "wf-e2e s03 插单"
+        },
+        "oldPlanVersionId": "da8b2b33-ee46-4374-87b7-38c366e07e1a",
+        "baselineKpi": {
+          "cMaxMinutes": 3355,
+          "weightedTardinessMinutes": 58639,
+          "nTardy": 12,
+          "loadImbalance": 0.101042
+        }
+      },
+      "completedAt": "2026-11-02T02:40:02.095Z"
+    },
+    {
+      "node": "register-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:register-event:1",
+      "result": {
+        "eventId": "90b550fb-5327-47ef-a220-3d39d56da787",
+        "event": {
+          "eventType": "NEW_ORDER",
+          "subType": "URGENT_INSERT",
+          "orderCode": "ORD-GOLDEN-S03",
+          "productFamily": "盘类B",
+          "quantity": 10,
+          "arrivalAt": "2026-09-17T01:00:00.000Z",
+          "dueAt": "2026-09-17T07:00:00.000Z",
+          "priority": 1,
+          "occurredAt": "2026-09-17T01:00:00.000Z",
+          "note": "wf-e2e s03 插单"
+        }
+      },
+      "completedAt": "2026-11-02T02:40:02.134Z"
+    },
+    {
+      "node": "query-experience",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:query-experience:1",
+      "result": {
+        "experience": {
+          "records": [
+            {
+              "ts": "2026-10-30T07:04:38.949Z",
+              "eventType": "NEW_ORDER",
+              "mode": "FULL_RESCHEDULE",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": -13265,
+                "cMaxMinutes": -308,
+                "deltaPlan": 0.471385
+              },
+              "published": true,
+              "note": "ORD-GOLDEN-S03（盘类B ×10，优先级1，仿真 09:00 到达/01:00Z）与 M-03 故障合并处置：以 PV-000058 为 oldPlan 用插单事件触发，LOCAL 不可行（M-03 维修窗口），FULL 可行并整体优化，拖期 -13265、makespan -308，拖期订单 12→14，已发布 PV-000061。",
+              "score": 0.033,
+              "scoreText": "RRF 0.0328"
+            },
+            {
+              "ts": "2026-10-30T07:00:56.188Z",
+              "eventType": "NEW_ORDER",
+              "mode": "LOCAL_RESCHEDULE",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": 98,
+                "cMaxMinutes": 0,
+                "deltaPlan": 0
+              },
+              "published": true,
+              "note": "壳体C ×10 优先级1 紧急插单（ORD-GOLDEN-S02，交期仿真14:00），局部重排即可：零换机、零平移、换序13，Delta_plan 0，makespan 不变、拖期 +98min、拖期订单 12→13，已发布 PV-000057。",
+              "score": 0.032,
+              "scoreText": "RRF 0.0323"
+            }
+          ],
+          "recommendation": {
+            "mode": "FULL_RESCHEDULE",
+            "reason": "历史 1 次同类处置平均加权拖期差值 -13265，为各模式最优",
+            "byMode": [
+              {
+                "mode": "FULL_RESCHEDULE",
+                "count": 1,
+                "avgWeightedTardinessDiff": -13265,
+                "avgDeltaPlan": 0.471
+              },
+              {
+                "mode": "LOCAL_RESCHEDULE",
+                "count": 1,
+                "avgWeightedTardinessDiff": 98,
+                "avgDeltaPlan": 0
+              }
+            ]
+          }
+        }
+      },
+      "completedAt": "2026-11-02T02:40:02.150Z"
+    },
+    {
+      "node": "suggest-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:suggest-strategy:1",
+      "result": {
+        "rawSuggestion": null
+      },
+      "completedAt": "2026-11-02T02:40:02.159Z"
+    },
+    {
+      "node": "validate-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:validate-strategy:1",
+      "result": {
+        "strategy": {
+          "mode": "LOCAL_RESCHEDULE",
+          "weights": {
+            "weightedTardiness": 0.4,
+            "makespan": 0.3
+          },
+          "rationale": "默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）"
+        },
+        "fallbackReasons": [
+          "输出不是对象（期望 {mode, weights, rationale}）"
+        ]
+      },
+      "completedAt": "2026-11-02T02:40:02.167Z"
+    },
+    {
+      "node": "create-reschedule",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:create-reschedule:1",
+      "result": {
+        "taskId": "9d93cd1a-2743-47f0-951b-ee0840e1fb81",
+        "mode": "LOCAL_RESCHEDULE"
+      },
+      "completedAt": "2026-11-02T02:40:02.218Z"
+    },
+    {
+      "node": "poll-task",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:poll-task:1",
+      "result": {
+        "outcome": "infeasible",
+        "taskId": "9d93cd1a-2743-47f0-951b-ee0840e1fb81",
+        "planVersionId": null,
+        "kpi": null,
+        "conflicts": [
+          {
+            "rule": "AVAILABILITY_VIOLATION",
+            "objects": [
+              "M-03",
+              "O004-10"
+            ],
+            "severity": "ERROR",
+            "suggestion": "工序 O004-10 占用区间 [1440,1476) 未完整落在设备 M-03 的任一可用区间内"
+          },
+          {
+            "rule": "AVAILABILITY_VIOLATION",
+            "objects": [
+              "M-03",
+              "O003-40"
+            ],
+            "severity": "ERROR",
+            "suggestion": "工序 O003-40 占用区间 [1476,1570) 未完整落在设备 M-03 的任一可用区间内"
+          }
+        ],
+        "errorMessage": null
+      },
+      "completedAt": "2026-11-02T02:40:04.256Z"
+    },
+    {
+      "node": "full-retry",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:full-retry:1",
+      "result": {
+        "retriedFrom": "infeasible",
+        "mode": "FULL_RESCHEDULE",
+        "explanation": "重调度结果不可行 INFEASIBLE（mode=LOCAL_RESCHEDULE）\n冲突明细：\n- \n- ",
+        "taskId": "c785b0bc-3fb2-4b24-9097-f914da218ca2",
+        "planVersionId": "d4c15c52-8974-4264-99ef-3c20c5b9e298",
+        "kpi": {
+          "cMaxMinutes": 3047,
+          "weightedTardinessMinutes": 45374,
+          "nTardy": 14,
+          "loadImbalance": 0.100606,
+          "deltaPlan": {
+            "weights": {
+              "machineChange": 0.3,
+              "sequenceChange": 0.2,
+              "startTimeShift": 0.5
+            },
+            "deltaPlan": 0.471385,
+            "nMachineChange": 12,
+            "machineChangeRate": 0.173913,
+            "sequenceChangeRate": 0.139535,
+            "startTimeShiftRate": 0.782609
+          }
+        },
+        "conflicts": []
+      },
+      "completedAt": "2026-11-02T02:40:22.401Z"
+    },
+    {
+      "node": "compare-plans",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:compare-plans:1",
+      "result": {
+        "diff": {
+          "baselineVersionCode": "PV-000021",
+          "candidateVersionCode": "PV-000023",
+          "summary": {
+            "comparedOperations": 76,
+            "addedOperations": [
+              "ORD-GOLDEN-S03-40",
+              "ORD-GOLDEN-S03-10",
+              "ORD-GOLDEN-S03-50",
+              "ORD-GOLDEN-S03-20",
+              "ORD-GOLDEN-S03-30"
+            ],
+            "removedOperations": [],
+            "timeShiftedCount": 54,
+            "machineChangedCount": 12,
+            "sequenceChangedCount": 35
+          },
+          "kpiDiff": {
+            "nTardy": 2,
+            "cMaxMinutes": -308,
+            "loadImbalance": -0.00043600000000000583,
+            "weightedTardinessMinutes": -13265
+          },
+          "changedOperations": [
+            {
+              "operationId": "O001-10",
+              "timeShiftMinutes": -1117,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-06",
+              "newMachineId": "M-06",
+              "oldStartAt": "2026-09-17T01:31:00Z",
+              "newStartAt": "2026-09-16T06:54:00Z"
+            },
+            {
+              "operationId": "O001-20",
+              "timeShiftMinutes": -300,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-06",
+              "oldStartAt": "2026-09-17T05:00:00Z",
+              "newStartAt": "2026-09-17T00:00:00Z"
+            },
+            {
+              "operationId": "O001-30",
+              "timeShiftMinutes": -84,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-08",
+              "newMachineId": "M-06",
+              "oldStartAt": "2026-09-17T07:08:00Z",
+              "newStartAt": "2026-09-17T05:44:00Z"
+            },
+            {
+              "operationId": "O003-20",
+              "timeShiftMinutes": -156,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-03",
+              "oldStartAt": "2026-09-16T05:00:00Z",
+              "newStartAt": "2026-09-16T02:24:00Z"
+            },
+            {
+              "operationId": "O003-30",
+              "timeShiftMinutes": -318,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-08",
+              "newMachineId": "M-08",
+              "oldStartAt": "2026-09-16T08:11:00Z",
+              "newStartAt": "2026-09-16T02:53:00Z"
+            },
+            {
+              "operationId": "O003-40",
+              "timeShiftMinutes": -1036,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-03",
+              "newMachineId": "M-03",
+              "oldStartAt": "2026-09-17T00:36:00Z",
+              "newStartAt": "2026-09-16T07:20:00Z"
+            },
+            {
+              "operationId": "O004-10",
+              "timeShiftMinutes": -1332,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-03",
+              "newMachineId": "M-03",
+              "oldStartAt": "2026-09-17T00:00:00Z",
+              "newStartAt": "2026-09-16T01:48:00Z"
+            },
+            {
+              "operationId": "O004-20",
+              "timeShiftMinutes": -2712,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T02:12:00Z",
+              "newStartAt": "2026-09-16T05:00:00Z"
+            },
+            {
+              "operationId": "O004-30",
+              "timeShiftMinutes": -2739,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T03:07:00Z",
+              "newStartAt": "2026-09-16T05:28:00Z"
+            },
+            {
+              "operationId": "O004-40",
+              "timeShiftMinutes": -1314,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-18T05:00:00Z",
+              "newStartAt": "2026-09-17T07:06:00Z"
+            },
+            {
+              "operationId": "O004-50",
+              "timeShiftMinutes": -324,
+              "machineChanged": false,
+              "sequenceChanged": false,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T05:59:00Z",
+              "newStartAt": "2026-09-18T00:35:00Z"
+            },
+            {
+              "operationId": "O005-40",
+              "timeShiftMinutes": -74,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-04",
+              "newMachineId": "M-04",
+              "oldStartAt": "2026-09-16T07:52:00Z",
+              "newStartAt": "2026-09-16T06:38:00Z"
+            },
+            {
+              "operationId": "O006-20",
+              "timeShiftMinutes": 1245,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-03",
+              "newMachineId": "M-08",
+              "oldStartAt": "2026-09-16T05:00:00Z",
+              "newStartAt": "2026-09-17T01:45:00Z"
+            },
+            {
+              "operationId": "O006-30",
+              "timeShiftMinutes": 1190,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-16T06:30:00Z",
+              "newStartAt": "2026-09-17T02:20:00Z"
+            },
+            {
+              "operationId": "O006-40",
+              "timeShiftMinutes": 1287,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-16T08:08:00Z",
+              "newStartAt": "2026-09-17T05:35:00Z"
+            }
+          ],
+          "changedOperationsTotal": 54
+        }
+      },
+      "completedAt": "2026-11-02T02:40:22.440Z"
+    },
+    {
+      "node": "review-material",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:review-material:1",
+      "result": {
+        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：NEW_ORDER\n- subType：URGENT_INSERT\n- orderCode：ORD-GOLDEN-S03\n- productFamily：盘类B\n- quantity：10\n- arrivalAt：2026-09-17T01:00:00.000Z\n- dueAt：2026-09-17T07:00:00.000Z\n- priority：1\n- occurredAt：2026-09-17T01:00:00.000Z\n- note：wf-e2e s03 插单\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：c785b0bc-3fb2-4b24-9097-f914da218ca2，结果：FEASIBLE_AFTER_FULL_RETRY\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3047，加权拖期=45374，拖期订单数=14，负载不均衡=0.100606\n- 差值：{\"nTardy\":2,\"cMaxMinutes\":-308,\"loadImbalance\":-0.00043600000000000583,\"weightedTardinessMinutes\":-13265}\n\n## 扰动统计\n- 变更工序数：54；summary：{\"comparedOperations\":76,\"addedOperations\":[\"ORD-GOLDEN-S03-40\",\"ORD-GOLDEN-S03-10\",\"ORD-GOLDEN-S03-50\",\"ORD-GOLDEN-S03-20\",\"ORD-GOLDEN-S03-30\"],\"removedOperations\":[],\"timeShiftedCount\":54,\"machineChangedCount\":12,\"sequenceChangedCount\":35}\n\n## 风险提示\n- 本次处置经历过不可行/失败分支，冲突解释：\n重调度结果不可行 INFEASIBLE（mode=LOCAL_RESCHEDULE）\n冲突明细：\n- \n- \n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
+      },
+      "completedAt": "2026-11-02T02:40:22.451Z"
+    },
+    {
+      "node": "submit-review",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:submit-review:1",
+      "result": {
+        "planVersionId": "d4c15c52-8974-4264-99ef-3c20c5b9e298",
+        "plan": {
+          "id": "d4c15c52-8974-4264-99ef-3c20c5b9e298",
+          "versionCode": "PV-000023",
+          "status": "REVIEW_PENDING",
+          "candidateType": "FULL",
+          "version": 1,
+          "parentId": "da8b2b33-ee46-4374-87b7-38c366e07e1a",
+          "taskId": "c785b0bc-3fb2-4b24-9097-f914da218ca2",
+          "publishedAt": null,
+          "createdAt": "2026-11-02T02:40:21.74269Z",
+          "kpi": {
+            "cMaxMinutes": 3047,
+            "weightedTardinessMinutes": 45374,
+            "nTardy": 14,
+            "loadImbalance": 0.100606,
+            "deltaPlan": {
+              "weights": {
+                "machineChange": 0.3,
+                "sequenceChange": 0.2,
+                "startTimeShift": 0.5
+              },
+              "deltaPlan": 0.471385,
+              "nMachineChange": 12,
+              "machineChangeRate": 0.173913,
+              "sequenceChangeRate": 0.139535,
+              "startTimeShiftRate": 0.782609
+            }
+          }
+        }
+      },
+      "completedAt": "2026-11-02T02:40:22.535Z"
+    },
+    {
+      "node": "await-decision",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:await-decision:1",
+      "result": {
+        "approvalDecision": "approved",
+        "requestId": "0bbbcadd-62b9-4ab5-bda3-067f677603f8"
+      },
+      "completedAt": "2026-11-02T02:40:22.562Z"
+    }
+  ],
+  "pendingApproval": null,
+  "expiredApprovals": [],
+  "createdAt": "2026-11-02T02:40:02.068Z",
+  "updatedAt": "2026-11-02T02:40:22.567Z"
+}

@@ -1,0 +1,454 @@
+{
+  "version": 1,
+  "workflowId": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e",
+  "type": "DISTURBANCE",
+  "status": "COMPLETED",
+  "trigger": {
+    "source": "wf-e2e",
+    "dedupeKey": "BREAKDOWN:M-05:2026-09-17T06:00:00.000Z",
+    "detail": {
+      "eventType": "BREAKDOWN",
+      "machineId": "M-05",
+      "occurredAt": "2026-09-17T06:00:00.000Z",
+      "repairDurationMinutes": 60,
+      "note": "wf-e2e 回归触发"
+    }
+  },
+  "refs": {
+    "eventId": "05013fe7-adcb-4bf5-8bef-cbdd8702806c",
+    "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+    "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e"
+  },
+  "current": null,
+  "completedSteps": [
+    {
+      "node": "receive-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:receive-event:1",
+      "result": {
+        "event": {
+          "eventType": "BREAKDOWN",
+          "machineId": "M-05",
+          "occurredAt": "2026-09-17T06:00:00.000Z",
+          "repairDurationMinutes": 60,
+          "note": "wf-e2e 回归触发"
+        },
+        "oldPlanVersionId": "ad3e1274-3c77-4a88-b8ae-88d28bcdd93e",
+        "baselineKpi": {
+          "cMaxMinutes": 3355,
+          "weightedTardinessMinutes": 58639,
+          "nTardy": 12,
+          "loadImbalance": 0.101042
+        }
+      },
+      "completedAt": "2026-11-02T02:39:14.595Z"
+    },
+    {
+      "node": "register-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:register-event:1",
+      "result": {
+        "eventId": "05013fe7-adcb-4bf5-8bef-cbdd8702806c",
+        "event": {
+          "eventType": "BREAKDOWN",
+          "machineId": "M-05",
+          "occurredAt": "2026-09-17T06:00:00.000Z",
+          "repairDurationMinutes": 60,
+          "note": "wf-e2e 回归触发"
+        }
+      },
+      "completedAt": "2026-11-02T02:39:14.622Z"
+    },
+    {
+      "node": "query-experience",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:query-experience:1",
+      "result": {
+        "experience": {
+          "records": [
+            {
+              "ts": "2026-10-13T08:31:16.483Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": 3123,
+                "deltaPlan": 0.501075,
+                "cMaxMinutes": 268
+              },
+              "published": true,
+              "note": "M-03 维修 2 小时，局部重排即可（换机 0、换序 3、平移 5），拖期增 3123 分钟，已发布",
+              "score": 0.033,
+              "scoreText": "RRF 0.0325"
+            },
+            {
+              "ts": "2026-10-30T06:58:05.423Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": 1560,
+                "cMaxMinutes": 0,
+                "deltaPlan": 0.128166
+              },
+              "published": false,
+              "note": "M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min；PV-000055 已提交评审待人工确认发布",
+              "score": 0.032,
+              "scoreText": "RRF 0.0320"
+            },
+            {
+              "ts": "2026-10-13T14:08:34.057Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "loadImbalance": 1,
+                "makespan": 1,
+                "weightedTardiness": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "cMaxMinutes": 42,
+                "deltaPlan": 0.076,
+                "weightedTardinessMinutes": 2954
+              },
+              "published": true,
+              "note": "M-03 故障停机维修 2 小时，局部重排扰动小（Delta_plan 0.076、无换机、换序 11、平移 2），已发布 PV-000050",
+              "score": 0.032,
+              "scoreText": "RRF 0.0318"
+            },
+            {
+              "ts": "2026-10-30T06:57:08.741Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "cMaxMinutes": 0,
+                "weightedTardinessMinutes": 1560,
+                "deltaPlan": 0.128166
+              },
+              "published": true,
+              "note": "M-03 维修 120 分钟（08:00 仿真时间起），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min，已发布 PV-000053；设备通道显示 running 经确认为演示映射差异，业务事件有效。",
+              "score": 0.031,
+              "scoreText": "RRF 0.0313"
+            },
+            {
+              "ts": "2026-10-30T06:59:22.258Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "cMaxMinutes": 0,
+                "deltaPlan": 0.128166,
+                "weightedTardinessMinutes": 1560
+              },
+              "published": true,
+              "note": "M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min，已发布 PV-000055（补正此前 published=false 记录）；设备通道显示 running，经用户确认为演示映射差异、业务事件有效。",
+              "score": 0.031,
+              "scoreText": "RRF 0.0313"
+            }
+          ],
+          "recommendation": {
+            "mode": "LOCAL_RESCHEDULE",
+            "reason": "历史 5 次同类处置平均加权拖期差值 2151.4，为各模式最优",
+            "byMode": [
+              {
+                "mode": "LOCAL_RESCHEDULE",
+                "count": 5,
+                "avgWeightedTardinessDiff": 2151.4,
+                "avgDeltaPlan": 0.192
+              }
+            ]
+          }
+        }
+      },
+      "completedAt": "2026-11-02T02:39:15.330Z"
+    },
+    {
+      "node": "suggest-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:suggest-strategy:1",
+      "result": {
+        "rawSuggestion": null
+      },
+      "completedAt": "2026-11-02T02:39:15.340Z"
+    },
+    {
+      "node": "validate-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:validate-strategy:1",
+      "result": {
+        "strategy": {
+          "mode": "LOCAL_RESCHEDULE",
+          "weights": {
+            "weightedTardiness": 0.4,
+            "makespan": 0.3
+          },
+          "rationale": "默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）"
+        },
+        "fallbackReasons": [
+          "输出不是对象（期望 {mode, weights, rationale}）"
+        ]
+      },
+      "completedAt": "2026-11-02T02:39:15.348Z"
+    },
+    {
+      "node": "create-reschedule",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:create-reschedule:1",
+      "result": {
+        "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+        "mode": "LOCAL_RESCHEDULE"
+      },
+      "completedAt": "2026-11-02T02:39:15.445Z"
+    },
+    {
+      "node": "poll-task",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:poll-task:1",
+      "result": {
+        "outcome": "feasible",
+        "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+        "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e",
+        "kpi": {
+          "cMaxMinutes": 3408,
+          "weightedTardinessMinutes": 60864,
+          "nTardy": 12,
+          "loadImbalance": 0.102042,
+          "deltaPlan": {
+            "weights": {
+              "machineChange": 0.3,
+              "sequenceChange": 0.2,
+              "startTimeShift": 0.5
+            },
+            "deltaPlan": 0.14607,
+            "nMachineChange": 1,
+            "machineChangeRate": 0.111111,
+            "sequenceChangeRate": 0.00813,
+            "startTimeShiftRate": 0.222222
+          }
+        },
+        "conflicts": [],
+        "errorMessage": null
+      },
+      "completedAt": "2026-11-02T02:39:17.476Z"
+    },
+    {
+      "node": "full-retry",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:full-retry:1",
+      "completedAt": "2026-11-02T02:39:17.489Z"
+    },
+    {
+      "node": "compare-plans",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:compare-plans:1",
+      "result": {
+        "diff": {
+          "baselineVersionCode": "PV-000015",
+          "candidateVersionCode": "PV-000016",
+          "summary": {
+            "comparedOperations": 76,
+            "addedOperations": [],
+            "removedOperations": [],
+            "timeShiftedCount": 2,
+            "machineChangedCount": 1,
+            "sequenceChangedCount": 8
+          },
+          "kpiDiff": {
+            "nTardy": 0,
+            "cMaxMinutes": 53,
+            "loadImbalance": 0.000999999999999987,
+            "weightedTardinessMinutes": 2225
+          },
+          "changedOperations": [
+            {
+              "operationId": "O004-20",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-18T02:12:00Z",
+              "newStartAt": "2026-09-18T02:12:00Z"
+            },
+            {
+              "operationId": "O004-30",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T03:07:00Z",
+              "newStartAt": "2026-09-18T03:07:00Z"
+            },
+            {
+              "operationId": "O004-40",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-18T05:00:00Z",
+              "newStartAt": "2026-09-18T05:00:00Z"
+            },
+            {
+              "operationId": "O004-50",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T05:59:00Z",
+              "newStartAt": "2026-09-18T05:59:00Z"
+            },
+            {
+              "operationId": "O013-30",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T01:23:00Z",
+              "newStartAt": "2026-09-18T01:23:00Z"
+            },
+            {
+              "operationId": "O013-50",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-18T06:34:00Z",
+              "newStartAt": "2026-09-18T06:34:00Z"
+            },
+            {
+              "operationId": "O018-40",
+              "timeShiftMinutes": 0,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-07",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-18T00:00:00Z",
+              "newStartAt": "2026-09-18T00:00:00Z"
+            },
+            {
+              "operationId": "O020-30",
+              "timeShiftMinutes": 43,
+              "machineChanged": true,
+              "sequenceChanged": false,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-07",
+              "oldStartAt": "2026-09-17T05:35:00Z",
+              "newStartAt": "2026-09-17T06:18:00Z"
+            },
+            {
+              "operationId": "O020-50",
+              "timeShiftMinutes": 445,
+              "machineChanged": false,
+              "sequenceChanged": true,
+              "oldMachineId": "M-05",
+              "newMachineId": "M-05",
+              "oldStartAt": "2026-09-18T00:00:00Z",
+              "newStartAt": "2026-09-18T07:25:00Z"
+            }
+          ],
+          "changedOperationsTotal": 9
+        }
+      },
+      "completedAt": "2026-11-02T02:39:17.522Z"
+    },
+    {
+      "node": "review-material",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:review-material:1",
+      "result": {
+        "material": "# 扰动处置评审材料\n\n## 事件摘要\n- 类型：BREAKDOWN\n- machineId：M-05\n- occurredAt：2026-09-17T06:00:00.000Z\n- repairDurationMinutes：60\n- note：wf-e2e 回归触发\n\n## 采用策略\n- mode：LOCAL_RESCHEDULE\n- weights：{\"weightedTardiness\":0.4,\"makespan\":0.3}\n- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）\n- 任务：bededce5-527a-45a4-bab4-383a196a4f09，结果：FEASIBLE\n\n## KPI 对比\n- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042\n- 候选方案：makespan=3408，加权拖期=60864，拖期订单数=12，负载不均衡=0.102042\n- 差值：{\"nTardy\":0,\"cMaxMinutes\":53,\"loadImbalance\":0.000999999999999987,\"weightedTardinessMinutes\":2225}\n\n## 扰动统计\n- 变更工序数：9；summary：{\"comparedOperations\":76,\"addedOperations\":[],\"removedOperations\":[],\"timeShiftedCount\":2,\"machineChangedCount\":1,\"sequenceChangedCount\":8}\n\n## 风险提示\n- 无（一次通过，未触发异常分支）\n- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。"
+      },
+      "completedAt": "2026-11-02T02:39:17.533Z"
+    },
+    {
+      "node": "submit-review",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:submit-review:1",
+      "result": {
+        "planVersionId": "937cc017-5ef0-45b8-9b90-b6001148367e",
+        "plan": {
+          "id": "937cc017-5ef0-45b8-9b90-b6001148367e",
+          "versionCode": "PV-000016",
+          "status": "REVIEW_PENDING",
+          "candidateType": "LOCAL",
+          "version": 1,
+          "parentId": "ad3e1274-3c77-4a88-b8ae-88d28bcdd93e",
+          "taskId": "bededce5-527a-45a4-bab4-383a196a4f09",
+          "publishedAt": null,
+          "createdAt": "2026-11-02T02:39:16.390027Z",
+          "kpi": {
+            "cMaxMinutes": 3408,
+            "weightedTardinessMinutes": 60864,
+            "nTardy": 12,
+            "loadImbalance": 0.102042,
+            "deltaPlan": {
+              "weights": {
+                "machineChange": 0.3,
+                "sequenceChange": 0.2,
+                "startTimeShift": 0.5
+              },
+              "deltaPlan": 0.14607,
+              "nMachineChange": 1,
+              "machineChangeRate": 0.111111,
+              "sequenceChangeRate": 0.00813,
+              "startTimeShiftRate": 0.222222
+            }
+          }
+        }
+      },
+      "completedAt": "2026-11-02T02:39:17.616Z"
+    },
+    {
+      "node": "await-decision",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e:await-decision:1",
+      "result": {
+        "approvalDecision": "approved",
+        "requestId": "f236794d-36fe-47ac-b33b-5eef42252c15"
+      },
+      "completedAt": "2026-11-02T02:39:17.648Z"
+    }
+  ],
+  "pendingApproval": null,
+  "expiredApprovals": [],
+  "createdAt": "2026-11-02T02:39:14.511Z",
+  "updatedAt": "2026-11-02T02:39:17.653Z"
+}

@@ -1,0 +1,20 @@
+{
+  "mode": "s03",
+  "finishedAt": "2026-11-02T02:40:22.585Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "s03-mixed-disturbance",
+  "workflowIds": [
+    "wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf",
+    "wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa"
+  ],
+  "terminal": "COMPLETED×2",
+  "steps": 24,
+  "approvalPoints": 2,
+  "wallMs": 23487,
+  "planVersionIds": [
+    "f11e61b0-6e9a-4cba-9e46-930be28d77f8",
+    "d4c15c52-8974-4264-99ef-3c20c5b9e298"
+  ],
+  "planStaleOccurred": false,
+  "note": "workflow 为单事件流程且候选版本审批前不发布，E_PLAN_STALE 候选链问题结构性不发生（与基线链式重排口径不同）"
+}

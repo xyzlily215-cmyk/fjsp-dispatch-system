@@ -1,0 +1,45 @@
+节点 receive-event 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:suggest-strategy:1
+未注入 Agent，策略建议落默认策略
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:validate-strategy:1
+Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:create-reschedule:1
+节点 poll-task 第 1/8 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:poll-task:1
+节点 full-retry 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:full-retry:1
+节点 compare-plans 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:compare-plans:1
+节点 review-material 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:review-material:1
+节点 submit-review 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:submit-review:1
+节点 submit-review 重试：乐观锁冲突（E_VERSION_STALE），已重读最新 version 后重试：version 不匹配，请刷新后重试
+节点 submit-review 第 2/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:submit-review:1
+节点 await-decision 第 1/3 次尝试，幂等键 wf-e5f64e80-c0e1-4650-9118-3a441e327b5b:await-decision:1
+评审材料：
+# 扰动处置评审材料
+
+## 事件摘要
+- 类型：BREAKDOWN
+- machineId：M-03
+- occurredAt：2026-09-17T00:00:00.000Z
+- repairDurationMinutes：120
+- note：wf-e2e 回归触发
+
+## 采用策略
+- mode：LOCAL_RESCHEDULE
+- weights：{"weightedTardiness":0.4,"makespan":0.3}
+- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）
+- 任务：6486bfb1-08d4-4690-bcae-2697bdb30a9e，结果：FEASIBLE
+
+## KPI 对比
+- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042
+- 候选方案：makespan=3355，加权拖期=60199，拖期订单数=12，负载不均衡=0.102175
+- 差值：{"nTardy":0,"cMaxMinutes":0,"loadImbalance":0.0011329999999999951,"weightedTardinessMinutes":1560}
+
+## 扰动统计
+- 变更工序数：5；summary：{"comparedOperations":76,"addedOperations":[],"removedOperations":[],"timeShiftedCount":3,"machineChangedCount":0,"sequenceChangedCount":5}
+
+## 风险提示
+- 无（一次通过，未触发异常分支）
+- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。
+节点 await-decision 审批已登记 BFF：requestId 6e202026-feb4-4c98-a468-9db2399fcc23
+节点 await-decision 挂起等待审批：候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认

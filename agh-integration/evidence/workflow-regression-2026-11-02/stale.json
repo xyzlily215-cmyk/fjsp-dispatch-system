@@ -1,0 +1,14 @@
+{
+  "mode": "stale",
+  "finishedAt": "2026-11-02T02:39:49.107Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "fault-optimistic-lock",
+  "workflowId": "wf-e5f64e80-c0e1-4650-9118-3a441e327b5b",
+  "terminal": "COMPLETED",
+  "steps": 12,
+  "approvalPoints": 1,
+  "wallMs": 3196,
+  "planVersionId": "2f5f3c3e-39eb-4da3-ae04-fefbfa93fa28",
+  "submitAttempts": 2,
+  "note": "过期 version 由驱动在 fjsp_get_plan 首次读取时注入（version-1），模拟提交评审前的并发修改"
+}

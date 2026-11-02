@@ -1,0 +1,32 @@
+{
+  "mode": "s01",
+  "finishedAt": "2026-11-02T02:38:58.167Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "s01-machine-breakdown",
+  "workflowId": "wf-0184613d-880b-444c-9b04-114b63b24a70",
+  "terminal": "COMPLETED",
+  "steps": 12,
+  "approvalPoints": 1,
+  "wallMs": 3096,
+  "eventId": "10158894-0d50-438c-b9a4-a93f75f6083f",
+  "taskId": "4196986b-50ca-4501-b7dc-5efe094a9a25",
+  "planVersionId": "d5888231-7edb-48a3-b22a-4aa15c47ac28",
+  "candidateKpi": {
+    "cMaxMinutes": 3355,
+    "weightedTardinessMinutes": 60199,
+    "nTardy": 12,
+    "loadImbalance": 0.102175,
+    "deltaPlan": {
+      "weights": {
+        "machineChange": 0.3,
+        "sequenceChange": 0.2,
+        "startTimeShift": 0.5
+      },
+      "deltaPlan": 0.128166,
+      "nMachineChange": 0,
+      "machineChangeRate": 0,
+      "sequenceChangeRate": 0.015831,
+      "startTimeShiftRate": 0.25
+    }
+  }
+}

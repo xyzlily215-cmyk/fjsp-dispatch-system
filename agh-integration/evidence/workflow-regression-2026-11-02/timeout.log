@@ -1,0 +1,15 @@
+节点 receive-event 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:suggest-strategy:1
+未注入 Agent，策略建议落默认策略
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:validate-strategy:1
+Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:create-reschedule:1
+节点 poll-task 第 1/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
+节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
+节点 poll-task 第 2/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
+节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
+节点 poll-task 第 3/3 次尝试，幂等键 wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1
+节点 poll-task 重试：任务 a2b3303a-5fde-401b-b82c-fd817117933c 未达终态（status=RUNNING），复用本节点继续轮询
+节点 poll-task 重试 3 次未成功，转人工处理（needs-human）

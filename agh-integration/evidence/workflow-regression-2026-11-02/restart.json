@@ -1,0 +1,16 @@
+{
+  "mode": "restart",
+  "finishedAt": "2026-11-02T02:47:20.794Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "fault-restart",
+  "workflowId": "wf-5ef0adf7-8820-41cb-a4f5-72623897adc2",
+  "terminal": "COMPLETED",
+  "steps": 17,
+  "approvalPoints": 1,
+  "wallMs": 3395,
+  "killPoint": "poll-task intent（任务已创建、轮询进行中）",
+  "taskIdPreserved": true,
+  "taskCountDelta": 1,
+  "eventCountDelta": 1,
+  "recoveredAtSuspend": true
+}

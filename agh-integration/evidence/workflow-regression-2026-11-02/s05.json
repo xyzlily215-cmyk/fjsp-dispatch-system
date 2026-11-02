@@ -1,0 +1,15 @@
+{
+  "mode": "s05",
+  "finishedAt": "2026-11-02T02:39:17.667Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "s05-duplicate-alert",
+  "workflowId": "wf-fc699bba-0ead-4d2e-92dd-291928a8e12e",
+  "terminal": "COMPLETED",
+  "steps": 12,
+  "approvalPoints": 1,
+  "wallMs": 3156,
+  "idempotentReplay": true,
+  "fingerprintRejected": true,
+  "eventCountDelta": 2,
+  "workflowDeduped": true
+}

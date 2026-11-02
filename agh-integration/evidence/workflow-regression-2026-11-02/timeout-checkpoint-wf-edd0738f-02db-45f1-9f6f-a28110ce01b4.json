@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "workflowId": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4",
+  "type": "DISTURBANCE",
+  "status": "FAILED",
+  "trigger": {
+    "source": "wf-e2e",
+    "dedupeKey": "BREAKDOWN:M-03:2026-09-17T00:00:00.000Z",
+    "detail": {
+      "eventType": "BREAKDOWN",
+      "machineId": "M-03",
+      "occurredAt": "2026-09-17T00:00:00.000Z",
+      "repairDurationMinutes": 120,
+      "note": "wf-e2e 回归触发"
+    }
+  },
+  "refs": {
+    "eventId": "ec33edd8-0d12-46e8-9c3d-17b08904bc10",
+    "taskId": "a2b3303a-5fde-401b-b82c-fd817117933c",
+    "planVersionId": null
+  },
+  "current": {
+    "node": "poll-task",
+    "seq": 1,
+    "attempt": 4,
+    "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:poll-task:1",
+    "phase": "intent",
+    "startedAt": "2026-11-02T02:48:15.417Z",
+    "updatedAt": "2026-11-02T02:48:17.469Z"
+  },
+  "completedSteps": [
+    {
+      "node": "receive-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:receive-event:1",
+      "result": {
+        "event": {
+          "eventType": "BREAKDOWN",
+          "machineId": "M-03",
+          "occurredAt": "2026-09-17T00:00:00.000Z",
+          "repairDurationMinutes": 120,
+          "note": "wf-e2e 回归触发"
+        },
+        "oldPlanVersionId": "c3cfa61d-8c05-4542-b3dc-09540ff34c8f",
+        "baselineKpi": {
+          "cMaxMinutes": 3355,
+          "weightedTardinessMinutes": 58639,
+          "nTardy": 12,
+          "loadImbalance": 0.101042
+        }
+      },
+      "completedAt": "2026-11-02T02:48:14.598Z"
+    },
+    {
+      "node": "register-event",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:register-event:1",
+      "result": {
+        "eventId": "ec33edd8-0d12-46e8-9c3d-17b08904bc10",
+        "event": {
+          "eventType": "BREAKDOWN",
+          "machineId": "M-03",
+          "occurredAt": "2026-09-17T00:00:00.000Z",
+          "repairDurationMinutes": 120,
+          "note": "wf-e2e 回归触发"
+        }
+      },
+      "completedAt": "2026-11-02T02:48:14.630Z"
+    },
+    {
+      "node": "query-experience",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:query-experience:1",
+      "result": {
+        "experience": {
+          "records": [
+            {
+              "ts": "2026-10-13T08:31:16.483Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": 3123,
+                "deltaPlan": 0.501075,
+                "cMaxMinutes": 268
+              },
+              "published": true,
+              "note": "M-03 维修 2 小时，局部重排即可（换机 0、换序 3、平移 5），拖期增 3123 分钟，已发布",
+              "score": 0.032,
+              "scoreText": "RRF 0.0320"
+            },
+            {
+              "ts": "2026-10-30T06:58:05.423Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": 1560,
+                "cMaxMinutes": 0,
+                "deltaPlan": 0.128166
+              },
+              "published": false,
+              "note": "M-03 维修 120 分钟（2026-09-17T08:00 仿真时间/00:00Z），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min；PV-000055 已提交评审待人工确认发布",
+              "score": 0.032,
+              "scoreText": "RRF 0.0320"
+            },
+            {
+              "ts": "2026-10-30T06:57:08.741Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "cMaxMinutes": 0,
+                "weightedTardinessMinutes": 1560,
+                "deltaPlan": 0.128166
+              },
+              "published": true,
+              "note": "M-03 维修 120 分钟（08:00 仿真时间起），局部重排零换机、换序 5、平移 3，Delta_plan 0.128，makespan 不变、拖期 +1560min，已发布 PV-000053；设备通道显示 running 经确认为演示映射差异，业务事件有效。",
+              "score": 0.032,
+              "scoreText": "RRF 0.0315"
+            },
+            {
+              "ts": "2026-10-13T14:08:34.057Z",
+              "eventType": "BREAKDOWN",
+              "mode": "LOCAL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "loadImbalance": 1,
+                "makespan": 1,
+                "weightedTardiness": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "cMaxMinutes": 42,
+                "deltaPlan": 0.076,
+                "weightedTardinessMinutes": 2954
+              },
+              "published": true,
+              "note": "M-03 故障停机维修 2 小时，局部重排扰动小（Delta_plan 0.076、无换机、换序 11、平移 2），已发布 PV-000050",
+              "score": 0.031,
+              "scoreText": "RRF 0.0313"
+            },
+            {
+              "ts": "2026-10-30T07:04:38.936Z",
+              "eventType": "BREAKDOWN",
+              "mode": "FULL_RESCHEDULE",
+              "machineId": "M-03",
+              "weights": {
+                "makespan": 1,
+                "weightedTardiness": 1,
+                "loadImbalance": 1
+              },
+              "resultStatus": "FEASIBLE",
+              "kpiDiff": {
+                "weightedTardinessMinutes": -13265,
+                "cMaxMinutes": -308,
+                "deltaPlan": 0.471385
+              },
+              "published": true,
+              "note": "M-03 故障 120 分钟（2026-09-17 08:00 仿真/00:00Z）+ 紧接 ORD-GOLDEN-S03 插单合并处置：先 LOCAL（父版 PV-000059）可行但拖期+2632，因父版为未发布中间版本遭 E_PLAN_STALE 拒发；改以已发布版 PV-000058 为 oldPlan 直接合并重排，LOCAL 因旧计划 M-03 工序 O004-10/O003-40 压在维修窗口内报 AVAILABILITY_VIOLATION 不可行，FULL 可行（换机12/换序35/平移54，Delta_plan 0.471）且 makespan -308、拖期 -13265，已发布 PV-000061。教训：故障修复期间先确认 M-03 工序是否落在维修窗口，压窗口时局部重排必然不可行，应直接完全重排；候选父版应为当前发布版。",
+              "score": 0.031,
+              "scoreText": "RRF 0.0313"
+            }
+          ],
+          "recommendation": {
+            "mode": "FULL_RESCHEDULE",
+            "reason": "历史 1 次同类处置平均加权拖期差值 -13265，为各模式最优",
+            "byMode": [
+              {
+                "mode": "FULL_RESCHEDULE",
+                "count": 1,
+                "avgWeightedTardinessDiff": -13265,
+                "avgDeltaPlan": 0.471
+              },
+              {
+                "mode": "LOCAL_RESCHEDULE",
+                "count": 4,
+                "avgWeightedTardinessDiff": 2299.25,
+                "avgDeltaPlan": 0.208
+              }
+            ]
+          }
+        }
+      },
+      "completedAt": "2026-11-02T02:48:15.310Z"
+    },
+    {
+      "node": "suggest-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:suggest-strategy:1",
+      "result": {
+        "rawSuggestion": null
+      },
+      "completedAt": "2026-11-02T02:48:15.321Z"
+    },
+    {
+      "node": "validate-strategy",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:validate-strategy:1",
+      "result": {
+        "strategy": {
+          "mode": "LOCAL_RESCHEDULE",
+          "weights": {
+            "weightedTardiness": 0.4,
+            "makespan": 0.3
+          },
+          "rationale": "默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）"
+        },
+        "fallbackReasons": [
+          "输出不是对象（期望 {mode, weights, rationale}）"
+        ]
+      },
+      "completedAt": "2026-11-02T02:48:15.332Z"
+    },
+    {
+      "node": "create-reschedule",
+      "seq": 1,
+      "attempt": 1,
+      "idempotencyKey": "wf-edd0738f-02db-45f1-9f6f-a28110ce01b4:create-reschedule:1",
+      "result": {
+        "taskId": "a2b3303a-5fde-401b-b82c-fd817117933c",
+        "mode": "LOCAL_RESCHEDULE"
+      },
+      "completedAt": "2026-11-02T02:48:15.413Z"
+    }
+  ],
+  "pendingApproval": null,
+  "expiredApprovals": [],
+  "createdAt": "2026-11-02T02:48:14.512Z",
+  "updatedAt": "2026-11-02T02:48:17.475Z",
+  "statusReason": "节点 poll-task 重试 3 次未成功，转人工处理（needs-human）"
+}

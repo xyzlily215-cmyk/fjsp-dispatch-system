@@ -1,0 +1,100 @@
+节点 receive-event 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:suggest-strategy:1
+未注入 Agent，策略建议落默认策略
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:validate-strategy:1
+Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:create-reschedule:1
+节点 poll-task 第 1/8 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:poll-task:1
+节点 full-retry 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:full-retry:1
+节点 compare-plans 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:compare-plans:1
+节点 review-material 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:review-material:1
+节点 submit-review 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:submit-review:1
+节点 await-decision 第 1/3 次尝试，幂等键 wf-2638ecac-3c0b-4a4d-aadc-c4c89bd12dcf:await-decision:1
+评审材料：
+# 扰动处置评审材料
+
+## 事件摘要
+- 类型：BREAKDOWN
+- machineId：M-03
+- occurredAt：2026-09-17T00:00:00.000Z
+- repairDurationMinutes：120
+- note：wf-e2e 回归触发
+
+## 采用策略
+- mode：LOCAL_RESCHEDULE
+- weights：{"weightedTardiness":0.4,"makespan":0.3}
+- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）
+- 任务：402c0edc-992a-4802-b44b-095cb42270d2，结果：FEASIBLE
+
+## KPI 对比
+- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042
+- 候选方案：makespan=3355，加权拖期=60199，拖期订单数=12，负载不均衡=0.102175
+- 差值：{"nTardy":0,"cMaxMinutes":0,"loadImbalance":0.0011329999999999951,"weightedTardinessMinutes":1560}
+
+## 扰动统计
+- 变更工序数：5；summary：{"comparedOperations":76,"addedOperations":[],"removedOperations":[],"timeShiftedCount":3,"machineChangedCount":0,"sequenceChangedCount":5}
+
+## 风险提示
+- 无（一次通过，未触发异常分支）
+- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。
+节点 await-decision 审批已登记 BFF：requestId a811602d-5b21-463d-87fb-d997c510784d
+节点 await-decision 挂起等待审批：候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认
+节点 receive-event 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:receive-event:1
+节点 register-event 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:register-event:1
+节点 query-experience 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:query-experience:1
+节点 suggest-strategy 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:suggest-strategy:1
+未注入 Agent，策略建议落默认策略
+节点 validate-strategy 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:validate-strategy:1
+Agent 策略建议被驳回（1 项）：输出不是对象（期望 {mode, weights, rationale}），落默认策略
+节点 create-reschedule 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:create-reschedule:1
+节点 poll-task 第 1/8 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:poll-task:1
+节点 full-retry 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:full-retry:1
+重调度结果不可行，冲突解释：
+重调度结果不可行 INFEASIBLE（mode=LOCAL_RESCHEDULE）
+冲突明细：
+-
+-
+节点 compare-plans 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:compare-plans:1
+节点 review-material 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:review-material:1
+节点 submit-review 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:submit-review:1
+节点 await-decision 第 1/3 次尝试，幂等键 wf-b201e0b7-adc1-4ea9-9aba-cc2fa79b79fa:await-decision:1
+评审材料：
+# 扰动处置评审材料
+
+## 事件摘要
+- 类型：NEW_ORDER
+- subType：URGENT_INSERT
+- orderCode：ORD-GOLDEN-S03
+- productFamily：盘类B
+- quantity：10
+- arrivalAt：2026-09-17T01:00:00.000Z
+- dueAt：2026-09-17T07:00:00.000Z
+- priority：1
+- occurredAt：2026-09-17T01:00:00.000Z
+- note：wf-e2e s03 插单
+
+## 采用策略
+- mode：LOCAL_RESCHEDULE
+- weights：{"weightedTardiness":0.4,"makespan":0.3}
+- rationale：默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）
+- 任务：c785b0bc-3fb2-4b24-9097-f914da218ca2，结果：FEASIBLE_AFTER_FULL_RETRY
+
+## KPI 对比
+- 基线计划：makespan=3355，加权拖期=58639，拖期订单数=12，负载不均衡=0.101042
+- 候选方案：makespan=3047，加权拖期=45374，拖期订单数=14，负载不均衡=0.100606
+- 差值：{"nTardy":2,"cMaxMinutes":-308,"loadImbalance":-0.00043600000000000583,"weightedTardinessMinutes":-13265}
+
+## 扰动统计
+- 变更工序数：54；summary：{"comparedOperations":76,"addedOperations":["ORD-GOLDEN-S03-40","ORD-GOLDEN-S03-10","ORD-GOLDEN-S03-50","ORD-GOLDEN-S03-20","ORD-GOLDEN-S03-30"],"removedOperations":[],"timeShiftedCount":54,"machineChangedCount":12,"sequenceChangedCount":35}
+
+## 风险提示
+- 本次处置经历过不可行/失败分支，冲突解释：
+重调度结果不可行 INFEASIBLE（mode=LOCAL_RESCHEDULE）
+冲突明细：
+-
+-
+- 评审通过并发布前，请人工复核方案对比与 KPI 差值；发布需独立人工确认。
+节点 await-decision 审批已登记 BFF：requestId 0bbbcadd-62b9-4ab5-bda3-067f677603f8
+节点 await-decision 挂起等待审批：候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认

@@ -1,0 +1,16 @@
+{
+  "mode": "s06",
+  "finishedAt": "2026-11-02T02:39:35.205Z",
+  "tokens": "N/A（未接真实 LLM）",
+  "scenario": "s06-review-reject",
+  "workflowId": "wf-2f501185-0bf8-4f5b-9d5b-d8c19b9d7017",
+  "terminal": "TERMINATED",
+  "steps": 12,
+  "approvalPoints": 1,
+  "wallMs": 3136,
+  "planVersionId": "b9e5ac87-27c9-4e68-9422-a02756a69117",
+  "planStatus": "REVIEW_PENDING",
+  "auditActions": [
+    "PLAN_SUBMIT_REVIEW"
+  ]
+}
