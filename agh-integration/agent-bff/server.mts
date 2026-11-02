@@ -49,7 +49,7 @@
 //       AGNES_HUB_URL (default ws://127.0.0.1:4180/ws/hub),
 //       FJSP_API_BASE (default http://localhost:8081/api/v1，JWT 内检地址),
 //       AGENT_BFF_APPROVAL_TTL_MS（审批有效期，默认 5 分钟）,
-//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE / AGENT_BFF_APPROVALS_FILE（测试隔离覆盖用）
+//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE / AGENT_BFF_APPROVALS_FILE / AGENT_BFF_BUFFER_CAP（测试隔离覆盖用）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -77,7 +77,7 @@ const FJSP_API_BASE = (process.env.FJSP_API_BASE ?? 'http://localhost:8081/api/v
 const AUTH_CACHE_OK_MS = 30_000
 const AUTH_CACHE_BAD_MS = 5_000
 const TICKET_TTL_MS = 60_000
-const BUFFER_CAP = 1000
+const BUFFER_CAP = Number(process.env.AGENT_BFF_BUFFER_CAP ?? 1000) // env 覆盖仅供测试隔离（窗口越界路径）
 const HEARTBEAT_MS = 25_000
 const PERMISSION_TIMEOUT_MS = 10 * 60_000
 const APPROVAL_TTL_MS = Number(process.env.AGENT_BFF_APPROVAL_TTL_MS ?? 5 * 60_000)
