@@ -19,6 +19,8 @@ description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户
 
 ## 二、扰动事件处置流程（插单 / 设备故障）
 
+> **步骤顺序已由 workflow 代码约束**：本流程第 1–7 步到「提交评审后挂起待人工决策」的推进顺序、幂等键、异常分支（INFEASIBLE 升级 FULL 重试一次、E_EVENT_IN_PROCESS 转人工、E_VERSION_STALE 重读后限次重试）已由 `workflow/disturbance-flow.mts` + `workflow/runner.mts` 实现并强制（任务 3.2，测试见 `workflow/test-disturbance-flow.mts`）。本节保留的是「怎么判断」的方法论（策略选择依据、冲突解释口径、报告内容），AGH 会话直驱工具时仍按本节执行。
+
 1. `fjsp_get_dashboard` 确认当前发布计划（记录其 id 与 KPI，作为对比基准）。
 2. 录入事件：
    - 设备故障 → `fjsp_report_breakdown(machineId, occurredAt, repairDurationMinutes, note?)`

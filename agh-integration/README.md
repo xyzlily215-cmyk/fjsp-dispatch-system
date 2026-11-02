@@ -351,6 +351,26 @@ cd agh-integration
 ../agnes-harness/node_modules/.bin/tsx workflow/test-recovery.mts     # 34 项：恢复决策全分支 + 默认读取器接线
 ```
 
+### 扰动处置流程与 Agent 节点契约（任务 3.2，2026-11-02）
+
+`workflow/disturbance-flow.mts` 的 `buildDisturbanceFlow()` 把方案 3.2 结构图落成节点数组（配合 `runner.mts` 执行）：接收事件 → 登记事件（`fjsp_report_breakdown`/`fjsp_insert_order`，写）→ 检索经验（`fjsp_experience_query`，只读）→ Agent 建议模式/权重 → 校验建议 → 创建重调度任务（`fjsp_reschedule`，写）→ 轮询任务结果（`fjsp_task_status`）→［full-retry 异常分支］→ 对比方案（`fjsp_compare_plans`，只读）→ Agent 生成评审材料 → 提交评审（`fjsp_submit_review`，写）→ 挂起待人工决策（审批句柄 `fjsp_approve_review` 入检查点）。写节点幂等键一律取自检查点步骤键（`wfId:node:seq`）。异常分支在节点内判定：
+
+| 分支 | 处置 |
+| --- | --- |
+| 任务 FAILED / 结果 INFEASIBLE | 先解释冲突（Agent 或确定性兜底），按显式策略常量 `ALLOW_FULL_RESCHEDULE_ONCE` 升级 FULL_RESCHEDULE 重试一次（`full-retry` 节点），再失败 suspend(needs-human) |
+| `E_EVENT_IN_PROCESS` | suspend(needs-human)——事件发生时间须人工核实，流程严禁自动移动真实事件时间 |
+| `E_VERSION_STALE`（乐观锁） | 节点内已重读最新 version（reads-before-retry），返回 retry，限次由 runner maxAttempts 兜底 |
+| 其余错误 envelope | 原样交 runner 按 fjsp-tools 错误分类路由（terminal → terminate 等） |
+
+**Agent 决策/生成节点契约**（`workflow/agent-nodes.mts`，Agent 与 tools 均为注入接口，未接真实 LLM）：策略节点输入 = 事件 + 经验检索结果 + 当前约束，输出 `{mode, weights, rationale}` 必须过 `validateStrategySuggestion`——mode ∈ `LOCAL_RESCHEDULE / FULL_RESCHEDULE`（以 business-service `ScheduleTaskCommandService.MODES` 为准，BASELINE 不属于扰动处置）；weights 键 ⊆ `makespan/weightedTardiness/loadImbalance/deltaPlan/machineChange`、非负有限数、≤16 键（以 algorithm-service `SolveRequest` 校验与 `ga.resolve_objective_weights` 键集为准）；rationale 非空。非法输出一律落 fallback（`DEFAULT_STRATEGY` + 拒绝原因），流程按默认策略继续。生成节点 `buildReviewMaterial(input)` 的输入只含只读 KPI/对比数据，接口形状上没有写操作入口；Agent 未注入或输出非法时用同模块的确定性兜底生成。
+
+测试（mock tools + mock agent，不起服务）：
+
+```sh
+cd agh-integration
+npx tsx workflow/test-disturbance-flow.mts   # 9 项：happy path/异常分支/非法建议 fallback/崩溃恢复续跑
+```
+
 ## MHS 设备接入（2026-10-10 上线）
 
 车间设备经 MHS（Model Hardware Standard）接入 AGH 内置的 AgnesHub，扰动由设备通道自动暴露，Agent 被唤醒后仍走 fjsp-dispatch 处置流程与 fjsp_* 审批链。
