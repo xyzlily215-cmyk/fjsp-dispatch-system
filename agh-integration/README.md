@@ -372,6 +372,22 @@ cd agh-integration
 npx tsx workflow/test-disturbance-flow.mts   # 9 项：happy path/异常分支/非法建议 fallback/崩溃恢复续跑
 ```
 
+### 审批挂起接入真实 BFF 审批（任务 3.4，2026-11-02）
+
+3.1 的遗留缺口是 BFF 无审批状态查询端点——恢复时未过期审批也被迫作废重发。本任务补上接线闭环：
+
+- **BFF 端点**（`agent-bff/server.mts`）：`POST /agent-api/approvals`（工作流挂起登记审批：五要素由 BFF 服务端生成，与 daemon 路径同一事实源；审批卡片经 SSE `permission_request` 下发，web-vue 审批卡片无需改动）与 `GET /agent-api/approvals/:requestId`（requireAuth + 会话归属校验，返回五要素摘要 + 状态 `pending/approved/rejected/expired/timeout`；未知 404、跨用户 403）。裁决仍走既有 `POST /agent-api/permission`——登记审批无 daemon 承诺，走同一套重校验（一次性/归属/未过期/角色/审计 fail-closed）后落记录。审批记录轻量持久化到 `.approvals.json`（`AGENT_BFF_APPROVALS_FILE` 可覆盖）：**只为重启后状态可查**——pending 承诺随进程消亡，重启加载时遗留 pending 一律置 expired 并记审计，旧批准不回放（1.2 语义保持）。
+- **工作流接线**（`workflow/bff-approval.mts`）：挂起时 `createBffApprovalChannel`（注入 `RunDeps.approvalChannel`）向 BFF 登记，返回的 requestId/expiresAt 写入检查点 `pendingApproval`（登记失败回落本地句柄，恢复时重发）；人工在审批卡片裁决后 `pollApprovalDecision` 轮询 GET 拿结果，`settleApprovalOutcome` 落地——批准 → 了结挂起节点并推进到终态；拒绝 → 显式 TERMINATED（不发布，方案 3.5 拒绝分支）；过期/查无记录 → 标过期存档后重跑挂起节点，重新登记（**新 requestId，旧批准不回放**）。
+- **恢复核对**（`makeApprovalChecker` 注入 `recover` 的 `checkApproval`）：pending 有效 → `await-approval` 继续等（消除 3.1 的误作废）；expired/timeout/not_found → 标过期重发；**BFF 不可达 → 抛 `BffUnavailableError`，recovery 映射 `unavailable` 不推进（fail-safe）**。
+
+测试（mock HTTP 层，不起真实 BFF/AGH）：
+
+```sh
+cd agh-integration
+npx tsx workflow/test-bff-approval.mts                # 6 项：登记/批准/拒绝/恢复三分支/登记失败回落
+cd agent-bff && ../agnes-harness/node_modules/.bin/tsx test-approval-status.mts   # 11 项：查询端点 401/403/404/200 + 裁决路径 + 持久化重启语义
+```
+
 ## MHS 设备接入（2026-10-10 上线）
 
 车间设备经 MHS（Model Hardware Standard）接入 AGH 内置的 AgnesHub，扰动由设备通道自动暴露，Agent 被唤醒后仍走 fjsp-dispatch 处置流程与 fjsp_* 审批链。
