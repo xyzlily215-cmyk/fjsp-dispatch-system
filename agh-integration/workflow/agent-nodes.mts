@@ -11,10 +11,14 @@
 export const RESCHEDULE_MODES = ['LOCAL_RESCHEDULE', 'FULL_RESCHEDULE'] as const
 export type RescheduleMode = (typeof RESCHEDULE_MODES)[number]
 
-// weights 规则：algorithm-service app/models.py SolveRequest.objectiveWeights —— 键数上限 16、
-// 值必须是非负有限数（负权重会让 GA 朝更差方向优化，服务端直接拒绝）；有效键集合取
-// app/ga.py resolve_objective_weights 两种模式用到键的并集。
-export const WEIGHT_KEYS = ['makespan', 'weightedTardiness', 'loadImbalance', 'deltaPlan', 'machineChange'] as const
+// weights 规则：可执行契约以 fjsp-tools 的 WEIGHTS 参数 schema 为准（fjsp_reschedule 客户端
+// 校验，超出直接 FJSP_INVALID_PARAMS、不发请求）——当前只放行 makespan / weightedTardiness /
+// loadImbalance 三键。algorithm-service ga.py 的重调度模式另认 deltaPlan / machineChange
+// （SeedService 重调度默认权重亦含之），但 fjsp-tools schema 尚不透传，属已登记的工具面缺口；
+// 在该缺口修复前，Agent 建议含这两键一律按非法落 fallback，避免到写节点才被拒。
+// 数值约束：algorithm-service app/models.py SolveRequest.objectiveWeights —— 键数上限 16、
+// 值必须是非负有限数（负权重会让 GA 朝更差方向优化，服务端直接拒绝）。
+export const WEIGHT_KEYS = ['makespan', 'weightedTardiness', 'loadImbalance'] as const
 export const MAX_WEIGHT_KEYS = 16
 
 // 策略节点输出契约
@@ -24,11 +28,12 @@ export interface StrategySuggestion {
   rationale: string
 }
 
-// 默认策略（fallback）：LOCAL 优先、扰动小；权重取 business-service SeedService 的重调度默认权重。
+// 默认策略（fallback）：LOCAL 优先、扰动小；权重对齐 SeedService 重调度默认（deltaPlan/
+// machineChange 由算法侧默认 0.2/0.1 补齐，经 fjsp-tools 可执行的键只有这两个）。
 export const DEFAULT_STRATEGY: StrategySuggestion = {
   mode: 'LOCAL_RESCHEDULE',
-  weights: { weightedTardiness: 0.4, makespan: 0.3, deltaPlan: 0.2, machineChange: 0.1 },
-  rationale: '默认策略：局部重调度优先（扰动小），权重取系统默认值',
+  weights: { weightedTardiness: 0.4, makespan: 0.3 },
+  rationale: '默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）',
 }
 
 // INFEASIBLE / 任务 FAILED 的处置策略常量：仅允许把 LOCAL_RESCHEDULE 升级为

@@ -149,7 +149,7 @@ function makeMockAgent(suggestion: unknown = null) {
       return (
         suggestion ?? {
           mode: 'LOCAL_RESCHEDULE',
-          weights: { weightedTardiness: 0.5, makespan: 0.3, deltaPlan: 0.1, machineChange: 0.1 },
+          weights: { weightedTardiness: 0.5, makespan: 0.3, loadImbalance: 0.2 },
           rationale: '历史同类故障 LOCAL 处置拖期最优',
         }
       )
@@ -289,9 +289,14 @@ async function testVersionStaleRereadAndRetry() {
 
 function testValidateStrategySuggestion() {
   // 合法输入原样通过
-  const good = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, deltaPlan: 0.5 }, rationale: '扰动面大' })
+  const good = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, loadImbalance: 0.5 }, rationale: '扰动面大' })
   assert.ok(good.ok)
   assert.equal(good.strategy.mode, 'FULL_RESCHEDULE')
+
+  // fjsp-tools WEIGHTS schema 不透传的键（deltaPlan/machineChange，任务 3.5 登记的工具面缺口）→ fallback
+  const toolGap = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, deltaPlan: 0.5 }, rationale: 'x' })
+  assert.ok(!toolGap.ok)
+  assert.ok(toolGap.rejectedReasons.some((r) => r.includes('deltaPlan')))
 
   // 错 mode / 越界 weights / 空 rationale → fallback（默认策略 + 拒绝原因）
   const bad = validateStrategySuggestion({ mode: 'GLOBAL', weights: { makespan: -1, unknownKey: 0.5 }, rationale: '  ' })

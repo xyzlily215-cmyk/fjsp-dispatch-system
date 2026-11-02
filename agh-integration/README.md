@@ -363,7 +363,7 @@ cd agh-integration
 | `E_VERSION_STALE`（乐观锁） | 节点内已重读最新 version（reads-before-retry），返回 retry，限次由 runner maxAttempts 兜底 |
 | 其余错误 envelope | 原样交 runner 按 fjsp-tools 错误分类路由（terminal → terminate 等） |
 
-**Agent 决策/生成节点契约**（`workflow/agent-nodes.mts`，Agent 与 tools 均为注入接口，未接真实 LLM）：策略节点输入 = 事件 + 经验检索结果 + 当前约束，输出 `{mode, weights, rationale}` 必须过 `validateStrategySuggestion`——mode ∈ `LOCAL_RESCHEDULE / FULL_RESCHEDULE`（以 business-service `ScheduleTaskCommandService.MODES` 为准，BASELINE 不属于扰动处置）；weights 键 ⊆ `makespan/weightedTardiness/loadImbalance/deltaPlan/machineChange`、非负有限数、≤16 键（以 algorithm-service `SolveRequest` 校验与 `ga.resolve_objective_weights` 键集为准）；rationale 非空。非法输出一律落 fallback（`DEFAULT_STRATEGY` + 拒绝原因），流程按默认策略继续。生成节点 `buildReviewMaterial(input)` 的输入只含只读 KPI/对比数据，接口形状上没有写操作入口；Agent 未注入或输出非法时用同模块的确定性兜底生成。
+**Agent 决策/生成节点契约**（`workflow/agent-nodes.mts`，Agent 与 tools 均为注入接口，未接真实 LLM）：策略节点输入 = 事件 + 经验检索结果 + 当前约束，输出 `{mode, weights, rationale}` 必须过 `validateStrategySuggestion`——mode ∈ `LOCAL_RESCHEDULE / FULL_RESCHEDULE`（以 business-service `ScheduleTaskCommandService.MODES` 为准，BASELINE 不属于扰动处置）；weights 键 ⊆ `makespan/weightedTardiness/loadImbalance`（可执行契约以 fjsp-tools `WEIGHTS` 参数 schema 为准——algorithm-service `ga.resolve_objective_weights` 重调度模式另认 `deltaPlan/machineChange` 且 `SeedService` 重调度默认权重含之，但 fjsp-tools schema 尚不透传，属任务 3.5 登记的工具面缺口；`DEFAULT_STRATEGY` 只带前两键，`deltaPlan/machineChange` 由算法侧默认 0.2/0.1 补齐，等效 SeedService 默认）、非负有限数、≤16 键（以 algorithm-service `SolveRequest` 校验为准）；rationale 非空。非法输出一律落 fallback（`DEFAULT_STRATEGY` + 拒绝原因），流程按默认策略继续。生成节点 `buildReviewMaterial(input)` 的输入只含只读 KPI/对比数据，接口形状上没有写操作入口；Agent 未注入或输出非法时用同模块的确定性兜底生成。
 
 测试（mock tools + mock agent，不起服务）：
 
