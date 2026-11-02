@@ -358,6 +358,7 @@ cd agh-integration
 | 分支 | 处置 |
 | --- | --- |
 | 任务 FAILED / 结果 INFEASIBLE | 先解释冲突（Agent 或确定性兜底），按显式策略常量 `ALLOW_FULL_RESCHEDULE_ONCE` 升级 FULL_RESCHEDULE 重试一次（`full-retry` 节点），再失败 suspend(needs-human) |
+| `fjsp_task_status` 超时返回 RUNNING 快照 | 非终态，retry 继续轮询（runner 限次兜底）；可行终态口径 = `status ∈ {SUCCESS, TIME_LIMIT}` 且 `resultStatus=FEASIBLE`（对齐 evaluation/scenarios/common.mjs） |
 | `E_EVENT_IN_PROCESS` | suspend(needs-human)——事件发生时间须人工核实，流程严禁自动移动真实事件时间 |
 | `E_VERSION_STALE`（乐观锁） | 节点内已重读最新 version（reads-before-retry），返回 retry，限次由 runner maxAttempts 兜底 |
 | 其余错误 envelope | 原样交 runner 按 fjsp-tools 错误分类路由（terminal → terminate 等） |

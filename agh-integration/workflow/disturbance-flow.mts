@@ -7,6 +7,8 @@
 // 异常分支（在相关节点内判定，返回对应 action）：
 //   - 任务 FAILED / 结果 INFEASIBLE → 解释冲突后按 ALLOW_FULL_RESCHEDULE_ONCE 升级
 //     FULL_RESCHEDULE 重试一次（full-retry 节点），再失败 suspend(needs-human)；
+//   - fjsp_task_status 超时返回 RUNNING 快照（非终态）→ retry 继续轮询（runner 限次兜底）；
+//     可行终态口径 = status ∈ {SUCCESS, TIME_LIMIT} 且 resultStatus=FEASIBLE；
 //   - E_EVENT_IN_PROCESS → suspend(needs-human)，严禁自动移动真实事件时间；
 //   - E_VERSION_STALE（乐观锁）→ 节点内重读最新 version 后 retry（限次由 runner maxAttempts 兜底）；
 //   - 其余错误 envelope 原样交 runner 按 fjsp-tools 错误分类路由（terminal → terminate 等）。
@@ -188,25 +190,41 @@ async function createReschedule(ctx: NodeContext): Promise<NodeAction | ErrorEnv
   return { action: 'advance', result: { taskId: task.taskId, mode: strategy.mode }, refs: { taskId: task.taskId ?? null } }
 }
 
-// 任务终态判定：SUCCESS+FEASIBLE → feasible；SUCCESS+INFEASIBLE → infeasible；FAILED → failed。
+// 任务终态判定。状态枚举全集（business-service TaskStatus）：PENDING / RUNNING / RETRY_WAIT /
+// SUCCESS / TIME_LIMIT / INFEASIBLE / FAILED / CANCELLED。
+// 可行终态口径对齐 evaluation/scenarios/common.mjs：仅 status ∈ {SUCCESS, TIME_LIMIT} 且
+// resultStatus === 'FEASIBLE' 才算可行终态；PENDING/RUNNING/RETRY_WAIT（fjsp_task_status 超时
+// 返回的 RUNNING 快照）一律非终态，绝不能落入 feasible（否则带空 planVersionId 污染下游）。
 function judgeTask(out: ToolStructured): {
-  outcome: 'feasible' | 'infeasible' | 'failed'
+  outcome: 'feasible' | 'infeasible' | 'failed' | 'pending'
   task: Record<string, unknown>
 } {
   const task = (out.task ?? {}) as Record<string, unknown>
-  if (task.status === 'FAILED') return { outcome: 'failed', task }
-  if (task.resultStatus === 'INFEASIBLE') return { outcome: 'infeasible', task }
-  return { outcome: 'feasible', task }
+  const status = task.status as string | undefined
+  const resultStatus = task.resultStatus as string | undefined
+  if ((status === 'SUCCESS' || status === 'TIME_LIMIT') && resultStatus === 'FEASIBLE') return { outcome: 'feasible', task }
+  if (status === 'INFEASIBLE' || ((status === 'SUCCESS' || status === 'TIME_LIMIT') && resultStatus === 'INFEASIBLE')) {
+    return { outcome: 'infeasible', task }
+  }
+  if (status === 'FAILED' || status === 'CANCELLED') return { outcome: 'failed', task }
+  return { outcome: 'pending', task } // PENDING / RUNNING / RETRY_WAIT / 未识别组合
 }
 
-// 节点 7：轮询任务结果（fjsp_task_status 语义：工具内部等待至终态，mock 中直接返回终态）。
+// 节点 7：轮询任务结果（fjsp_task_status 语义：工具内部等待至终态，超时返回 RUNNING 快照）。
+// 非终态（pending）→ retry 继续轮询（限次由 runner maxAttempts 兜底）；
 // FAILED / INFEASIBLE 不在此处置，记入产出由 full-retry 节点判定分支。
 async function pollTask(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> {
   const taskId = ctx.checkpoint.refs.taskId!
   const out = await toolsOf(ctx).call('fjsp_task_status', { taskId, waitSeconds: 60 })
   if (isErr(out)) return out as ErrorEnvelope
   const { outcome, task } = judgeTask(out)
+  if (outcome === 'pending') {
+    return { action: 'retry', reason: `任务 ${taskId} 未达终态（status=${task.status ?? '未知'}），复用本节点继续轮询` }
+  }
   const planVersionId = (task.planVersionId as string | undefined) ?? null
+  if (outcome === 'feasible' && !planVersionId) {
+    return envError('FJSP_BAD_RESPONSE', `任务 ${taskId} 终态可行但未返回 planVersionId，结果不完整，重试读取`)
+  }
   return {
     action: 'advance',
     result: { outcome, taskId, planVersionId, kpi: task.kpi ?? null, conflicts: task.conflicts ?? [], errorMessage: task.errorMessage ?? null },
@@ -252,13 +270,20 @@ async function fullRetry(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> 
   const out2 = await tools.call('fjsp_task_status', { taskId: task2.taskId, waitSeconds: 60 })
   if (isErr(out2)) return out2 as ErrorEnvelope
   const j2 = judgeTask(out2)
+  if (j2.outcome === 'pending') {
+    // 未达终态：整节点 retry——fjsp_reschedule 复用同一幂等键由服务端幂等回放返回同一任务，再轮询
+    return { action: 'retry', reason: `FULL_RESCHEDULE 任务 ${task2.taskId} 未达终态（status=${j2.task.status ?? '未知'}），继续轮询` }
+  }
+  const planVersionId = (j2.task.planVersionId as string | undefined) ?? null
+  if (j2.outcome === 'feasible' && !planVersionId) {
+    return envError('FJSP_BAD_RESPONSE', `任务 ${task2.taskId} 终态可行但未返回 planVersionId，结果不完整，重试读取`)
+  }
   if (j2.outcome !== 'feasible') {
     return {
       action: 'suspend',
       reason: `FULL_RESCHEDULE 重试仍${j2.outcome === 'failed' ? '失败' : '不可行'}，转人工处置。\n${explanation}`,
     }
   }
-  const planVersionId = (j2.task.planVersionId as string | undefined) ?? null
   return {
     action: 'advance',
     result: {

@@ -39,6 +39,8 @@ interface MockOpts {
   fullStillInfeasible?: boolean // FULL_RESCHEDULE 重试仍 INFEASIBLE
   staleOnce?: boolean // submit-review 首次返回 E_VERSION_STALE
   crashOnPollOnce?: boolean // 首次 fjsp_task_status 抛错模拟崩溃
+  runningOnce?: boolean // 首次 fjsp_task_status 返回 RUNNING 快照（超时未结束）
+  localTerminal?: { status: string; resultStatus: string } // LOCAL 任务终态覆盖（如 TIME_LIMIT）
 }
 
 // mock 业务服务：内存维护事件/任务/计划版本现态，同时充当 recovery 的业务现态来源
@@ -50,6 +52,7 @@ function makeMockTools(opts: MockOpts = {}) {
     tasks: new Map<string, { mode: string; idempotencyKey?: string }>(),
     recentEvents: [] as { eventId: string }[],
     crashed: false,
+    runningConsumed: false,
     staleLeft: opts.staleOnce ? 1 : 0,
   }
   const tools: FlowTools = {
@@ -80,15 +83,24 @@ function makeMockTools(opts: MockOpts = {}) {
             state.crashed = true
             throw new Error('模拟进程崩溃（响应未返回，副作用未知）')
           }
+          if (opts.runningOnce && !state.runningConsumed) {
+            state.runningConsumed = true
+            return { ok: true, task: { taskId: args.taskId, status: 'RUNNING', progress: 0.4 } }
+          }
           const t = state.tasks.get(args.taskId as string)!
-          const infeasible =
-            (t.mode === 'LOCAL_RESCHEDULE' && opts.localInfeasible) || (t.mode === 'FULL_RESCHEDULE' && opts.fullStillInfeasible)
-          if (infeasible) {
+          const terminal =
+            t.mode === 'LOCAL_RESCHEDULE'
+              ? (opts.localTerminal ??
+                (opts.localInfeasible ? { status: 'SUCCESS', resultStatus: 'INFEASIBLE' } : { status: 'SUCCESS', resultStatus: 'FEASIBLE' }))
+              : opts.fullStillInfeasible
+                ? { status: 'SUCCESS', resultStatus: 'INFEASIBLE' }
+                : { status: 'SUCCESS', resultStatus: 'FEASIBLE' }
+          if (terminal.resultStatus === 'INFEASIBLE') {
             return {
               ok: true,
               task: {
                 taskId: args.taskId,
-                status: 'SUCCESS',
+                status: terminal.status,
                 resultStatus: 'INFEASIBLE',
                 conflicts: [{ type: 'MACHINE_DOWN', machineId: 'M-03', message: '维修窗内不可用' }],
                 kpi: null,
@@ -100,7 +112,7 @@ function makeMockTools(opts: MockOpts = {}) {
             ok: true,
             task: {
               taskId: args.taskId,
-              status: 'SUCCESS',
+              status: terminal.status,
               resultStatus: 'FEASIBLE',
               planVersionId,
               kpi: { cMaxMinutes: 470, weightedTardinessMinutes: 18, nTardy: 1, loadImbalance: 0.1, deltaPlan: 0.04 },
@@ -366,6 +378,48 @@ async function testInvalidTriggerTerminates() {
   console.log('ok 触发输入不完整 → terminate（不可恢复）')
 }
 
+async function testRunningSnapshotRetries() {
+  const { store, workflowId } = setup()
+  const { tools, calls } = makeMockTools({ runningOnce: true })
+  const { agent } = makeMockAgent()
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent, log: () => {} })
+
+  assert.equal(cp.status, 'WAITING_APPROVAL')
+  const polls = calls.filter((c) => c.name === 'fjsp_task_status')
+  assert.equal(polls.length, 2, 'RUNNING 快照不得当终态，应 retry 再轮询')
+  const pollStep = cp.completedSteps.find((s) => s.node === 'poll-task')!
+  assert.equal(pollStep.attempt, 2)
+  assert.equal(pollStep.idempotencyKey, `${workflowId}:poll-task:1`)
+  assert.equal(cp.refs.planVersionId, 'pv-new-tsk-1')
+  console.log('ok RUNNING 快照（非终态）→ retry 继续轮询')
+}
+
+async function testTimeLimitFeasibleIsTerminal() {
+  const { store, workflowId } = setup()
+  const { tools, calls } = makeMockTools({ localTerminal: { status: 'TIME_LIMIT', resultStatus: 'FEASIBLE' } })
+  const { agent, agentCalls } = makeMockAgent()
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent, log: () => {} })
+
+  assert.equal(cp.status, 'WAITING_APPROVAL', 'TIME_LIMIT+FEASIBLE 是合格终态，流程应走完')
+  assert.equal(cp.refs.planVersionId, 'pv-new-tsk-1')
+  assert.equal(calls.filter((c) => c.name === 'fjsp_reschedule').length, 1, '不得触发 FULL 重试分支')
+  assert.ok(!agentCalls.includes('explainConflicts'))
+  console.log('ok TIME_LIMIT+FEASIBLE → 视为终态可行')
+}
+
+async function testTimeLimitNonFeasibleIsNotFeasible() {
+  const { store, workflowId } = setup()
+  const { tools, calls } = makeMockTools({ localTerminal: { status: 'TIME_LIMIT', resultStatus: 'INFEASIBLE' } })
+  const { agent } = makeMockAgent()
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent, log: () => {} })
+
+  assert.equal(cp.status, 'WAITING_APPROVAL')
+  const reschedCalls = calls.filter((c) => c.name === 'fjsp_reschedule')
+  assert.deepEqual(reschedCalls.map((c) => c.args.mode), ['LOCAL_RESCHEDULE', 'FULL_RESCHEDULE'], 'TIME_LIMIT+INFEASIBLE 不得当可行，应走异常分支')
+  assert.equal(cp.refs.planVersionId, 'pv-new-tsk-2')
+  console.log('ok TIME_LIMIT+非 FEASIBLE → 不当可行，走 INFEASIBLE 异常分支')
+}
+
 const tests = [
   testHappyPath,
   testInfeasibleFullRetryOnce,
@@ -376,6 +430,9 @@ const tests = [
   testInvalidAgentOutputFallsBack,
   testCrashAndRecoveryResume,
   testInvalidTriggerTerminates,
+  testRunningSnapshotRetries,
+  testTimeLimitFeasibleIsTerminal,
+  testTimeLimitNonFeasibleIsNotFeasible,
 ]
 
 let failed = 0
