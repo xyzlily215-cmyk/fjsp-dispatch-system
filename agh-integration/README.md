@@ -388,6 +388,21 @@ npx tsx workflow/test-bff-approval.mts                # 6 项：登记/批准/�
 cd agent-bff && ../agnes-harness/node_modules/.bin/tsx test-approval-status.mts   # 11 项：查询端点 401/403/404/200 + 裁决路径 + 持久化重启语义
 ```
 
+### 审计聚合视图（任务 4.2，2026-11-02）
+
+把「谁批准的、批准了什么、业务上实际发生了什么」串成一条可复核链：
+
+- **关联键贯通**：工作流登记审批时 runner 把 `workflowId` 回填进审批请求（`workflow/bff-approval.mts`），BFF 审批记录、五要素摘要与审批审计 JSONL 均落 `workflowId`（存量无此键的记录归一为 `null`，经检查点引用的 requestId 仍可关联）。其余关联键均为既有字段：审批 requestId（检查点 `pendingApproval`/`expiredApprovals`/`completedSteps[].result.requestId` ↔ BFF 记录与审计）、步骤幂等键（检查点 `wfId:node:seq`）、业务对象 ID（检查点 `refs` ↔ business-service `audit_log.objectType/objectId`，业务请求 ID 在业务审计条目 `requestId` 字段）。business-service 侧零改动。
+- **聚合端点**：`GET /agent-api/audit/trail?workflowId=...`（或 `?objectType=...&objectId=...`），requireAuth + 显式 `AUDIT_VIEW_ROLES=['ADMIN']` 角色闸（同 1.2 显式常量风格）。返回 `workflow`（检查点原文）+ `approvals`（审批五要素+状态）+ `approvalEvents`（审批裁决留痕，含操作者/结果/时间）+ `businessAudit`（业务副作用，转发调用方 Bearer token 查 business-service `/audit-logs`，其 ADMIN 闸再兜一道）+ `correlation`（requestIds/幂等键/refs）+ `degraded`。**聚合不到的环节一律进 `degraded` 显式标注 unknown（检查点缺失/损坏、审批记录不在 BFF、业务审计不可达、审计坏行），不编造**。
+- **导出**：同端点 `format=jsonl` 以 `application/x-ndjson` 导出完整链（meta→workflow→approval→approval_event→business_audit，顺序稳定）供复核归档。
+- 契约进 `contract/http.mts` 端点表（OpenAPI 含查询参数）与 `contract/types.ts`（`AuditTrail`）。
+
+测试（mock 内检 + mock 业务审计 + 临时检查点目录，不起真实服务）：
+
+```sh
+cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx test-audit-trail.mts   # 7 项：链路完整性/存量兼容/降级 unknown/角色闸/参数校验/业务对象查询/jsonl 导出
+```
+
 ## MHS 设备接入（2026-10-10 上线）
 
 车间设备经 MHS（Model Hardware Standard）接入 AGH 内置的 AgnesHub，扰动由设备通道自动暴露，Agent 被唤醒后仍走 fjsp-dispatch 处置流程与 fjsp_* 审批链。
