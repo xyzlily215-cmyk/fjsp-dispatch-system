@@ -24,6 +24,7 @@ export interface ApprovalRequest {
   requestId?: string
   tool: string
   bizObject?: string | null
+  args?: Record<string, unknown> // 审批工具的入参（BFF 登记时生成参数摘要/指纹用）
   argsDigest?: string
   requiredRoles?: string[]
   ttlMs?: number // 默认 5 分钟，与 BFF 审批有效期对齐
@@ -52,6 +53,10 @@ export interface RunDeps {
   tools?: unknown
   agent?: unknown
   log?: (msg: string) => void
+  // BFF 审批登记通道（任务 3.4，workflow/bff-approval.mts 提供）：挂起时先向 BFF 登记
+  // 五要素审批请求，用返回的 requestId/expiresAt 覆盖本地句柄；登记失败落本地句柄，
+  // 恢复时由 checkApproval 核对重发（不回放旧批准）。
+  approvalChannel?: { register(req: ApprovalRequest): Promise<{ requestId: string; expiresAt: string }> }
 }
 
 const noop = () => {}
@@ -139,7 +144,18 @@ export async function runWorkflow(workflowId: string, nodes: WorkflowNode[], dep
           continue // beginStep 复用同一幂等键、attempt+1
         case 'suspend': {
           if (action.awaitApproval) {
-            store.recordApproval(workflowId, buildApproval(action.awaitApproval))
+            let approval = buildApproval(action.awaitApproval)
+            if (deps.approvalChannel) {
+              try {
+                const reg = await deps.approvalChannel.register(action.awaitApproval)
+                approval = { ...approval, requestId: reg.requestId, expiresAt: reg.expiresAt }
+                log(`节点 ${node.name} 审批已登记 BFF：requestId ${reg.requestId}`)
+              } catch (e) {
+                // 登记失败不阻断挂起：落本地句柄，恢复时核对不到有效审批即标过期重发
+                log(`节点 ${node.name} BFF 审批登记失败（${String(e)}），先落本地句柄待恢复重发`)
+              }
+            }
+            store.recordApproval(workflowId, approval)
             log(`节点 ${node.name} 挂起等待审批：${action.reason}`)
           } else {
             store.setStatus(workflowId, 'WAITING_APPROVAL', action.reason)

@@ -22,10 +22,10 @@ import {
 
 // ---- 外部依赖接口（全部可注入；默认实现见文件末尾，测试一律注入 mock） ----
 
-// 审批有效性核对。BFF 审批记录是进程内存（任务 1.2），BFF 重启后 pending 承诺消亡，
-// 且目前没有按 requestId 查询审批状态的端点——默认实现因此只能确认「已过期」，
-// 其余一律 unknown（保守方向：过期重发，不回放旧批准）。任务 3.4 接真实审批流时可注入
-// 能返回 pending/decided 的核对器。
+// 审批有效性核对。默认实现只能凭检查点截止时间确认「已过期」，其余一律 unknown
+// （保守方向：过期重发，不回放旧批准）。任务 3.4 起由 bff-approval.mts 的
+// makeApprovalChecker 注入真实核对（调 BFF GET /agent-api/approvals/:requestId），
+// 能返回 pending/decided；核对器抛错（BFF 不可达）时 recover 输出 unavailable 不推进。
 export type ApprovalValidity = 'pending' | 'decided' | 'expired' | 'unknown'
 
 // 副作用核对结论：
@@ -214,7 +214,13 @@ export async function recover(store: CheckpointStore, workflowId: string, deps: 
   const hadPendingApproval = !!cp.pendingApproval
   if (cp.pendingApproval) {
     const check = deps.checkApproval || defaultCheckApproval
-    const validity = await check(cp.pendingApproval)
+    let validity: ApprovalValidity
+    try {
+      validity = await check(cp.pendingApproval)
+    } catch (e) {
+      // 审批核对失败（如 BFF 不可达）：与业务现态不可核对同口径，fail-safe 不推进
+      return { action: 'unavailable', workflowId, reason: `审批状态核对失败：${String(e)}` }
+    }
     const expiredByClock = now() > Date.parse(cp.pendingApproval.expiresAt)
     if (validity === 'pending' && !expiredByClock) {
       return { action: 'await-approval', workflowId, approval: cp.pendingApproval }
@@ -222,7 +228,7 @@ export async function recover(store: CheckpointStore, workflowId: string, deps: 
     if (validity === 'decided') {
       store.clearApproval(workflowId)
     } else {
-      const reason = validity === 'expired' || expiredByClock ? '审批已过有效期' : '审批状态无法确认（BFF 审批记录不持久化）'
+      const reason = validity === 'expired' || expiredByClock ? '审批已过有效期' : '审批状态无法确认（BFF 查无有效记录）'
       store.expireApproval(workflowId, reason)
       if (!cp.current) {
         // 挂起在审批上但没有当前步骤：异常形态，转人工

@@ -362,7 +362,11 @@ async function awaitDecision(ctx: NodeContext): Promise<NodeAction> {
   return {
     action: 'suspend',
     reason: '候选方案已提交评审（REVIEW_PENDING），等待人工评审决策；评审通过与发布均需人工审批确认',
-    awaitApproval: { tool: 'fjsp_approve_review', bizObject: ctx.checkpoint.refs.planVersionId },
+    awaitApproval: {
+      tool: 'fjsp_approve_review',
+      bizObject: ctx.checkpoint.refs.planVersionId,
+      args: { planVersionId: ctx.checkpoint.refs.planVersionId }, // BFF 登记时生成参数摘要/指纹
+    },
   }
 }
 
