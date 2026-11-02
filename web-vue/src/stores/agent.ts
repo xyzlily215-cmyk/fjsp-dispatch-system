@@ -4,9 +4,9 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
-  agentCancel, agentChat, agentHealth, agentPermission, openAgentStream,
+  agentCancel, agentChat, agentHealth, agentPermission, agentSnapshot, openAgentStream,
   type AgentEventName, type AgentHealth, type AgentPageContext, type AgentStreamEvents,
-  type ApprovalInfo,
+  type ApprovalInfo, type ConversationSnapshot,
 } from '../api/agent';
 
 const CONVERSATION_KEY = 'fjsp.agentConversation';
@@ -63,6 +63,13 @@ export const useAgentStore = defineStore('agent', () => {
   let closeStream: (() => void) | null = null;
   let currentAssistant: AgentMessage | null = null;
   let everOpened = false;
+  let connecting = false;
+  /* 快照衔接状态（任务 4.1）：snapshotCutoff = 已应用快照的 lastEventId，
+   * 回放中 id ≤ cutoff 的 permission_request 以快照有效清单为准（已失效/已裁决的不回放入卡） */
+  let snapshotCutoff = 0;
+  let snapshotApprovalIds = new Set<string>();
+  /* 快照消息不可用/不完整 → 首开清空后按 SSE 全量回放重建（既有行为） */
+  let rebuildFromReplay = true;
 
   function ensureAssistant(): AgentMessage {
     if (currentAssistant && !currentAssistant.sealed) return currentAssistant;
@@ -86,7 +93,7 @@ export const useAgentStore = defineStore('agent', () => {
     return null;
   }
 
-  const handlers: { [K in AgentEventName]?: (data: AgentStreamEvents[K]) => void } & {
+  const handlers: { [K in AgentEventName]?: (data: AgentStreamEvents[K], eventId: number) => void } & {
     onOpen: () => void;
     onError: () => void;
   } = {
@@ -138,7 +145,11 @@ export const useAgentStore = defineStore('agent', () => {
       step.code = data.code || '';
       step.resultPreview = (data.text || '').slice(0, 400);
     },
-    permission_request(data) {
+    permission_request(data, eventId) {
+      // 回放重建路径（任务 4.1）：快照时刻已失效/已裁决的审批（事件 id ≤ cutoff 且
+      // 不在快照有效清单内）不再入卡；快照之后的新请求（id > cutoff）正常入卡
+      if (eventId && eventId <= snapshotCutoff && !snapshotApprovalIds.has(data.requestId)) return;
+      if (approvals.value.some((a) => a.requestId === data.requestId)) return;
       approvals.value.push({
         requestId: data.requestId,
         toolCall: data.toolCall || {},
@@ -169,15 +180,21 @@ export const useAgentStore = defineStore('agent', () => {
     stream_closed() {
       connected.value = false;
     },
+    resync_required() {
+      // 订阅序号已出回放缓冲窗口：关闭当前流，重新取快照再订阅（任务 4.1）
+      reconnect();
+    },
     onOpen() {
       connected.value = true;
       if (!everOpened) {
-        // 首次打开：服务端会全量回放缓冲事件，清空后按回放重建
         everOpened = true;
-        messages.value = [];
-        approvals.value = [];
-        busy.value = false;
-        currentAssistant = null;
+        if (rebuildFromReplay) {
+          // 快照不可用/不完整：首开由服务端全量回放缓冲事件，清空后按回放重建
+          messages.value = [];
+          approvals.value = [];
+          busy.value = false;
+          currentAssistant = null;
+        }
       }
     },
     onError() {
@@ -194,9 +211,78 @@ export const useAgentStore = defineStore('agent', () => {
     },
   };
 
-  function connect() {
-    if (closeStream) return;
-    closeStream = openAgentStream(conversationId.value, handlers);
+  /** 应用会话快照（任务 4.1）：消息/运行状态/有效待审批以快照为准，序号记为衔接水位 */
+  function applySnapshot(snap: ConversationSnapshot) {
+    sessionId.value = snap.sessionId || '';
+    busy.value = snap.running;
+    snapshotCutoff = snap.lastEventId;
+    snapshotApprovalIds = new Set(snap.pendingApprovals.map((a) => a.requestId));
+    rebuildFromReplay = !snap.messagesComplete;
+    messages.value = snap.messagesComplete
+      ? snap.messages.map((m) => ({
+          role: m.role,
+          text: m.text,
+          pending: false,
+          streaming: false,
+          sealed: true,
+          error: false,
+          steps: m.steps.map((st) => ({
+            toolUseId: st.toolUseId,
+            name: st.name,
+            status: st.status === 'completed' ? 'done' as const
+              : (st.status === 'failed' || st.status === 'cancelled') ? 'error' as const : 'running' as const,
+            code: '',
+            resultPreview: st.summary || '',
+          })),
+        }))
+      : [];
+    currentAssistant = null;
+    // 审批卡片只渲染快照中仍有效的待审批项（过期的已由 BFF 惰性核销、不进快照）
+    approvals.value = snap.pendingApprovals.map((a) => ({
+      requestId: a.requestId,
+      toolCall: { name: a.tool },
+      options: [],
+      deadlineMs: a.expiresAt,
+      approval: {
+        tool: a.tool,
+        risk: a.risk,
+        summary: a.argsSummary,
+        digest: a.argsDigest.slice(0, 12),
+        bizObject: a.bizObject,
+        requiredRoles: a.requiredRoles,
+        expiresAt: a.expiresAt,
+      },
+      resolving: '' as const,
+    }));
+  }
+
+  /* 连接：先取会话快照再以衔接序号订阅 SSE（任务 4.1）。
+   * 快照消息完整 → sinceId=lastEventId（快照到订阅之间的事件由回放补齐，不丢不重）；
+   * 不完整/快照不可用（404/未登录/网络） → sinceId=replayFrom 或退化为既有全量回放。 */
+  async function connect() {
+    if (closeStream || connecting) return;
+    connecting = true;
+    try {
+      let sinceId: number | undefined;
+      try {
+        const snap = await agentSnapshot(conversationId.value);
+        if (snap && snap.ok) {
+          applySnapshot(snap);
+          sinceId = snap.messagesComplete ? snap.lastEventId : snap.replayFrom;
+        }
+      } catch { /* 快照不可用：退化为既有全量回放 */ }
+      if (closeStream) return;
+      closeStream = openAgentStream(conversationId.value, handlers, { sinceId });
+    } finally {
+      connecting = false;
+    }
+  }
+
+  /** resync_required / 需要重建时：关闭当前流并重新走 快照→订阅 流程 */
+  function reconnect() {
+    if (closeStream) { closeStream(); closeStream = null; }
+    everOpened = false;
+    void connect();
   }
 
   async function refreshHealth(): Promise<AgentHealth> {
@@ -241,6 +327,9 @@ export const useAgentStore = defineStore('agent', () => {
     busy.value = false;
     unread.value = 0;
     currentAssistant = null;
+    snapshotCutoff = 0;
+    snapshotApprovalIds = new Set();
+    rebuildFromReplay = true;
     if (closeStream) { closeStream(); closeStream = null; }
     everOpened = false;
     connect();

@@ -130,6 +130,7 @@ const EVENT_SAMPLES: Record<string, Record<string, unknown>> = {
   turn_end: { reason: 'completed', stopReason: 'end_turn' },
   turn_error: { message: 'daemon 断连' },
   stream_closed: {},
+  resync_required: { lastEventId: 42 },
   twin: { hub: 'connected', time: 1700000000, devices: [], world: null, sim: { running: false } },
 }
 
@@ -248,7 +249,7 @@ function partC() {
       checkedFields++
     }
   }
-  ok(`前后端一致性：types.ts ↔ events.mts 字段级对齐（12 条事件 ${checkedFields} 个字段的名/可选性/可空性）`)
+  ok(`前后端一致性：types.ts ↔ events.mts 字段级对齐（${Object.keys(SSE_EVENTS).length} 条事件 ${checkedFields} 个字段的名/可选性/可空性）`)
 }
 
 // ---- B / D. HTTP 端点契约（集成，独立 BFF 实例）----
@@ -278,6 +279,29 @@ async function partBD() {
   assert.equal(snap.status, 200)
   assert.ok(Array.isArray(snap.data.devices))
   ok('HTTP：合法请求（health/ticket/chat/cancel/permission/rag/snapshot）全部穿过契约层')
+
+  // B1b. 会话快照端点（任务 4.1）：未认证 401；未知会话 404；登记审批后属主 200 且结构完整
+  const snapNoAuth = await api('GET', '/conversations/conv-c/snapshot')
+  assert.equal(snapNoAuth.status, 401)
+  const snapUnknown = await api('GET', '/conversations/conv-nobody/snapshot', { token: 'tok-alice' })
+  assert.equal(snapUnknown.status, 404)
+  assert.equal(snapUnknown.data.error, 'conversation_not_found')
+  const reg = await api('POST', '/approvals', {
+    token: 'tok-alice',
+    body: { conversationId: 'conv-c', toolCall: { name: 'fjsp_publish', args: { planVersionId: 'PV-1' } } },
+  })
+  assert.equal(reg.status, 202)
+  const convSnap = await api('GET', '/conversations/conv-c/snapshot', { token: 'tok-alice' })
+  assert.equal(convSnap.status, 200, JSON.stringify(convSnap.data))
+  const cs = convSnap.data
+  assert.equal(cs.ok, true)
+  assert.equal(cs.conversationId, 'conv-c')
+  assert.equal(typeof cs.running, 'boolean')
+  assert.equal(typeof cs.lastEventId, 'number')
+  assert.equal(typeof cs.replayFrom, 'number')
+  assert.ok(Array.isArray(cs.messages) && typeof cs.messagesComplete === 'boolean')
+  assert.ok(cs.pendingApprovals.some((a: { requestId: string }) => a.requestId === reg.data.approval.requestId))
+  ok('HTTP：会话快照端点 401/404/200 + 结构完整（lastEventId/replayFrom/messages/pendingApprovals）')
 
   // B2. 非法请求 400：缺字段
   const chatNoMsg = await api('POST', '/chat', { token: 'tok-alice', body: {} })

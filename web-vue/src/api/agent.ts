@@ -11,12 +11,12 @@
  * 清单 STREAM_EVENTS 与契约注册表的一致性由 agent-bff/test-contract-api.mts 强制。 */
 import type {
   AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
-  AgentStreamEvents, AgentEventName, StreamTicket,
+  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot,
 } from '../../../agh-integration/agent-bff/contract/types';
 
 export type {
   AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
-  AgentStreamEvents, AgentEventName, StreamTicket,
+  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot,
 };
 export type AgentEventHandlers = {
   [K in AgentEventName]?: (data: AgentStreamEvents[K], eventId: number) => void;
@@ -77,6 +77,19 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
+async function get<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(AGENT_API_BASE + path, { headers: { ...agentAuthHeaders() } });
+  } catch {
+    throw new AgentApiError('network', '无法连接智能体服务（agent-bff），请确认 agent-bff 已启动');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) throw new AgentApiError('unauthorized', AUTH_MESSAGE);
+  if (!res.ok) throw new AgentApiError(data.error || String(res.status), data.detail || data.error || '请求失败');
+  return data as T;
+}
+
 export function agentHealth(): Promise<AgentHealth> {
   return fetch(AGENT_API_BASE + '/health')
     .then((r) => r.json())
@@ -100,6 +113,11 @@ export function agentStreamTicket(): Promise<StreamTicket> {
   return post('/stream-ticket', {});
 }
 
+/** 会话快照（任务 4.1：页面加载/断线重连先取快照，再按 lastEventId/replayFrom 续订 SSE） */
+export function agentSnapshot(conversationId: string): Promise<ConversationSnapshot> {
+  return get(`/conversations/${encodeURIComponent(conversationId)}/snapshot`);
+}
+
 /* SSE 订阅：EventSource 自动重连并带 Last-Event-ID，断线只补增量。
  * handlers 按事件名注册，返回关闭函数。
  * 鉴权：内部先换 ticket 再建连；ticket 过期导致连接被 401 关闭（readyState CLOSED）时
@@ -110,10 +128,12 @@ const STREAM_EVENTS: AgentEventName[] = [
   'turn_end', 'turn_error', 'stream_closed', 'resync_required',
 ];
 
-export function openAgentStream(conversationId: string, handlers: AgentEventHandlers): () => void {
+export function openAgentStream(conversationId: string, handlers: AgentEventHandlers, opts: { sinceId?: number } = {}): () => void {
   let source: EventSource | null = null;
   let closed = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /* sinceId 只随首次接入的 URL 下发（快照-订阅衔接，任务 4.1）；EventSource 自动重连
+   * 复用同一 URL 并携带 Last-Event-ID 头，BFF 以更新的头部位置为准，不会重复回放 */
 
   const attach = (es: EventSource) => {
     for (const type of STREAM_EVENTS) {
@@ -146,7 +166,8 @@ export function openAgentStream(conversationId: string, handlers: AgentEventHand
     agentStreamTicket().then(({ ticket }) => {
       if (closed) return;
       const es = new EventSource(
-        `${AGENT_API_BASE}/stream?conversationId=${encodeURIComponent(conversationId)}&ticket=${encodeURIComponent(ticket)}`,
+        `${AGENT_API_BASE}/stream?conversationId=${encodeURIComponent(conversationId)}&ticket=${encodeURIComponent(ticket)}`
+        + (opts.sinceId ? `&sinceId=${opts.sinceId}` : ''),
       );
       source = es;
       attach(es);

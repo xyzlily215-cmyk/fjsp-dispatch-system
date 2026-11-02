@@ -780,7 +780,9 @@ function handleStream(conv: Conversation, req: IncomingMessage, res: ServerRespo
     'X-Accel-Buffering': 'no',
   })
   res.write(`: conversation ${conv.id}\n\n`)
-  const since = Number(url.searchParams.get('sinceId') ?? req.headers['last-event-id'] ?? 0) || 0
+  // Last-Event-ID 优先于 sinceId 参数：EventSource 自动重连复用原 URL（含首次接入的
+  // sinceId）并携带 Last-Event-ID 头，头是更新的接收位置，以它为准避免重复回放。
+  const since = Number(req.headers['last-event-id'] ?? url.searchParams.get('sinceId') ?? 0) || 0
   // 快照-订阅衔接（任务 4.1）：sinceId 已出回放缓冲窗口（since < floor 说明 (since, floor]
   // 区间的事件已被挤出缓冲，无法补齐）时，先下发 resync_required 控制帧再关闭——
   // 客户端据此重新取会话快照，而不是静默丢事件。该帧逐订阅者下发，不进缓冲、不占序号。
