@@ -57,6 +57,18 @@ description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户
 - 用户问"某订单/工件现在在哪台设备加工、还剩几道工序"时，调 `fjsp_get_workpiece_position(orderRef)`（orderRef 支持订单号如 O001 或内部 id），返回当前工序与设备、已完成/剩余工序数、进度百分比与下一道工序安排；转述时说明数据来自当前发布计划与实际执行反馈。
 - `fjsp_reset_demo` 会清空全部数据重建演示集，仅在用户明确要求"重置演示"时使用，执行前必须再次确认。
 
+## 五、蒸馏回路（经验固化提案，半自动 + 人工 review）
+
+经验库（`~/.agh/fjsp-experience.jsonl`）积累到一定规模后，用 `skills/fjsp-dispatch/distill.mjs` 做周期性蒸馏：
+
+```sh
+node agh-integration/skills/fjsp-dispatch/distill.mjs [--experience-file <path>] [--out <path>] [--min-support <n>]
+```
+
+- 脚本只读经验库，按「扰动类型 × 处置模式」聚合高频成功模式（计入条件：生效 outcome 为 success 或无反馈记录，负面 outcome rejected/reworked/failed 与 partial 不进提案，resultStatus=FEASIBLE；质量分与情景字段口径与 rag.mts 任务 5.1 一致），产出提案文件 `distill-proposal.md`：每条建议固化的规则草稿附支撑证据计数（n、quality 加权和、已发布次数），样本不足（默认 <3 条）的模式组明确标注"证据不足"不进提案。
+- **人工闸门**：脚本绝不修改本 SKILL.md。采纳流程：人工 review 提案 → 对证据充分的规则，手工把规则要点并入第二节「扰动事件处置流程」第 3 步的策略选择决策树，并保留证据计数与采纳日期 → 未被采纳的规则在提案中注明原因。
+- 采纳后的规则是"默认倾向"而非强制：单次处置仍以 `fjsp_experience_query` 的实时检索与 recommendation 为准，规则只改变无查询结果时的默认策略表述。
+
 ## 纪律
 
 - 写操作（建任务、录事件、发布）前确认参数齐全；写工具支持可选 `idempotencyKey`：同一工作流步骤的重试必须复用同一键（不传则每次调用自动生成新键，换键重发不触发服务端幂等回放）。超时/5xx/连接中断等结果未知的报错，按 `error.recovery` 指引先用对应查询工具确认业务终态，确认未生效再用同键重试。
