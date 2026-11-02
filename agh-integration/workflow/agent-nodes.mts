@@ -194,3 +194,54 @@ export function buildReviewMaterial(input: ReviewMaterialInput): string {
   ]
   return lines.join('\n')
 }
+
+// ---- 评审发布流程的生成节点契约（任务 5.2）----
+
+// 评审发布流程的评审材料输入：只含只读的计划版本/KPI/对比数据与来源上下文。
+// 与 ReviewMaterialInput（扰动处置）并列：这里以 planVersionId 为主体，无事件语义。
+export interface PlanReviewMaterialInput {
+  planVersionId: string
+  plan: { status?: string; versionCode?: string; kpi?: Record<string, unknown> | null }
+  baseline?: { id?: string; versionCode?: string; kpi?: Record<string, unknown> | null } | null
+  diff?: unknown // fjsp_compare_plans 的 diff（kpiDiff / 变更统计），无基线时为 null
+  origin?: { type?: string; source?: string } // 来源流程（触发上下文摘要）
+}
+
+// 评审发布流程的 Agent 注入接口：只一个生成方法，输入只读、无写操作入口。
+export interface ReviewPublishAgent {
+  buildPlanReviewMaterial(input: PlanReviewMaterialInput): unknown | Promise<unknown>
+}
+
+// 评审发布材料的确定性兜底（未注入 Agent 或输出非法时使用）。纯函数，无任何写操作。
+export function buildPlanReviewMaterial(input: PlanReviewMaterialInput): string {
+  const kpiLine = (label: string, kpi?: Record<string, unknown> | null) =>
+    kpi
+      ? `- ${label}：makespan=${kpi.cMaxMinutes ?? '-'}，加权拖期=${kpi.weightedTardinessMinutes ?? '-'}，拖期订单数=${kpi.nTardy ?? '-'}，负载不均衡=${kpi.loadImbalance ?? '-'}`
+      : `- ${label}：（无数据）`
+  const diff = (input.diff && typeof input.diff === 'object' ? input.diff : null) as {
+    summary?: unknown
+    kpiDiff?: Record<string, unknown>
+    changedOperationsTotal?: number
+  } | null
+  const lines = [
+    '# 计划版本评审材料',
+    '',
+    '## 候选方案',
+    `- planVersionId：${input.planVersionId}`,
+    `- versionCode：${input.plan.versionCode ?? '-'}，当前状态：${input.plan.status ?? '-'}`,
+    ...(input.origin?.type ? [`- 来源流程：${input.origin.type}${input.origin.source ? `（${input.origin.source}）` : ''}`] : []),
+    '',
+    '## KPI 对比',
+    kpiLine('基线方案', input.baseline?.kpi),
+    kpiLine('候选方案', input.plan.kpi),
+    ...(diff?.kpiDiff ? [`- 差值：${JSON.stringify(diff.kpiDiff)}`] : []),
+    '',
+    '## 变更统计',
+    diff ? `- 变更工序数：${diff.changedOperationsTotal ?? '-'}；summary：${JSON.stringify(diff.summary ?? null)}` : '- （无基线可对比：首次基线或未指定对比基准）',
+    '',
+    '## 风险提示',
+    '- 评审通过与发布是两个独立人工决策点：评审通过（REVIEWER 级）后仍需生产主管级人工独立确认才执行发布。',
+    '- 发布前请人工复核方案对比与 KPI 差值。',
+  ]
+  return lines.join('\n')
+}

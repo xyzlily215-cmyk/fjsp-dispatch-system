@@ -58,6 +58,10 @@ export interface RunDeps {
   // 五要素审批请求，用返回的 requestId/expiresAt 覆盖本地句柄；登记失败落本地句柄，
   // 恢复时由 checkApproval 核对重发（不回放旧批准）。
   approvalChannel?: { register(req: ApprovalRequest): Promise<{ requestId: string; expiresAt: string }> }
+  // 审批被拒绝时的旁路钩子（任务 5.2 经验反馈接线）：settleApprovalOutcome 在落地拒绝
+  // 裁决后、终止前调用；实现必须 best-effort（如 fjsp_experience_feedback 追加负面反馈），
+  // 抛错只记日志，不改变终止走向。
+  onRejected?: (cp: WorkflowCheckpoint, approval: PendingApproval | null) => Promise<void> | void
 }
 
 const noop = () => {}
@@ -91,6 +95,33 @@ function buildApproval(req: ApprovalRequest): PendingApproval {
     issuedAt: issuedAt.toISOString(),
     expiresAt: new Date(issuedAt.getTime() + (req.ttlMs ?? APPROVAL_TTL_MS)).toISOString(),
   }
+}
+
+// 挂起登记（含 BFF 审批通道）：buildApproval 构造本地句柄 → 有 approvalChannel 则向 BFF
+// 登记并用返回的 requestId/expiresAt 覆盖；登记失败落本地句柄（恢复时核对重发，不回放）。
+// 抽出为独立函数供 runner 与各流程的 settle 包装（如 review-publish 返修后重新挂起）共用。
+export async function suspendForApproval(
+  store: CheckpointStore,
+  workflowId: string,
+  nodeName: string,
+  action: { reason: string; awaitApproval: ApprovalRequest },
+  deps: RunDeps,
+): Promise<WorkflowCheckpoint> {
+  const log = deps.log ?? noop
+  let approval = buildApproval(action.awaitApproval)
+  if (deps.approvalChannel) {
+    try {
+      const reg = await deps.approvalChannel.register({ ...action.awaitApproval, workflowId })
+      approval = { ...approval, requestId: reg.requestId, expiresAt: reg.expiresAt }
+      log(`节点 ${nodeName} 审批已登记 BFF：requestId ${reg.requestId}`)
+    } catch (e) {
+      // 登记失败不阻断挂起：落本地句柄，恢复时核对不到有效审批即标过期重发
+      log(`节点 ${nodeName} BFF 审批登记失败（${String(e)}），先落本地句柄待恢复重发`)
+    }
+  }
+  store.recordApproval(workflowId, approval)
+  log(`节点 ${nodeName} 挂起等待审批：${action.reason}`)
+  return store.load(workflowId)!
 }
 
 // 从检查点续跑或从头跑。非 RUNNING 状态不推进：挂起须先经审批裁决（clearApproval）再重入。
@@ -145,23 +176,10 @@ export async function runWorkflow(workflowId: string, nodes: WorkflowNode[], dep
           continue // beginStep 复用同一幂等键、attempt+1
         case 'suspend': {
           if (action.awaitApproval) {
-            let approval = buildApproval(action.awaitApproval)
-            if (deps.approvalChannel) {
-              try {
-                const reg = await deps.approvalChannel.register({ ...action.awaitApproval, workflowId })
-                approval = { ...approval, requestId: reg.requestId, expiresAt: reg.expiresAt }
-                log(`节点 ${node.name} 审批已登记 BFF：requestId ${reg.requestId}`)
-              } catch (e) {
-                // 登记失败不阻断挂起：落本地句柄，恢复时核对不到有效审批即标过期重发
-                log(`节点 ${node.name} BFF 审批登记失败（${String(e)}），先落本地句柄待恢复重发`)
-              }
-            }
-            store.recordApproval(workflowId, approval)
-            log(`节点 ${node.name} 挂起等待审批：${action.reason}`)
-          } else {
-            store.setStatus(workflowId, 'WAITING_APPROVAL', action.reason)
-            log(`节点 ${node.name} 挂起：${action.reason}`)
+            return suspendForApproval(store, workflowId, node.name, action, deps)
           }
+          store.setStatus(workflowId, 'WAITING_APPROVAL', action.reason)
+          log(`节点 ${node.name} 挂起：${action.reason}`)
           return store.load(workflowId)!
         }
         case 'terminate':

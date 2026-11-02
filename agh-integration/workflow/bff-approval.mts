@@ -142,6 +142,14 @@ export async function settleApprovalOutcome(
   store.clearApproval(workflowId)
   store.completeStep(workflowId, { approvalDecision: outcome, requestId: approval?.requestId ?? null })
   if (outcome === 'rejected') {
+    // 拒绝旁路钩子（任务 5.2 经验反馈接线）：best-effort，钩子异常不改变终止走向
+    if (deps.onRejected) {
+      try {
+        await deps.onRejected(store.load(workflowId)!, approval ?? null)
+      } catch (e) {
+        deps.log?.(`审批拒绝旁路钩子异常（已忽略，不影响终止）：${String(e)}`)
+      }
+    }
     return store.setStatus(workflowId, 'TERMINATED', `审批被拒绝：显式停止，不执行后续发布动作（planVersionId=${cp.refs.planVersionId ?? '无'}）`)
   }
   return runWorkflow(workflowId, nodes, deps)
