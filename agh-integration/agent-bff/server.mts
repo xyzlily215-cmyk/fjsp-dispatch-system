@@ -1299,6 +1299,20 @@ const server = createServer(async (req, res) => {
       const token = header.startsWith('Bearer ') ? header.slice(7) : null
       const trail = await buildAuditTrail({ workflowId, objectType, objectId }, token)
       if (!trail) return sendJson(res, 404, { error: 'workflow_not_found', detail: '未找到该工作流的检查点与审批记录' })
+      if (url.searchParams.get('format') === 'jsonl') {
+        // 导出完整链供复核：application/x-ndjson，一行一条，kind 区分来源。
+        // 顺序稳定：meta（查询+关联键+降级标注）→ workflow 检查点 → approvals（按 createdAt）
+        // → approval_events（审计文件原序）→ business_audit（按 createdAt）。
+        const lines: Record<string, unknown>[] = [
+          { kind: 'meta', query: trail.query, correlation: trail.correlation, degraded: trail.degraded },
+          ...(trail.workflow ? [{ kind: 'workflow', ts: trail.workflow.createdAt ?? null, ...trail.workflow }] : []),
+          ...trail.approvals.map((a) => ({ kind: 'approval', ts: new Date(a.createdAt).toISOString(), ...a })),
+          ...trail.approvalEvents.map((e) => ({ kind: 'approval_event', ...e })),
+          ...trail.businessAudit.map((b) => ({ kind: 'business_audit', ...b })),
+        ]
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' })
+        return res.end(lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+      }
       return sendJsonChecked(res, 200, trail, AUDIT_TRAIL_RESPONSE, 'audit/trail')
     }
     if (req.method === 'GET' && path.startsWith('/agent-api/approvals/')) {
