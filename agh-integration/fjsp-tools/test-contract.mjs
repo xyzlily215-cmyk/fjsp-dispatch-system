@@ -57,7 +57,7 @@ const { tools, __contract } = await import('./index.mjs')
 const toolMap = new Map(tools.map((t) => [t.name, t]))
 const { validateParams, classifyError, ERROR_CLASSES } = __contract
 
-assert(tools.length === 19, `工具数量=19（实际 ${tools.length}）`)
+assert(tools.length === 20, `工具数量=20（实际 ${tools.length}）`)
 
 // ---- 1. 每个工具：非法参数挡在执行前（fetch 0 次调用），envelope 形态正确 ----
 resetFetch()
@@ -155,6 +155,14 @@ resetFetch(() => jsonRes(200, { code: 'OK', data: [{ machineId: 'M-01', workCent
   assert(s && s.ok === true && Array.isArray(s.machines) && s.machines.length === 1, 'fjsp_list_machines 成功 {ok:true, machines:[...]}')
   assert(!('error' in s) && !out.isError, '成功 envelope 无 error 字段、无 isError')
   assert(fetchCalls.length === 1 && fetchCalls[0].url.endsWith('/machines'), '合法参数通过校验并发出 GET /machines')
+}
+resetFetch(() => jsonRes(200, { code: 'OK', data: [{ templateId: 'tpl-1', templateCode: 'TPL-A', productFamily: '轴类A', templateVersion: 1, status: 'ACTIVE', operations: [{ sequenceNo: 1 }, { sequenceNo: 2 }] }] }))
+{
+  const out = await toolMap.get('fjsp_list_process_templates').execute({})
+  const s = out.structured
+  assert(s && s.ok === true && Array.isArray(s.templates) && s.templates.length === 1, 'fjsp_list_process_templates 成功 {ok:true, templates:[...]}')
+  assert(s.templates[0].templateCode === 'TPL-A' && s.templates[0].operationCount === 2, '模板字段裁剪正确（含 operationCount）')
+  assert(fetchCalls.length === 1 && fetchCalls[0].url.endsWith('/process-templates'), '合法参数通过校验并发出 GET /process-templates')
 }
 // 合法参数的写路径：通过校验 → POST → 成功 envelope
 resetFetch(() => jsonRes(200, { code: 'OK', data: { eventId: 'EVT-1', eventCode: 'BD-1', eventType: 'BREAKDOWN', machineId: 'M-03', occurredAt: '2026-09-17T06:00:00Z', status: 'RECORDED' } }))

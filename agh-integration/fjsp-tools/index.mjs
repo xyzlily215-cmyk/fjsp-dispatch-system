@@ -474,6 +474,27 @@ const tools = [
     },
   },
   {
+    name: 'fjsp_list_process_templates',
+    description: '列出全部工艺模板（模板编码、产品族、版本、状态、工序数）。基线排程前的主数据就绪检查用。',
+    parameters: Obj({}),
+    meta: READ,
+    async execute() {
+      const r = await api('GET', '/process-templates')
+      if (!r.ok) return result(r)
+      return result({
+        ok: true,
+        templates: (r.data || []).map((t) => ({
+          templateId: t.templateId,
+          templateCode: t.templateCode,
+          productFamily: t.productFamily,
+          templateVersion: t.templateVersion,
+          status: t.status,
+          operationCount: Array.isArray(t.operations) ? t.operations.length : 0,
+        })),
+      })
+    },
+  },
+  {
     name: 'fjsp_create_baseline',
     description:
       '创建基线排程任务（mode=BASELINE）。可选指定订单子集、目标权重与随机种子。返回调度任务，需用 fjsp_task_status 轮询直到 SUCCESS/FAILED。',
