@@ -142,6 +142,7 @@ async function testSuspendRegisterApproveCompletes() {
   assert.equal(regReq.auth, 'Bearer wf-token')
   assert.equal(regReq.body!.conversationId, 'conv-wf')
   assert.deepEqual(regReq.body!.toolCall, { name: 'fjsp_approve_review', args: { planVersionId: 'pv-new-1' } })
+  assert.equal(regReq.body!.workflowId, workflowId, '登记应带 workflowId 关联键（任务 4.2）')
 
   // 批准 → 轮询拿到 approved → 推进到终态
   bff.decide('bff-req-1', 'approved')

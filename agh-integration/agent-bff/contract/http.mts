@@ -74,6 +74,8 @@ export const APPROVAL_REGISTER_REQUEST: Schema = {
   required: ['conversationId', 'toolCall'],
   properties: {
     conversationId: { type: 'string', pattern: '^[\\w-]{1,80}$' },
+    // 关联键（任务 4.2）：登记方把审批挂到工作流，审计聚合视图（GET /audit/trail）据此回溯
+    workflowId: { type: 'string', pattern: '^wf-[A-Za-z0-9-]{1,80}$' },
     toolCall: {
       type: 'object',
       required: ['name'],
@@ -133,12 +135,14 @@ export const PERMISSION_ACCEPTED: Schema = {
 }
 
 // 审批记录五要素摘要 + 状态（GET 查询 / POST 登记 / 会话快照 pendingApprovals 共用；任务 3.4/4.1）
+// workflowId（任务 4.2）：工作流登记的审批关联回工作流；daemon 路径的审批无工作流归属为 null
 export const APPROVAL_SUMMARY: Schema = {
   type: 'object',
-  required: ['requestId', 'conversationId', 'tool', 'risk', 'argsDigest', 'argsSummary', 'bizObject', 'requiredRoles', 'createdAt', 'expiresAt', 'status'],
+  required: ['requestId', 'conversationId', 'workflowId', 'tool', 'risk', 'argsDigest', 'argsSummary', 'bizObject', 'requiredRoles', 'createdAt', 'expiresAt', 'status'],
   properties: {
     requestId: { type: 'string' },
     conversationId: { type: 'string' },
+    workflowId: { type: ['string', 'null'] },
     tool: { type: 'string' },
     risk: { type: 'string', enum: ['READ', 'WRITE', 'HIGH_RISK', 'DESTRUCTIVE', 'UNKNOWN'] },
     argsDigest: { type: 'string' },

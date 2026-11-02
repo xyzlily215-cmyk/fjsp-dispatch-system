@@ -96,6 +96,8 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | '
 export interface ApprovalStatusInfo {
   requestId: string;
   conversationId: string;
+  /** 关联工作流（任务 4.2，工作流登记路径回填）；daemon 路径的审批为 null */
+  workflowId: string | null;
   tool: string;
   risk: ApprovalInfo['risk'];
   /** 参数规范化 JSON 的完整 SHA-256（区别于卡片上下文的 12 位前缀） */

@@ -28,6 +28,7 @@ export interface ApprovalRequest {
   argsDigest?: string
   requiredRoles?: string[]
   ttlMs?: number // 默认 5 分钟，与 BFF 审批有效期对齐
+  workflowId?: string // 缺省字段由引擎补齐：登记 BFF 时把审批记录关联回工作流（任务 4.2）
 }
 
 export type NodeAction =
@@ -147,7 +148,7 @@ export async function runWorkflow(workflowId: string, nodes: WorkflowNode[], dep
             let approval = buildApproval(action.awaitApproval)
             if (deps.approvalChannel) {
               try {
-                const reg = await deps.approvalChannel.register(action.awaitApproval)
+                const reg = await deps.approvalChannel.register({ ...action.awaitApproval, workflowId })
                 approval = { ...approval, requestId: reg.requestId, expiresAt: reg.expiresAt }
                 log(`节点 ${node.name} 审批已登记 BFF：requestId ${reg.requestId}`)
               } catch (e) {

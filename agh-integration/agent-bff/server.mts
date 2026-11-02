@@ -128,6 +128,7 @@ type PendingPermission = {
 type ApprovalRecord = {
   requestId: string
   conversationId: string
+  workflowId: string | null // 关联工作流（任务 4.2）：工作流登记路径回填，daemon 路径为 null
   tool: string
   risk: RiskLevel | 'UNKNOWN'
   argsDigest: string
@@ -487,6 +488,7 @@ function loadApprovalsFromFile(file: string | URL, onConverted?: (rec: ApprovalR
   const out: ApprovalRecord[] = []
   for (const rec of Object.values(raw)) {
     if (!rec || typeof rec !== 'object' || typeof rec.requestId !== 'string') continue
+    if (typeof rec.workflowId !== 'string') rec.workflowId = null // 3.4 之前的存量记录无关联键，按 null 归一
     if (rec.status === 'pending') {
       rec.status = 'expired'
       onConverted?.(rec)
@@ -529,7 +531,7 @@ function buildArgsSummary(tool: string, canonical: string): string {
   return `${tool} ${short}`
 }
 
-function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Record<string, unknown>, ttlMs?: number): ApprovalRecord {
+function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Record<string, unknown>, ttlMs?: number, workflowId?: string): ApprovalRecord {
   const tool = String(toolCall.name ?? toolCall.title ?? '')
   const args = (toolCall.args ?? toolCall.arguments ?? {}) as Record<string, unknown>
   const { canonical, digest } = canonicalDigest(args)
@@ -539,6 +541,7 @@ function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Re
   const record: ApprovalRecord = {
     requestId,
     conversationId: conv.id,
+    workflowId: workflowId ?? null,
     tool,
     risk,
     argsDigest: digest,
@@ -566,6 +569,7 @@ function approvalSummary(record: ApprovalRecord) {
   return {
     requestId: record.requestId,
     conversationId: record.conversationId,
+    workflowId: record.workflowId,
     tool: record.tool,
     risk: record.risk,
     argsDigest: record.argsDigest,
@@ -607,6 +611,7 @@ function auditApproval(record: ApprovalRecord, result: string, by: string, detai
   return writeAudit({
     ts: new Date().toISOString(),
     conversationId: record.conversationId,
+    workflowId: record.workflowId,
     requestId: record.requestId,
     by,
     tool: record.tool,
@@ -1072,7 +1077,8 @@ const server = createServer(async (req, res) => {
       if (!authorizeConversation(conv, user, res)) return
       const toolCall = body.toolCall as Record<string, unknown>
       const requestId = randomUUID()
-      const record = buildApprovalRecord(conv, requestId, toolCall, typeof body.ttlMs === 'number' ? body.ttlMs : undefined)
+      const record = buildApprovalRecord(conv, requestId, toolCall, typeof body.ttlMs === 'number' ? body.ttlMs : undefined,
+        typeof body.workflowId === 'string' ? body.workflowId : undefined)
       broadcast(conv, 'permission_request', {
         requestId,
         toolCall,

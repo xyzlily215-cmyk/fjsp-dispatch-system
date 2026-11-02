@@ -65,6 +65,8 @@ function client(opts: BffApprovalClientOptions): BffApprovalClient {
         conversationId: opts.conversationId,
         toolCall: { name: req.tool, args: req.args ?? {} },
         ...(req.ttlMs ? { ttlMs: req.ttlMs } : {}),
+        // 关联键贯通（任务 4.2）：审批记录带 workflowId，审计聚合可按工作流回溯审批链
+        ...(req.workflowId ? { workflowId: req.workflowId } : {}),
       })
       const approval = data?.approval as { requestId?: unknown; expiresAt?: unknown } | undefined
       if ((status !== 200 && status !== 202) || typeof approval?.requestId !== 'string' || typeof approval?.expiresAt !== 'number') {
