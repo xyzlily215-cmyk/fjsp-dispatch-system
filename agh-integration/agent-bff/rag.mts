@@ -2,16 +2,39 @@
 // 双路召回：multilingual-e5-small 向量检索（本地 ONNX，离线可跑）+ BM25 关键词检索，
 // RRF 融合排序；向量模型不可用时自动降级为纯 BM25，无 query 时保持原有的时间倒序行为。
 // 嵌入缓存到 ~/.agh/fjsp-experience-vectors.json，按 JSONL 行号增量更新。
+// 任务 5.1（结果反馈 + 质量降权 + 情景字段）：
+// - 经验记录向后兼容扩展：id、loadLevel、dueUrgency、repairDurationMinutes、orderQuantity；
+//   结果反馈是独立的 kind=feedback 追加行（experienceId 关联），原始记录永不修改。
+// - 质量分 quality = outcome 权重 × 时间衰减（半衰期 60 天）：success 1.0 / partial 0.7 /
+//   reworked 0.4 / failed 0.3 / rejected 0.2；无反馈的记录权重 1.0（旧记录不受罚）。
+// - 负面 outcome（rejected/reworked/failed）默认降权保留兜底；FJSP_RAG_NEGATIVE_POLICY=filter
+//   时改为过滤，全部负面时回落降权（保证空结果回落语义不变）。
+// - 查询可带 loadLevel/dueUrgency，同类负荷/紧迫度的记录各加权 ×1.2（情景相似度）。
+// - 推荐统计剔除负面 outcome 的记录，不再仅凭历史平均 KPI 推荐模式。
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 
-const EXPERIENCE_FILE = `${process.env.HOME}/.agh/fjsp-experience.jsonl`
-const VECTOR_CACHE = `${process.env.HOME}/.agh/fjsp-experience-vectors.json`
+// FJSP_EXPERIENCE_FILE 覆盖（与 fjsp-tools 同一变量；测试用临时目录，绝不写真实经验库）；
+// 覆盖经验库路径时向量缓存默认派生到同目录（<file>.vectors.json），可用
+// FJSP_EXPERIENCE_VECTOR_CACHE 单独覆盖。
+const EXPERIENCE_FILE = process.env.FJSP_EXPERIENCE_FILE || `${process.env.HOME}/.agh/fjsp-experience.jsonl`
+const VECTOR_CACHE =
+  process.env.FJSP_EXPERIENCE_VECTOR_CACHE ||
+  (process.env.FJSP_EXPERIENCE_FILE ? `${EXPERIENCE_FILE}.vectors.json` : `${process.env.HOME}/.agh/fjsp-experience-vectors.json`)
 const MODEL_DIR = new URL('./models/', import.meta.url).pathname
 const MODEL_NAME = 'multilingual-e5-small'
 const TOP_K = 5
 const RRF_K = 60
 
+// ---- 质量分与降权策略（规则显式、可测） ----
+const OUTCOME_WEIGHT: Record<string, number> = { success: 1.0, partial: 0.7, reworked: 0.4, failed: 0.3, rejected: 0.2 }
+const NEGATIVE_OUTCOMES = new Set(['rejected', 'reworked', 'failed'])
+const QUALITY_HALF_LIFE_DAYS = 60
+const CONTEXT_MATCH_BOOST = 1.2
+
+type Outcome = 'success' | 'partial' | 'failed' | 'rejected' | 'reworked'
+
 type ExperienceRecord = {
+  id?: string
   ts?: string
   eventType?: string
   mode?: string
@@ -20,11 +43,25 @@ type ExperienceRecord = {
   kpiDiff?: { weightedTardinessMinutes?: number; deltaPlan?: number; cMaxMinutes?: number }
   published?: boolean
   note?: string
+  loadLevel?: 'LOW' | 'NORMAL' | 'HIGH'
+  dueUrgency?: 'LOW' | 'MEDIUM' | 'HIGH'
+  repairDurationMinutes?: number
+  orderQuantity?: number
+  kind?: string // 'feedback' 为反馈行，其余/缺省为经验记录
 }
 
-type ScoredRecord = ExperienceRecord & { score: number; scoreText: string }
+type FeedbackRecord = {
+  kind: 'feedback'
+  experienceId: string
+  outcome: Outcome
+  feedbackAt?: string
+  feedbackBy?: string
+  note?: string
+}
 
-// ---------- 记录加载与检索文本 ----------
+type ScoredRecord = ExperienceRecord & { score: number; scoreText: string; effectiveOutcome: Outcome | null; quality: number }
+
+// ---------- 记录加载、反馈合并与质量分 ----------
 function readExperience(): ExperienceRecord[] {
   try {
     return readFileSync(EXPERIENCE_FILE, 'utf8')
@@ -36,11 +73,54 @@ function readExperience(): ExperienceRecord[] {
   }
 }
 
+// 反馈行按 experienceId 合并到原经验：同一经验多条反馈取 feedbackAt 最新一条
+function latestFeedbackById(lines: ExperienceRecord[]): Map<string, FeedbackRecord> {
+  const map = new Map<string, FeedbackRecord>()
+  for (const l of lines) {
+    if (l.kind !== 'feedback') continue
+    const fb = l as unknown as FeedbackRecord
+    if (!fb.experienceId) continue
+    const prev = map.get(fb.experienceId)
+    if (!prev || String(fb.feedbackAt ?? '') >= String(prev.feedbackAt ?? '')) map.set(fb.experienceId, fb)
+  }
+  return map
+}
+
+function effectiveOutcome(r: ExperienceRecord, feedback: Map<string, FeedbackRecord>): Outcome | null {
+  return r.id ? (feedback.get(r.id)?.outcome ?? null) : null
+}
+
+// quality = outcome 权重 × 时间衰减（半衰期 QUALITY_HALF_LIFE_DAYS 天）；
+// 无反馈 outcome=null → 权重 1.0（向后兼容：旧记录不因缺反馈受罚）；ts 缺失/非法 → 不衰减
+function qualityOf(r: ExperienceRecord, outcome: Outcome | null, now = Date.now()): number {
+  const w = outcome ? (OUTCOME_WEIGHT[outcome] ?? 1.0) : 1.0
+  const t = r.ts ? Date.parse(r.ts) : NaN
+  const ageDays = Number.isFinite(t) ? Math.max(0, (now - t) / 86_400_000) : 0
+  return w * Math.pow(0.5, ageDays / QUALITY_HALF_LIFE_DAYS)
+}
+
+function negativePolicy(): 'downweight' | 'filter' {
+  return process.env.FJSP_RAG_NEGATIVE_POLICY === 'filter' ? 'filter' : 'downweight'
+}
+
+// 情景加权：同类负荷/紧迫度各 ×CONTEXT_MATCH_BOOST（仅在调用方传入对应字段时生效）
+function contextBoost(r: ExperienceRecord, opts: { loadLevel?: string; dueUrgency?: string }): number {
+  let b = 1
+  if (opts.loadLevel && r.loadLevel === opts.loadLevel) b *= CONTEXT_MATCH_BOOST
+  if (opts.dueUrgency && r.dueUrgency === opts.dueUrgency) b *= CONTEXT_MATCH_BOOST
+  return b
+}
+
+// ---------- 检索文本 ----------
 function searchText(r: ExperienceRecord): string {
   const typeText = r.eventType === 'BREAKDOWN' ? '设备故障停机维修' : r.eventType === 'NEW_ORDER' ? '紧急插单新订单' : ''
   const modeText = r.mode === 'LOCAL_RESCHEDULE' ? '局部重排' : r.mode === 'FULL_RESCHEDULE' ? '完全重排' : ''
   const kpi = r.kpiDiff?.weightedTardinessMinutes != null ? `加权拖期差值 ${r.kpiDiff.weightedTardinessMinutes}` : ''
-  return [typeText, r.machineId ? `机床 ${r.machineId}` : '', modeText, r.resultStatus, kpi, r.note ?? '']
+  const loadText = r.loadLevel === 'HIGH' ? '高负荷时段' : r.loadLevel === 'LOW' ? '低负荷时段' : r.loadLevel === 'NORMAL' ? '负荷正常' : ''
+  const urgencyText = r.dueUrgency === 'HIGH' ? '交期紧迫' : r.dueUrgency === 'MEDIUM' ? '交期中等' : r.dueUrgency === 'LOW' ? '交期宽松' : ''
+  const scaleText =
+    r.repairDurationMinutes != null ? `维修 ${r.repairDurationMinutes} 分钟` : r.orderQuantity != null ? `插单数量 ${r.orderQuantity}` : ''
+  return [typeText, r.machineId ? `机床 ${r.machineId}` : '', modeText, r.resultStatus, kpi, loadText, urgencyText, scaleText, r.note ?? '']
     .filter(Boolean)
     .join('，')
 }
@@ -166,9 +246,12 @@ function cosine(a: Float32Array, b: Float32Array): number {
 }
 
 // ---------- 推荐统计（沿用 fjsp-tools 原有口径：按模式平均加权拖期差值最优） ----------
-function recommendationFor(records: ExperienceRecord[]) {
+// 任务 5.1：剔除负面 outcome（rejected/reworked/failed）的记录，避免仅凭历史平均 KPI 推荐被驳回/返工的模式
+function recommendationFor(records: ExperienceRecord[], feedback: Map<string, FeedbackRecord>) {
   const stats: Record<string, { mode: string; count: number; tardinessSum: number; deltaPlanSum: number; deltaPlanCount: number }> = {}
   for (const r of records) {
+    const oc = effectiveOutcome(r, feedback)
+    if (oc && NEGATIVE_OUTCOMES.has(oc)) continue
     if (!r.mode || typeof r.kpiDiff?.weightedTardinessMinutes !== 'number') continue
     const s = (stats[r.mode] ??= { mode: r.mode, count: 0, tardinessSum: 0, deltaPlanSum: 0, deltaPlanCount: 0 })
     s.count += 1
@@ -196,23 +279,36 @@ function recommendationFor(records: ExperienceRecord[]) {
 }
 
 // ---------- 查询入口 ----------
-export async function experienceQuery(opts: { eventType?: string; query?: string; limit?: number }) {
-  const all = readExperience()
+export async function experienceQuery(opts: { eventType?: string; query?: string; limit?: number; loadLevel?: string; dueUrgency?: string }) {
+  const lines = readExperience()
+  const feedback = latestFeedbackById(lines)
+  const all = lines.filter((l) => l.kind !== 'feedback')
   const limit = Math.min(Math.max(opts.limit ?? 10, 1), 100)
   const poolIdx = all.map((_, i) => i).filter((i) => !opts.eventType || all[i].eventType === opts.eventType)
   const pool = poolIdx.map((i) => all[i])
   const query = (opts.query ?? '').trim()
+  const now = Date.now()
+  const withQuality = (r: ExperienceRecord) => {
+    const effectiveOutcome_ = effectiveOutcome(r, feedback)
+    return { effectiveOutcome: effectiveOutcome_, quality: qualityOf(r, effectiveOutcome_, now) }
+  }
 
   if (!query) {
-    // 无语义条件：保持原有行为（时间倒序 + 模式统计推荐）
-    const matched = pool.slice(-limit).reverse()
+    // 无语义条件：保持原有行为（时间倒序 + 模式统计推荐），仅附质量分/生效 outcome
+    const matched = pool
+      .slice(-limit)
+      .reverse()
+      .map((r) => {
+        const q = withQuality(r)
+        return { ...r, effectiveOutcome: q.effectiveOutcome, quality: Math.round(q.quality * 1000) / 1000 }
+      })
     return {
       ok: true,
       retrieval: 'recency',
       total: all.length,
       matched: matched.length,
       records: matched,
-      recommendation: recommendationFor(matched),
+      recommendation: recommendationFor(matched, feedback),
     }
   }
 
@@ -236,23 +332,44 @@ export async function experienceQuery(opts: { eventType?: string; query?: string
     }
   }
 
-  const top = fused
-    .map((s, i) => ({ s, i }))
+  // 降权策略：默认 downweight（负面 outcome 以低质量分压底但保留兜底）；
+  // filter 模式下剔除负面记录，若全部负面则回落 downweight（空结果回落语义不变）
+  const policy = negativePolicy()
+  let candidateIdx = pool.map((_, i) => i)
+  if (policy === 'filter') {
+    const kept = candidateIdx.filter((i) => {
+      const oc = withQuality(pool[i]).effectiveOutcome
+      return !oc || !NEGATIVE_OUTCOMES.has(oc)
+    })
+    if (kept.length > 0) candidateIdx = kept
+  }
+
+  const top = candidateIdx
+    .map((i) => {
+      const q = withQuality(pool[i])
+      return { i, s: fused[i] * q.quality * contextBoost(pool[i], opts), ...q }
+    })
     .sort((a, b) => b.s - a.s)
     .filter(({ s }) => s > 0)
     .slice(0, Math.min(TOP_K, limit))
-  const matches: ScoredRecord[] = top.map(({ s, i }) => ({
+  const matches: ScoredRecord[] = top.map(({ s, i, effectiveOutcome: oc, quality }) => ({
     ...pool[i],
     score: Math.round(s * 1000) / 1000,
-    scoreText: retrieval === 'hybrid' ? `RRF ${s.toFixed(4)}` : `BM25 ${s.toFixed(2)}`,
+    scoreText: `${retrieval === 'hybrid' ? 'RRF' : 'BM25'} ${fused[i].toFixed(4)} ×质量 ${quality.toFixed(3)}`,
+    effectiveOutcome: oc,
+    quality: Math.round(quality * 1000) / 1000,
   }))
   return {
     ok: true,
     retrieval,
+    negativePolicy: policy,
     total: all.length,
     matched: matches.length,
     query,
     records: matches,
-    recommendation: recommendationFor(matches.length ? matches : pool.slice(-limit)),
+    recommendation: recommendationFor(matches.length ? matches : pool.slice(-limit), feedback),
   }
 }
+
+// 测试专用内部出口（agent-bff/test-rag.mts），不影响 server.mts 的消费方式
+export const __ragInternals = { OUTCOME_WEIGHT, NEGATIVE_OUTCOMES, QUALITY_HALF_LIFE_DAYS, CONTEXT_MATCH_BOOST, latestFeedbackById, qualityOf, contextBoost, searchText }

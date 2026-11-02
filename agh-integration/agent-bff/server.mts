@@ -1411,6 +1411,8 @@ const server = createServer(async (req, res) => {
         eventType: typeof body.eventType === 'string' ? body.eventType : undefined,
         query: typeof body.query === 'string' ? body.query : undefined,
         limit: typeof body.limit === 'number' ? body.limit : undefined,
+        loadLevel: typeof body.loadLevel === 'string' ? body.loadLevel : undefined,
+        dueUrgency: typeof body.dueUrgency === 'string' ? body.dueUrgency : undefined,
       })
       return sendJsonChecked(res, 200, result, RAG_QUERY_RESULT, 'rag/experience-query')
     }

@@ -91,6 +91,9 @@ export const RAG_QUERY_REQUEST: Schema = {
     eventType: { type: 'string' },
     query: { type: 'string' },
     limit: { type: 'integer', minimum: 1, maximum: 100 },
+    // 任务 5.1：可选情景字段，参与同类场景加权（向后兼容，不升版）
+    loadLevel: { type: 'string', enum: ['LOW', 'NORMAL', 'HIGH'] },
+    dueUrgency: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
   },
 }
 
