@@ -60,7 +60,7 @@ description: 在 FJSP 调度系统项目（bysj，business-service Java/Spring B
 
 ### agh-integration/（AGH 底座 + Node 单文件服务）
 
-- `fjsp-tools/index.mjs` 是 18 个 `fjsp_*` 工具的唯一实现源，MCP Server 与 AGH 插件共用；改工具契约要同时考虑两个入口。
+- `fjsp-tools/index.mjs` 是 20 个 `fjsp_*` 工具的唯一实现源，MCP Server 与 AGH 插件共用；改工具契约要同时考虑两个入口。
 - 工具风险分级（READ/WRITE/HIGH_RISK/DESTRUCTIVE）、审批、幂等键、业务错误码透传是既有契约，不得弱化。
 - `agent-bff/server.mts` 目前无鉴权是已知缺口（见 `docs/Agent化架构优化方案.md` P0），新增端点时按方案的身份/审批边界设计，不要把现状当设计依据。
 - `agnes-harness/` 未随仓库分发；改动 AGH 相关代码时固定版本、保存复现步骤。
