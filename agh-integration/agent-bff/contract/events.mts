@@ -117,6 +117,15 @@ export const SSE_EVENTS: Record<string, SseEventContract> = {
     v: 1, stream: 'agent', summary: 'daemon 事件流关闭（BFF 与 daemon 断连）',
     schema: { type: 'object', required: ['v'], properties: { ...VERSION } },
   },
+  resync_required: {
+    // 快照-订阅衔接（任务 4.1）：客户端订阅的 sinceId 已出回放缓冲窗口时，BFF 下发
+    // 本事件并关闭流（该帧是逐订阅者的控制信号，不进回放缓冲、不占用会话事件序号）。
+    v: 1, stream: 'agent', summary: '订阅序号已出回放缓冲窗口，客户端应重新取会话快照后再订阅',
+    schema: {
+      type: 'object', required: ['v', 'lastEventId'],
+      properties: { ...VERSION, lastEventId: { type: 'integer', minimum: 0 } },
+    },
+  },
   twin: {
     v: 1, stream: 'twin', summary: '设备快照 tick（1Hz，payload = 孪生快照 + 版本字段）',
     schema: {

@@ -132,29 +132,31 @@ export const PERMISSION_ACCEPTED: Schema = {
   properties: { ok: { type: 'boolean' }, verdict: { type: 'string', enum: ['allowed-once', 'rejected'] } },
 }
 
-// 审批记录五要素摘要 + 状态（GET 查询 / POST 登记共用；任务 3.4）
+// 审批记录五要素摘要 + 状态（GET 查询 / POST 登记 / 会话快照 pendingApprovals 共用；任务 3.4/4.1）
+export const APPROVAL_SUMMARY: Schema = {
+  type: 'object',
+  required: ['requestId', 'conversationId', 'tool', 'risk', 'argsDigest', 'argsSummary', 'bizObject', 'requiredRoles', 'createdAt', 'expiresAt', 'status'],
+  properties: {
+    requestId: { type: 'string' },
+    conversationId: { type: 'string' },
+    tool: { type: 'string' },
+    risk: { type: 'string', enum: ['READ', 'WRITE', 'HIGH_RISK', 'DESTRUCTIVE', 'UNKNOWN'] },
+    argsDigest: { type: 'string' },
+    argsSummary: { type: 'string' },
+    bizObject: { type: ['object', 'null'] },
+    requiredRoles: { type: 'array', items: { type: 'string' } },
+    createdAt: { type: 'integer' },
+    expiresAt: { type: 'integer' },
+    status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired', 'timeout'] },
+  },
+}
+
 export const APPROVAL_STATUS_RESPONSE: Schema = {
   type: 'object',
   required: ['ok', 'approval'],
   properties: {
     ok: { type: 'boolean' },
-    approval: {
-      type: 'object',
-      required: ['requestId', 'conversationId', 'tool', 'risk', 'argsDigest', 'argsSummary', 'bizObject', 'requiredRoles', 'createdAt', 'expiresAt', 'status'],
-      properties: {
-        requestId: { type: 'string' },
-        conversationId: { type: 'string' },
-        tool: { type: 'string' },
-        risk: { type: 'string', enum: ['READ', 'WRITE', 'HIGH_RISK', 'DESTRUCTIVE', 'UNKNOWN'] },
-        argsDigest: { type: 'string' },
-        argsSummary: { type: 'string' },
-        bizObject: { type: ['object', 'null'] },
-        requiredRoles: { type: 'array', items: { type: 'string' } },
-        createdAt: { type: 'integer' },
-        expiresAt: { type: 'integer' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired', 'timeout'] },
-      },
-    },
+    approval: APPROVAL_SUMMARY,
   },
 }
 
@@ -199,6 +201,51 @@ export const RAG_QUERY_RESULT: Schema = {
   },
 }
 
+// ---- 会话快照（任务 4.1：断线恢复先取快照、再以 lastEventId/replayFrom 续订 SSE）----
+
+/** 快照消息中的工具步骤（自 AGH 会话 UI 投影的 tool 节点映射，status 沿用 daemon 枚举） */
+export const SNAPSHOT_STEP: Schema = {
+  type: 'object',
+  required: ['toolUseId', 'name', 'status', 'summary'],
+  properties: {
+    toolUseId: { type: ['string', 'null'] },
+    name: { type: 'string' },
+    status: { type: 'string', enum: ['planned', 'awaiting_approval', 'running', 'completed', 'failed', 'cancelled'] },
+    summary: { type: 'string' },
+  },
+}
+
+/** 快照消息（自 AGH 会话 UI 投影重建：user/assistant 文本 + 挂到助手消息下的工具步骤） */
+export const SNAPSHOT_MESSAGE: Schema = {
+  type: 'object',
+  required: ['role', 'text', 'steps'],
+  properties: {
+    role: { type: 'string', enum: ['user', 'assistant'] },
+    text: { type: 'string' },
+    steps: { type: 'array', items: SNAPSHOT_STEP },
+  },
+}
+
+/** GET /agent-api/conversations/{id}/snapshot 200 响应。
+ *  lastEventId：快照时刻最新事件序号；replayFrom：回放缓冲覆盖的最小 sinceId
+ *  （buffer[0].id - 1，缓冲空时 = lastEventId）。messagesComplete=false 表示消息未能从
+ *  AGH 会话完整重建（daemon 不可用/历史超出开窗），客户端应以 replayFrom 订阅走回放重建。 */
+export const CONVERSATION_SNAPSHOT_RESPONSE: Schema = {
+  type: 'object',
+  required: ['ok', 'conversationId', 'sessionId', 'running', 'lastEventId', 'replayFrom', 'messages', 'messagesComplete', 'pendingApprovals'],
+  properties: {
+    ok: { type: 'boolean' },
+    conversationId: { type: 'string' },
+    sessionId: { type: ['string', 'null'] },
+    running: { type: 'boolean' },
+    lastEventId: { type: 'integer', minimum: 0 },
+    replayFrom: { type: 'integer', minimum: 0 },
+    messages: { type: 'array', items: SNAPSHOT_MESSAGE },
+    messagesComplete: { type: 'boolean' },
+    pendingApprovals: { type: 'array', items: APPROVAL_SUMMARY },
+  },
+}
+
 // ---- 端点表 ----
 
 export type EndpointAuth = 'public' | 'bearer' | 'ticket'
@@ -227,8 +274,12 @@ export const HTTP_CONTRACT: EndpointContract[] = [
     responses: { 200: STREAM_TICKET_RESPONSE, 401: ERROR_RESPONSE, 503: ERROR_RESPONSE },
   },
   {
-    method: 'GET', path: '/agent-api/stream', summary: '会话 SSE 事件流（事件集见 contract/events.mts，支持 sinceId/Last-Event-ID 增量回放）', auth: 'ticket',
+    method: 'GET', path: '/agent-api/stream', summary: '会话 SSE 事件流（事件集见 contract/events.mts，支持 sinceId/Last-Event-ID 增量回放；sinceId 已出回放缓冲窗口时先下发 resync_required 后关闭）', auth: 'ticket',
     responses: { 200: 'sse', 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+  },
+  {
+    method: 'GET', path: '/agent-api/conversations/{id}/snapshot', summary: '会话快照（消息 + 运行状态 + lastEventId/replayFrom + 仍有效待审批，断线恢复用，任务 4.1）', auth: 'bearer',
+    responses: { 200: CONVERSATION_SNAPSHOT_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
   },
   {
     method: 'POST', path: '/agent-api/chat', summary: '发送消息（异步回合，事件经 SSE 下发）', auth: 'bearer',

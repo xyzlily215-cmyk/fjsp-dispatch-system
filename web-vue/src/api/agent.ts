@@ -107,7 +107,7 @@ export function agentStreamTicket(): Promise<StreamTicket> {
 const STREAM_EVENTS: AgentEventName[] = [
   'user_message', 'turn_start', 'assistant_delta', 'assistant_message',
   'tool_call', 'tool_result', 'permission_request', 'permission_resolved',
-  'turn_end', 'turn_error', 'stream_closed',
+  'turn_end', 'turn_error', 'stream_closed', 'resync_required',
 ];
 
 export function openAgentStream(conversationId: string, handlers: AgentEventHandlers): () => void {

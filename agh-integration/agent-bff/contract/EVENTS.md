@@ -20,6 +20,7 @@
 | `turn_end` | 1 | 回合结束（reason / stopReason） |
 | `turn_error` | 1 | 回合异常中断（message / detail?） |
 | `stream_closed` | 1 | BFF 与 daemon 的事件流关闭 |
+| `resync_required` | 1 | 订阅的 sinceId 已出回放缓冲窗口（逐订阅者控制帧，不进回放缓冲、不占事件序号；客户端应重新 GET 会话快照后再订阅） |
 
 `/agent-api/twin/stream`（设备快照流，stream = twin）：
 

@@ -7,6 +7,7 @@
 //   GET  /agent-api/openapi.json               由契约端点表生成的 OpenAPI 3.1 文档（公开）
 //   POST /agent-api/stream-ticket              换取 SSE ticket（需 Bearer JWT）
 //   GET  /agent-api/stream?conversationId=...&ticket=...  SSE event stream (replay via sinceId / Last-Event-ID)
+//   GET  /agent-api/conversations/:id/snapshot  会话快照（消息+运行状态+lastEventId+有效待审批，任务 4.1）
 //   POST /agent-api/chat       { conversationId?, message, context? }
 //   POST /agent-api/cancel     { conversationId }
 //   POST /agent-api/permission { conversationId, requestId, verdict: 'allowed-once' | 'rejected' }
@@ -28,6 +29,13 @@
 // （Authorization: Bearer，BFF 向 FJSP_API_BASE/auth/me 内检），SSE 走一次性语义
 // 等价的限时 ticket（EventSource 不能带请求头；ticket 60s 内可复用以支持自动重连）。
 // 会话绑定属主：创建会话记录 username，跨用户访问 403；无属主的历史会话一律 403（legacy）。
+//
+// 会话快照与断线恢复（任务 4.1）：GET /conversations/:id/snapshot 返回从 AGH 会话 UI 投影
+// 重建的消息、运行状态、lastEventId/replayFrom 与仍有效的待审批项（读取时惰性过期核销，
+// 重启恢复的 expired 审批不进快照）。衔接语义：messagesComplete=true → 前端以
+// sinceId=lastEventId 订阅（快照到订阅之间的事件由回放补齐，不丢不重）；false → 以
+// sinceId=replayFrom 订阅走回放缓冲重建。订阅的 sinceId 已出缓冲窗口时，/stream 先下发
+// resync_required 控制帧（不进缓冲、不占序号）再关闭，客户端重新取快照。
 //
 // 审批身份绑定（P0）：daemon 的 permission_request 落一条五要素审批记录（工具名 /
 // 参数摘要=规范化 JSON 的 SHA-256 + 人类可读摘要 / 业务对象 / 有效期 / 可审批角色），
@@ -54,7 +62,7 @@ import { validateEvent, withVersion } from './contract/events.mts'
 import {
   buildOpenApi, validateRequestBody, findEndpoint,
   APPROVAL_STATUS_RESPONSE,
-  CHAT_ACCEPTED, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
+  CHAT_ACCEPTED, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
 } from './contract/http.mts'
 import { validateValue, type Schema } from './contract/validate.mts'
@@ -363,6 +371,51 @@ function firstText(content: unknown): string {
     .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text as string)
     .join('')
+}
+
+// ---- 会话快照（任务 4.1）----
+type SnapshotStep = { toolUseId: string | null; name: string; status: string; summary: string }
+type SnapshotMessage = { role: 'user' | 'assistant'; text: string; steps: SnapshotStep[] }
+
+/** 从 AGH 会话 UI 投影重建消息列表（bounded tail window；历史越窗时 complete=false）。
+ *  user/assistant 节点映射为消息，tool 节点挂到最近一条助手消息的 steps。 */
+async function readSnapshotMessages(session: Session): Promise<{ messages: SnapshotMessage[]; complete: boolean }> {
+  const opening = await session.projectUIOpening({ maxNodes: 500 })
+  type NodeLike = {
+    kind?: string; content?: unknown; text?: unknown
+    toolUseId?: unknown; name?: unknown; status?: unknown; summary?: unknown
+  }
+  const nodes = (opening.timeline?.nodes ?? []) as NodeLike[]
+  const messages: SnapshotMessage[] = []
+  for (const node of nodes) {
+    if (node.kind === 'user') {
+      const text = firstText(node.content)
+      if (text) messages.push({ role: 'user', text, steps: [] })
+    } else if (node.kind === 'assistant') {
+      messages.push({ role: 'assistant', text: typeof node.text === 'string' ? node.text : '', steps: [] })
+    } else if (node.kind === 'tool') {
+      let host: SnapshotMessage | undefined
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') { host = messages[i]; break }
+      }
+      if (!host) {
+        host = { role: 'assistant', text: '', steps: [] }
+        messages.push(host)
+      }
+      host.steps.push({
+        toolUseId: typeof node.toolUseId === 'string' ? node.toolUseId : null,
+        name: typeof node.name === 'string' ? node.name : 'tool',
+        status: typeof node.status === 'string' ? node.status : 'completed',
+        summary: typeof node.summary === 'string' ? node.summary : '',
+      })
+    }
+  }
+  return { messages, complete: !opening.history?.hasEarlier }
+}
+
+/** 回放缓冲覆盖的最小 sinceId：buffer[0].id - 1；缓冲空时 = lastEventId（无事件可回放）。 */
+function replayFloor(conv: Conversation): number {
+  return conv.buffer.length ? conv.buffer[0].id - 1 : conv.lastEventId
 }
 
 function startPump(conv: Conversation) {
@@ -728,6 +781,17 @@ function handleStream(conv: Conversation, req: IncomingMessage, res: ServerRespo
   })
   res.write(`: conversation ${conv.id}\n\n`)
   const since = Number(url.searchParams.get('sinceId') ?? req.headers['last-event-id'] ?? 0) || 0
+  // 快照-订阅衔接（任务 4.1）：sinceId 已出回放缓冲窗口（since < floor 说明 (since, floor]
+  // 区间的事件已被挤出缓冲，无法补齐）时，先下发 resync_required 控制帧再关闭——
+  // 客户端据此重新取会话快照，而不是静默丢事件。该帧逐订阅者下发，不进缓冲、不占序号。
+  if (since < replayFloor(conv)) {
+    const frame = withVersion('resync_required', { lastEventId: conv.lastEventId })
+    const issues = validateEvent('resync_required', frame)
+    if (issues.length) console.error('[agent-bff] SSE 事件契约校验失败（resync_required）:', issues)
+    else res.write(`event: resync_required\ndata: ${JSON.stringify(frame)}\n\n`)
+    res.end()
+    return
+  }
   for (const entry of conv.buffer) {
     if (entry.id > since) res.write(`id: ${entry.id}\nevent: ${entry.event}\ndata: ${entry.data}\n\n`)
   }
@@ -853,6 +917,51 @@ const server = createServer(async (req, res) => {
       const conv = getConversation(convIdParam ?? undefined, user.username)
       if (!authorizeConversation(conv, user, res)) return
       return handleStream(conv, req, res, url)
+    }
+    if (req.method === 'GET' && path.startsWith('/agent-api/conversations/')) {
+      // 会话快照（任务 4.1）：requireAuth + 归属校验（跨用户 403，legacy 403）；
+      // 会话既不在内存也不在持久化存储时 404。消息自 AGH 会话 UI 投影重建（daemon
+      // 不可用/历史越窗时 messagesComplete=false，前端退化到回放重建）；待审批项只
+      // 返回仍有效的（读取时惰性过期核销；重启恢复的 expired 记录天然不在列）。
+      const m = path.match(/^\/agent-api\/conversations\/([\w-]{1,80})\/snapshot$/)
+      if (!m) return sendJson(res, 404, { error: 'not_found' })
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      if (!conversations.has(m[1]) && !loadStore()[m[1]]) {
+        return sendJson(res, 404, { error: 'conversation_not_found' })
+      }
+      const conv = getConversation(m[1], user.username)
+      if (!authorizeConversation(conv, user, res)) return
+      let messages: SnapshotMessage[] = []
+      let messagesComplete = true // 会话从未建立（无 sessionId）时消息为空即完整
+      if (conv.session || conv.sessionId) {
+        try {
+          const session = await ensureSession(conv)
+          const r = await readSnapshotMessages(session)
+          messages = r.messages
+          messagesComplete = r.complete
+        } catch (err) {
+          console.error('[agent-bff] 会话快照消息重建失败（daemon 不可用？）:', err)
+          messagesComplete = false
+        }
+      }
+      const pendingApprovals: ReturnType<typeof approvalSummary>[] = []
+      for (const rec of approvals.values()) {
+        if (rec.conversationId !== conv.id || rec.status !== 'pending') continue
+        expireIfDue(rec, user.username) // 快照读取即核对持久化记录：过期的一并核销
+        if (rec.status === 'pending') pendingApprovals.push(approvalSummary(rec))
+      }
+      return sendJsonChecked(res, 200, {
+        ok: true,
+        conversationId: conv.id,
+        sessionId: conv.sessionId,
+        running: conv.busy,
+        lastEventId: conv.lastEventId,
+        replayFrom: replayFloor(conv),
+        messages,
+        messagesComplete,
+        pendingApprovals,
+      }, CONVERSATION_SNAPSHOT_RESPONSE, 'conversations/snapshot')
     }
     if (req.method === 'POST' && path === '/agent-api/chat') {
       const user = await requireAuth(req, url, res)

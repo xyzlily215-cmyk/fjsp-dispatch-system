@@ -108,6 +108,41 @@ export interface ApprovalStatusInfo {
   status: ApprovalStatus;
 }
 
+/** 会话快照消息中的工具步骤（自 AGH 会话 UI 投影 tool 节点映射，任务 4.1） */
+export interface ConversationSnapshotStep {
+  toolUseId: string | null;
+  name: string;
+  /** daemon UI 投影的工具状态枚举（planned/awaiting_approval/running/completed/failed/cancelled） */
+  status: string;
+  summary: string;
+}
+
+/** 会话快照消息（自 AGH 会话 UI 投影重建） */
+export interface ConversationSnapshotMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  steps: ConversationSnapshotStep[];
+}
+
+/** GET /agent-api/conversations/{id}/snapshot 200 响应（任务 4.1：断线恢复）。
+ *  衔接约定：messagesComplete=true 时以 sinceId=lastEventId 订阅（快照时刻后的事件由
+ *  回放补齐，不丢不重）；false 时以 sinceId=replayFrom 订阅（走回放缓冲重建界面）。
+ *  pendingApprovals 只含仍有效（pending 且未过期）的审批，快照时刻已失效的不在列。 */
+export interface ConversationSnapshot {
+  ok: boolean;
+  conversationId: string;
+  sessionId: string | null;
+  /** 快照时刻是否有回合在执行（BFF 侧 busy） */
+  running: boolean;
+  /** 快照时刻会话最新事件序号 */
+  lastEventId: number;
+  /** 回放缓冲覆盖的最小 sinceId（buffer[0].id - 1，缓冲空时 = lastEventId） */
+  replayFrom: number;
+  messages: ConversationSnapshotMessage[];
+  messagesComplete: boolean;
+  pendingApprovals: ApprovalStatusInfo[];
+}
+
 /** 数字孪生 SSE 事件（twin）信封：快照详细结构的事实源是 agent-bff/mhs.mts 的
  *  AgnesHub（设备层字段由前端 src/api/twin.ts 展开），契约层只约束信封。 */
 export interface TwinEventPayload {
@@ -141,6 +176,8 @@ export interface AgentStreamEvents {
   turn_end: { v: number; reason: string; stopReason: string };
   turn_error: { v: number; message: string; detail?: unknown };
   stream_closed: { v: number };
+  /** 订阅序号已出回放缓冲窗口（逐订阅者控制帧，不进回放缓冲）；收到后重新取快照再订阅 */
+  resync_required: { v: number; lastEventId: number };
 }
 
 export type AgentEventName = keyof AgentStreamEvents;
