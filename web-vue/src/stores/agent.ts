@@ -117,6 +117,13 @@ export const useAgentStore = defineStore('agent', () => {
       msg.text += data.delta;
     },
     assistant_message(data) {
+      // 快照窗口吸收（任务 4.1 修复轮）：快照 await 窗口内广播的事件会回放（id > 快照
+      // lastEventId），其内容可能已在快照消息里——当前无打开中的流式消息、且与末条
+      // 已封存助手消息全文相同时判为窗口回放重复，丢弃
+      if (!currentAssistant) {
+        const last = messages.value[messages.value.length - 1];
+        if (last && last.role === 'assistant' && last.sealed && last.text === data.text) return;
+      }
       // 提交帧是流式增量的最终态：整段替换而非追加
       const msg = ensureAssistant();
       msg.text = data.text;
@@ -126,6 +133,8 @@ export const useAgentStore = defineStore('agent', () => {
       unread.value += 1;
     },
     tool_call(data) {
+      // 快照窗口吸收：同一 toolUseId 的步骤已在快照消息里时不重复入列
+      if (data.toolUseId && findStep(data.toolUseId)) return;
       const msg = ensureAssistant();
       msg.steps.push({
         toolUseId: data.toolUseId,
@@ -258,23 +267,34 @@ export const useAgentStore = defineStore('agent', () => {
 
   /* 连接：先取会话快照再以衔接序号订阅 SSE（任务 4.1）。
    * 快照消息完整 → sinceId=lastEventId（快照到订阅之间的事件由回放补齐，不丢不重）；
-   * 不完整/快照不可用（404/未登录/网络） → sinceId=replayFrom 或退化为既有全量回放。 */
+   * 不完整/快照不可用（404/未登录/网络） → sinceId=replayFrom 或退化为既有全量回放。
+   * 快照 await 期间会话可能被 newConversation 切换（评审 Minor-1）：await 后复核
+   * conversationId，过期快照直接丢弃；在途期间的连接请求排队，完成后重入。 */
+  let connectQueued = false;
   async function connect() {
-    if (closeStream || connecting) return;
+    if (closeStream) return;
+    if (connecting) { connectQueued = true; return; }
     connecting = true;
     try {
       let sinceId: number | undefined;
+      const target = conversationId.value;
       try {
-        const snap = await agentSnapshot(conversationId.value);
+        const snap = await agentSnapshot(target);
         if (snap && snap.ok) {
+          if (conversationId.value !== target) return; // 快照是旧会话的，丢弃（finally 里重入新会话连接）
           applySnapshot(snap);
           sinceId = snap.messagesComplete ? snap.lastEventId : snap.replayFrom;
         }
       } catch { /* 快照不可用：退化为既有全量回放 */ }
+      if (conversationId.value !== target) return; // 快照失败期间也可能已切换会话
       if (closeStream) return;
-      closeStream = openAgentStream(conversationId.value, handlers, { sinceId });
+      closeStream = openAgentStream(target, handlers, { sinceId });
     } finally {
       connecting = false;
+      if (connectQueued) {
+        connectQueued = false;
+        void connect();
+      }
     }
   }
 

@@ -14,6 +14,8 @@
 //      pendingApprovals，重复裁决 409。
 //   5. 模拟重启重建：杀掉实例 A，用同一临时目录起实例 B——会话自存储重建归属、
 //      遗留 pending 审批重启即 expired（审计留痕）、不进快照、裁决 409/410。
+//   6. await 窗口不漏（评审 Important-1 回归，进程内实例 + 假 session 撑开窗口）：
+//      窗口内广播事件不计入快照 lastEventId，以快照序号订阅必须回放到达。
 //
 // 运行：../agnes-harness/node_modules/.bin/tsx test-snapshot.mts（在 agh-integration/agent-bff/ 目录下）
 import assert from 'node:assert/strict'
@@ -28,6 +30,7 @@ const MOCK_PORT = 18106
 const HUB_PORT = 18105
 const BFF_PORT_A = 14182
 const BFF_PORT_B = 14183
+const BFF_PORT_INPROC = 14184
 const APPROVAL_TTL_MS = 1500
 
 const USERS: Record<string, { username: string; role: string; displayName: string }> = {
@@ -346,6 +349,75 @@ try {
   assert.ok(restartAudit, '重启转换 pending→expired 应落审计')
   ok('重启重建：会话归属自存储重建、遗留 pending → expired（审计留痕、不进快照、裁决拒绝）')
 
+  // 8. await 窗口内广播事件不漏（评审 Important-1 回归）：快照在 ensureSession /
+  //    projectUIOpening 的 await 窗口内若有新事件广播，修复前响应的 lastEventId 会
+  //    把窗口事件包含进去（前端 sinceId=L 订阅永不回放 → 丢）；修复后 lastEventId 在
+  //    await 前同步捕获，窗口事件 id > L，回放可达。
+  //    构造：进程内实例 + 假 session（projectUIOpening 返回可控 deferred），确定性地
+  //    把窗口撑开，在窗口内用 POST /approvals 广播一条真实事件。
+  bffB?.kill()
+  bffB = null
+  const tmp2 = mkdtempSync(join(tmpdir(), 'bff-snapshot-inproc-'))
+  process.env.AGENT_BFF_PORT = String(BFF_PORT_INPROC)
+  process.env.AGENT_BFF_HOST = '127.0.0.1'
+  process.env.FJSP_API_BASE = `http://127.0.0.1:${MOCK_PORT}/api/v1`
+  process.env.AGENT_BFF_STORE_FILE = join(tmp2, 'store.json')
+  process.env.AGENT_BFF_SESSION_ID_FILE = join(tmp2, 'session-id')
+  process.env.AGH_OWNER_FILE = join(tmp2, 'owner.json')
+  process.env.AGNES_HUB_URL = `ws://127.0.0.1:${HUB_PORT}/ws/hub`
+  process.env.AGENT_BFF_AUDIT_FILE = join(tmp2, 'audit.jsonl')
+  process.env.AGENT_BFF_APPROVALS_FILE = join(tmp2, 'approvals.json')
+  const bffInproc = await import('./server.mts')
+  await waitReady(BFF_PORT_INPROC)
+  BFF = `http://127.0.0.1:${BFF_PORT_INPROC}/agent-api`
+
+  const regBase = await api('POST', '/approvals', {
+    token: 'tok-bob',
+    body: { conversationId: 'conv-live', toolCall: { name: 'fjsp_publish', args: { planVersionId: 'PV-50' } } },
+  })
+  assert.equal(regBase.status, 202) // 事件 id=1
+  const convLive = bffInproc.conversations.get('conv-live')!
+  assert.ok(convLive)
+  // 假 session：ensureSession 直接返回（conv.session 已设置），projectUIOpening 挂起直到放行
+  let releaseGate!: (v: unknown) => void
+  const gate = new Promise((resolve) => { releaseGate = resolve })
+  convLive.session = {
+    projectUIOpening: () => gate,
+  } as unknown as (typeof convLive.session)
+
+  const snapPromise = api('GET', '/conversations/conv-live/snapshot', { token: 'tok-bob' })
+  await new Promise((r) => setTimeout(r, 150)) // 等快照处理进入 await 窗口
+  const regWindow = await api('POST', '/approvals', {
+    token: 'tok-bob',
+    body: { conversationId: 'conv-live', toolCall: { name: 'fjsp_publish', args: { planVersionId: 'PV-51' } } },
+  })
+  assert.equal(regWindow.status, 202) // 窗口内事件 id=2
+  releaseGate({
+    timeline: { nodes: [{ kind: 'assistant', id: 'n1', seq: 1, text: '窗口前消息' }] },
+    history: { hasEarlier: false },
+  })
+  const snapLive = await snapPromise
+  assert.equal(snapLive.status, 200, JSON.stringify(snapLive.data))
+  assert.equal(snapLive.data.messagesComplete, true)
+  assert.equal(snapLive.data.messages.length, 1)
+  assert.equal(snapLive.data.messages[0].text, '窗口前消息')
+  assert.equal(snapLive.data.lastEventId, 1,
+    'lastEventId 必须在 await 前捕获：窗口内事件(id=2)不得计入快照序号，否则前端 sinceId=2 订阅将永久丢失该事件')
+  assert.ok(snapLive.data.pendingApprovals.some((a: { requestId: string }) => a.requestId === regWindow.data.approval.requestId),
+    '窗口内登记的审批仍应出现在快照待批准列表（审批读在 await 之后）')
+  // 不漏的闭环：以快照 lastEventId=1 订阅，窗口事件 id=2 必须回放到达
+  const ticketLive = await api('POST', '/stream-ticket', { token: 'tok-bob' })
+  const seamLive = await collectSse(
+    `/stream?conversationId=conv-live&ticket=${encodeURIComponent(ticketLive.data.ticket as string)}&sinceId=1`,
+    (frames) => frames.some((f) => f.id === 2),
+  )
+  const windowEvent = seamLive.frames.find((f) => f.id === 2)
+  assert.ok(windowEvent, '窗口内事件必须能按快照 lastEventId 回放（不漏）')
+  assert.equal(windowEvent!.event, 'permission_request')
+  assert.equal(JSON.parse(windowEvent!.data).requestId, regWindow.data.approval.requestId)
+  ok('await 窗口：lastEventId 同步捕获，窗口内事件 id>L 回放可达（不漏）')
+  rmSync(tmp2, { recursive: true, force: true })
+
   console.log(`\nPASS ${passed} 组断言全部通过`)
   process.exitCode = 0
 } catch (err) {
@@ -357,4 +429,6 @@ try {
   mockAuth.close()
   mockHub.close()
   rmSync(tmp, { recursive: true, force: true })
+  // 进程内 import 的 BFF 仍在监听，直接退出
+  setTimeout(() => process.exit(process.exitCode ?? 0), 200)
 }

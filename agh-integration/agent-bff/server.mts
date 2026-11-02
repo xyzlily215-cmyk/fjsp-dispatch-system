@@ -934,6 +934,13 @@ const server = createServer(async (req, res) => {
       }
       const conv = getConversation(m[1], user.username)
       if (!authorizeConversation(conv, user, res)) return
+      // 事件序号在进入 await 之前同步捕获（评审 Important-1）：await（ensureSession /
+      // projectUIOpening）窗口内广播的事件序号 > 此值，前端以 sinceId=lastEventId 订阅
+      // 时必然回放，保证「不漏」；代价是窗口内事件内容可能同时进了快照消息，回放产生
+      // 极窄重复，由前端吸收（tool_call 按 toolUseId 去重、审批卡片按 requestId 去重、
+      // 末条已封存助手消息全文相同的 assistant_message 丢弃）。
+      const lastEventId = conv.lastEventId
+      const replayFrom = replayFloor(conv)
       let messages: SnapshotMessage[] = []
       let messagesComplete = true // 会话从未建立（无 sessionId）时消息为空即完整
       if (conv.session || conv.sessionId) {
@@ -958,8 +965,8 @@ const server = createServer(async (req, res) => {
         conversationId: conv.id,
         sessionId: conv.sessionId,
         running: conv.busy,
-        lastEventId: conv.lastEventId,
-        replayFrom: replayFloor(conv),
+        lastEventId,
+        replayFrom,
         messages,
         messagesComplete,
         pendingApprovals,
