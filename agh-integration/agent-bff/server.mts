@@ -13,6 +13,8 @@
 //   POST /agent-api/permission { conversationId, requestId, verdict: 'allowed-once' | 'rejected' }
 //   POST /agent-api/approvals  { conversationId, toolCall, ttlMs? }  工作流登记审批（任务 3.4）
 //   GET  /agent-api/approvals/:requestId           审批状态查询（五要素摘要 + 状态，任务 3.4）
+//   GET  /agent-api/audit/trail?workflowId=...     审计聚合视图（任务 4.2，仅 ADMIN）：
+//         或 ?objectType=..&objectId=..；format=jsonl 导出完整链
 //   GET  /agent-api/twin/snapshot              MHS device snapshot (digital twin page)
 //   GET  /agent-api/twin/stream?ticket=...     SSE 1Hz device snapshot ticks
 //   GET  /agent-api/twin/device/:id/panel      latest panel JPEG（公开：<img> 无法带请求头）
@@ -50,9 +52,12 @@
 //       FJSP_API_BASE (default http://localhost:8081/api/v1，JWT 内检地址),
 //       AGENT_BFF_APPROVAL_TTL_MS（审批有效期，默认 5 分钟）,
 //       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE / AGENT_BFF_APPROVALS_FILE / AGENT_BFF_BUFFER_CAP（测试隔离覆盖用）
+//       FJSP_WORKFLOW_DIR（审计聚合读取工作流检查点目录，默认 ~/.agh/fjsp-workflows，与 workflow/checkpoint.mts 同约定）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { createClient, type PermissionOutcome, type Session } from '../agnes-harness/packages/sdk/src/index.node.ts'
 import { tools as fjspToolDefs } from '../fjsp-tools/index.mjs'
 import { mhsHub } from './mhs.mts'
@@ -62,6 +67,7 @@ import { validateEvent, withVersion } from './contract/events.mts'
 import {
   buildOpenApi, validateRequestBody, findEndpoint,
   APPROVAL_STATUS_RESPONSE,
+  AUDIT_TRAIL_RESPONSE,
   CHAT_ACCEPTED, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
 } from './contract/http.mts'
@@ -645,6 +651,181 @@ for (const rec of loadApprovalsFromFile(APPROVALS_FILE, (converted) => {
   approvals.set(rec.requestId, rec)
 }
 
+// ---- 审计聚合视图（任务 4.2）----
+// 关联键贯通：workflowId（检查点 + BFF 审批记录/审批审计）、requestId（审批五要素句柄，
+// 检查点 pendingApproval/expiredApprovals/completedSteps.result.requestId 引用）、幂等键
+// （检查点步骤 wfId:node:seq）、业务对象 ID（检查点 refs ↔ business-service 审计的
+// objectType/objectId，业务请求 ID 在业务审计条目的 requestId 字段）。
+// 聚合不到的环节一律进 degraded 标注（unknown），不编造。
+// 角色闸（显式常量，同 1.2 RISK_ROLES 风格）：聚合链含全部用户的审批与业务留痕，仅 ADMIN。
+const AUDIT_VIEW_ROLES = ['ADMIN']
+const WORKFLOW_DIR = process.env.FJSP_WORKFLOW_DIR ?? join(homedir(), '.agh', 'fjsp-workflows')
+
+// 检查点 refs → business-service audit_log.objectType（既有取值，见 AuditService 调用点）
+const REF_OBJECT_TYPE: Record<string, string> = {
+  eventId: 'event',
+  taskId: 'schedule_task',
+  planVersionId: 'plan_version',
+}
+
+type WorkflowCheckpointView = {
+  pendingApproval?: { requestId?: string } | null
+  expiredApprovals?: { requestId?: string }[]
+  completedSteps?: { idempotencyKey?: string; result?: Record<string, unknown> }[]
+  current?: { idempotencyKey?: string } | null
+  refs?: Record<string, string | null>
+} & Record<string, unknown>
+
+function loadWorkflowCheckpoint(workflowId: string): { checkpoint: WorkflowCheckpointView | null; degraded: string | null } {
+  const file = join(WORKFLOW_DIR, `${workflowId}.json`)
+  if (!existsSync(file)) return { checkpoint: null, degraded: `workflow_checkpoint_missing（未找到 ${workflowId} 的检查点）` }
+  try {
+    return { checkpoint: JSON.parse(readFileSync(file, 'utf8')) as WorkflowCheckpointView, degraded: null }
+  } catch (err) {
+    return { checkpoint: null, degraded: `workflow_checkpoint_corrupt（检查点不可解析，拒绝猜测其内容）：${String(err)}` }
+  }
+}
+
+/** 读审批审计 JSONL 全量行（解析失败的行记 degraded，不丢弃也不编造）。 */
+function readApprovalAuditLines(): { entries: Record<string, unknown>[]; badLines: number } {
+  const entries: Record<string, unknown>[] = []
+  let badLines = 0
+  let raw = ''
+  try {
+    raw = readFileSync(process.env.AGENT_BFF_AUDIT_FILE ?? AUDIT_FILE, 'utf8')
+  } catch {
+    return { entries, badLines: 0 } // 文件不存在 = 尚无审计记录，不算降级
+  }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      entries.push(JSON.parse(line) as Record<string, unknown>)
+    } catch {
+      badLines += 1
+    }
+  }
+  return { entries, badLines }
+}
+
+/** 业务审计（business-service /audit-logs，仅 ADMIN）：转发调用方 Bearer token，
+ *  让 business-service 自己的鉴权再兜一道。不可达/无 token 时返回 error 供降级标注。 */
+async function fetchBusinessAudit(token: string | null, objectType: string, objectId: string): Promise<{ items: Record<string, unknown>[]; error: string | null }> {
+  if (!token) return { items: [], error: 'no_bearer_token（ticket 路径无法转发业务审计查询）' }
+  try {
+    const res = await fetch(`${FJSP_API_BASE}/audit-logs?objectType=${encodeURIComponent(objectType)}&objectId=${encodeURIComponent(objectId)}&size=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(3000),
+    })
+    const env = (await res.json().catch(() => null)) as { data?: { items?: unknown } } | null
+    if (!res.ok || !Array.isArray(env?.data?.items)) return { items: [], error: `business_audit_http_${res.status}` }
+    return { items: env!.data!.items as Record<string, unknown>[], error: null }
+  } catch (err) {
+    return { items: [], error: `business_audit_unavailable（${String(err)}）` }
+  }
+}
+
+/** 聚合一条审计链；返回 null 表示 workflowId 模式下检查点与审批记录都不存在（404）。 */
+async function buildAuditTrail(
+  q: { workflowId: string | null; objectType: string | null; objectId: string | null },
+  token: string | null,
+) {
+  const degraded: string[] = []
+  const requestIds = new Set<string>()
+  const idempotencyKeys: string[] = []
+  const refs: Record<string, string> = {}
+  let checkpoint: WorkflowCheckpointView | null = null
+
+  if (q.workflowId) {
+    const r = loadWorkflowCheckpoint(q.workflowId)
+    checkpoint = r.checkpoint
+    if (r.degraded) degraded.push(r.degraded)
+    if (checkpoint) {
+      if (typeof checkpoint.pendingApproval?.requestId === 'string') requestIds.add(checkpoint.pendingApproval.requestId)
+      for (const e of checkpoint.expiredApprovals ?? []) {
+        if (typeof e?.requestId === 'string') requestIds.add(e.requestId)
+      }
+      for (const s of checkpoint.completedSteps ?? []) {
+        if (typeof s?.idempotencyKey === 'string') idempotencyKeys.push(s.idempotencyKey)
+        const rid = s?.result?.requestId
+        if (typeof rid === 'string') requestIds.add(rid)
+      }
+      if (typeof checkpoint.current?.idempotencyKey === 'string') idempotencyKeys.push(checkpoint.current.idempotencyKey)
+      for (const [k, v] of Object.entries(checkpoint.refs ?? {})) {
+        if (typeof v === 'string' && v) refs[k] = v
+      }
+    }
+  }
+
+  // BFF 审批记录：workflow 模式按 workflowId/requestId 双键关联（存量无 workflowId 的记录
+  // 仍能经检查点 requestId 关联上）；业务对象模式按 bizObject 值匹配
+  const matchedApprovals: ApprovalRecord[] = []
+  for (const rec of approvals.values()) {
+    const hit = q.workflowId
+      ? rec.workflowId === q.workflowId || requestIds.has(rec.requestId)
+      : !!rec.bizObject && Object.values(rec.bizObject).includes(q.objectId as string)
+    if (hit) {
+      matchedApprovals.push(rec)
+      requestIds.add(rec.requestId)
+    }
+  }
+  if (q.workflowId && !checkpoint && matchedApprovals.length === 0) return null
+  matchedApprovals.sort((a, b) => a.createdAt - b.createdAt)
+
+  // 检查点引用了但本 BFF 找不到的审批记录：显式 unknown 标注，不编造
+  if (q.workflowId) {
+    const known = new Set(matchedApprovals.map((r) => r.requestId))
+    for (const rid of requestIds) {
+      if (!known.has(rid)) degraded.push(`approval_unknown（检查点引用的审批记录不在 BFF：${rid}）`)
+    }
+  }
+
+  // BFF 审批裁决留痕（审计 JSONL）：按 workflowId 或已关联 requestId 归集
+  const { entries: auditEntries, badLines } = readApprovalAuditLines()
+  if (badLines) degraded.push(`approval_audit_bad_lines（${badLines} 行审计记录不可解析，已跳过）`)
+  const approvalEvents = auditEntries.filter((e) =>
+    (q.workflowId && e.workflowId === q.workflowId)
+    || (typeof e.requestId === 'string' && requestIds.has(e.requestId))
+    || (!q.workflowId && e.bizObject && typeof e.bizObject === 'object'
+      && Object.values(e.bizObject as Record<string, unknown>).includes(q.objectId)))
+
+  // 业务副作用：business-service 审计（业务请求 ID 在条目 requestId 字段）
+  const bizTargets: { objectType: string; objectId: string }[] = q.workflowId
+    ? Object.entries(refs).filter(([k]) => REF_OBJECT_TYPE[k]).map(([k, v]) => ({ objectType: REF_OBJECT_TYPE[k], objectId: v }))
+    : [{ objectType: q.objectType as string, objectId: q.objectId as string }]
+  const businessAudit: Record<string, unknown>[] = []
+  const seenAuditIds = new Set<string>()
+  for (const t of bizTargets) {
+    const r = await fetchBusinessAudit(token, t.objectType, t.objectId)
+    if (r.error) {
+      degraded.push(`${r.error}（${t.objectType}/${t.objectId}）`)
+      continue
+    }
+    for (const item of r.items) {
+      const id = typeof item.id === 'string' ? item.id : JSON.stringify(item)
+      if (seenAuditIds.has(id)) continue
+      seenAuditIds.add(id)
+      businessAudit.push(item)
+    }
+  }
+  businessAudit.sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')))
+
+  return {
+    ok: true,
+    query: q.workflowId ? { workflowId: q.workflowId } : { objectType: q.objectType, objectId: q.objectId },
+    correlation: {
+      requestIds: [...requestIds].sort(),
+      idempotencyKeys,
+      refs,
+    },
+    workflow: checkpoint,
+    approvals: matchedApprovals.map(approvalSummary),
+    approvalEvents,
+    businessAudit,
+    degraded,
+  }
+}
+
+
 // 工作流登记的审批（POST /agent-api/approvals，无 daemon 承诺可 settle）的裁决路径：
 // 与 daemon 路径同一套重校验（一次性已由上层 status!=='pending' 拦截、归属已校验），
 // 差异只在无承诺可解——裁决落记录 + 持久化 + 广播 permission_resolved，工作流轮询 GET 拿结果。
@@ -1095,6 +1276,30 @@ const server = createServer(async (req, res) => {
         },
       })
       return sendJsonChecked(res, 202, { ok: true, approval: approvalSummary(record) }, APPROVAL_STATUS_RESPONSE, 'approvals/register')
+    }
+    if (req.method === 'GET' && path === '/agent-api/audit/trail') {
+      // 审计聚合视图（任务 4.2）：requireAuth + ADMIN 角色闸（显式常量 AUDIT_VIEW_ROLES）。
+      // 按 workflowId 或 objectType+objectId 聚合：工作流检查点 + BFF 审批记录与裁决留痕 +
+      // business-service 业务审计（转发调用方 Bearer token，business-service 自身 ADMIN 闸再兜一道）。
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      if (!AUDIT_VIEW_ROLES.includes(user.role)) {
+        return sendJson(res, 403, { error: 'audit_forbidden', detail: `审计聚合视图仅对 ${AUDIT_VIEW_ROLES.join(' / ')} 开放` })
+      }
+      const workflowId = url.searchParams.get('workflowId')
+      const objectType = url.searchParams.get('objectType')
+      const objectId = url.searchParams.get('objectId')
+      if (workflowId !== null && !/^wf-[A-Za-z0-9-]{1,80}$/.test(workflowId)) {
+        return sendJson(res, 400, { error: 'invalid_request', detail: 'workflowId 格式不符合契约', issues: [{ path: 'workflowId', message: '需匹配 ^wf-[A-Za-z0-9-]{1,80}$' }] })
+      }
+      if (!workflowId && !(objectType && objectId)) {
+        return sendJson(res, 400, { error: 'invalid_request', detail: '需指定 workflowId 或 objectType+objectId' })
+      }
+      const header = req.headers.authorization ?? ''
+      const token = header.startsWith('Bearer ') ? header.slice(7) : null
+      const trail = await buildAuditTrail({ workflowId, objectType, objectId }, token)
+      if (!trail) return sendJson(res, 404, { error: 'workflow_not_found', detail: '未找到该工作流的检查点与审批记录' })
+      return sendJsonChecked(res, 200, trail, AUDIT_TRAIL_RESPONSE, 'audit/trail')
     }
     if (req.method === 'GET' && path.startsWith('/agent-api/approvals/')) {
       // 审批状态查询（任务 3.4）：requireAuth + 会话归属校验（与 /permission 同口径，

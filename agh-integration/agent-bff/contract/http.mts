@@ -164,6 +164,34 @@ export const APPROVAL_STATUS_RESPONSE: Schema = {
   },
 }
 
+// ---- 审计聚合视图（任务 4.2，GET /agent-api/audit/trail，仅 ADMIN）----
+
+/** 聚合链响应：workflow/approvals/approvalEvents/businessAudit 四源 + correlation 关联键 +
+ *  degraded 降级标注（聚合不到的环节显式 unknown，不编造）。workflow 为检查点原文透传，
+ *  approvalEvents/businessAudit 为审计源条目透传，契约只约束信封层。 */
+export const AUDIT_TRAIL_RESPONSE: Schema = {
+  type: 'object',
+  required: ['ok', 'query', 'correlation', 'workflow', 'approvals', 'approvalEvents', 'businessAudit', 'degraded'],
+  properties: {
+    ok: { type: 'boolean' },
+    query: { type: 'object' },
+    correlation: {
+      type: 'object',
+      required: ['requestIds', 'idempotencyKeys', 'refs'],
+      properties: {
+        requestIds: { type: 'array', items: { type: 'string' } },
+        idempotencyKeys: { type: 'array', items: { type: 'string' } },
+        refs: { type: 'object' },
+      },
+    },
+    workflow: { type: ['object', 'null'] },
+    approvals: { type: 'array', items: APPROVAL_SUMMARY },
+    approvalEvents: { type: 'array', items: { type: 'object' } },
+    businessAudit: { type: 'array', items: { type: 'object' } },
+    degraded: { type: 'array', items: { type: 'string' } },
+  },
+}
+
 export const TWIN_ACTION_ACCEPTED: Schema = {
   type: 'object',
   required: ['ok', 'device', 'action'],
@@ -310,6 +338,10 @@ export const HTTP_CONTRACT: EndpointContract[] = [
     responses: { 200: APPROVAL_STATUS_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
   },
   {
+    method: 'GET', path: '/agent-api/audit/trail', summary: '审计聚合视图（任务 4.2，仅 ADMIN）：按 workflowId 或 objectType+objectId 聚合工作流检查点、审批记录与裁决留痕、业务审计；format=jsonl 导出完整链', auth: 'bearer',
+    responses: { 200: AUDIT_TRAIL_RESPONSE, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+  },
+  {
     method: 'GET', path: '/agent-api/twin/snapshot', summary: 'MHS 设备快照（数字孪生页）', auth: 'bearer',
     responses: { 200: TWIN_SNAPSHOT, 401: ERROR_RESPONSE },
   },
@@ -386,6 +418,14 @@ export function buildOpenApi(): Record<string, unknown> {
         { name: 'conversationId', in: 'query', required: false, schema: { type: 'string', pattern: '^[\\w-]{1,80}$' } },
         { name: 'ticket', in: 'query', required: false, schema: { type: 'string' } },
         { name: 'sinceId', in: 'query', required: false, schema: { type: 'integer' } },
+      ]
+    }
+    if (ep.path === '/agent-api/audit/trail') {
+      op.parameters = [
+        { name: 'workflowId', in: 'query', required: false, schema: { type: 'string', pattern: '^wf-[A-Za-z0-9-]{1,80}$' }, description: '按工作流聚合（与 objectType+objectId 二选一）' },
+        { name: 'objectType', in: 'query', required: false, schema: { type: 'string' }, description: '业务对象类型（与 objectId 成对）' },
+        { name: 'objectId', in: 'query', required: false, schema: { type: 'string' }, description: '业务对象 ID（与 objectType 成对）' },
+        { name: 'format', in: 'query', required: false, schema: { type: 'string', enum: ['json', 'jsonl'] }, description: 'jsonl 导出完整链供复核（application/x-ndjson）' },
       ]
     }
     if (ep.requestBody) {

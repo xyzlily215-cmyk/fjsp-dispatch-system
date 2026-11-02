@@ -110,6 +110,32 @@ export interface ApprovalStatusInfo {
   status: ApprovalStatus;
 }
 
+/** 审计聚合视图（GET /agent-api/audit/trail，任务 4.2，仅 ADMIN）的关联键集合 */
+export interface AuditTrailCorrelation {
+  /** 审批请求 ID（检查点 pendingApproval/expiredApprovals/completedSteps.result.requestId + 命中的审批记录） */
+  requestIds: string[];
+  /** 步骤幂等键（检查点步骤 wfId:node:seq） */
+  idempotencyKeys: string[];
+  /** 业务对象引用（eventId/taskId/planVersionId → 业务审计 objectType/objectId） */
+  refs: Record<string, string>;
+}
+
+/** GET /agent-api/audit/trail 200 响应（任务 4.2 审计聚合视图，仅 ADMIN）。
+ *  workflow 为工作流检查点原文透传（无检查点时 null 并在 degraded 标注）；
+ *  approvalEvents 为 BFF 审批审计 JSONL 条目透传；businessAudit 为 business-service
+ *  audit_log 条目透传（含业务请求 ID requestId）。degraded 列出聚合不到的环节
+ *  （unknown 标注，不编造）。format=jsonl 时同内容以 application/x-ndjson 逐行导出。 */
+export interface AuditTrail {
+  ok: boolean;
+  query: { workflowId?: string; objectType?: string; objectId?: string };
+  correlation: AuditTrailCorrelation;
+  workflow: Record<string, unknown> | null;
+  approvals: ApprovalStatusInfo[];
+  approvalEvents: Record<string, unknown>[];
+  businessAudit: Record<string, unknown>[];
+  degraded: string[];
+}
+
 /** 会话快照消息中的工具步骤（自 AGH 会话 UI 投影 tool 节点映射，任务 4.1） */
 export interface ConversationSnapshotStep {
   toolUseId: string | null;
