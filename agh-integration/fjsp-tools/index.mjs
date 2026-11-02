@@ -911,9 +911,11 @@ const tools = [
       eventType: S({ description: 'BREAKDOWN（设备故障）或 NEW_ORDER（插单）；不传返回全部类型' }),
       query: S({ description: '当前情景的自然语言描述，用于语义检索最相似的历史处置（如「M-05 主轴过热停机，维修 2 小时」）；不传则按时间倒序' }),
       limit: I({ description: '最多返回条数，默认 10' }),
+      loadLevel: S({ description: '当前负荷水平 LOW / NORMAL / HIGH，传入后同类负荷的历史记录加权（语义检索路径生效）', enum: ['LOW', 'NORMAL', 'HIGH'] }),
+      dueUrgency: S({ description: '当前交期紧迫度 LOW / MEDIUM / HIGH，传入后同紧迫度的历史记录加权（语义检索路径生效）', enum: ['LOW', 'MEDIUM', 'HIGH'] }),
     }),
     meta: READ,
-    async execute({ eventType, limit, query }) {
+    async execute({ eventType, limit, query, loadLevel, dueUrgency }) {
       // RAG 语义检索优先：agent-bff 的 /rag/experience-query（本地 e5 向量 + BM25 混合召回）。
       // BFF 已加鉴权（P0）：携带业务服务 JWT（与 api() 同一来源）；未配置凭据时 BFF 返回 401，
       // 与 BFF 不在线一样回退到下方本地统计逻辑，保证工具永远可用。
@@ -925,7 +927,7 @@ const tools = [
             'Content-Type': 'application/json',
             ...(ragToken ? { Authorization: `Bearer ${ragToken}` } : {}),
           },
-          body: JSON.stringify({ eventType, query, limit: limit ?? 10 }),
+          body: JSON.stringify({ eventType, query, limit: limit ?? 10, loadLevel, dueUrgency }),
           signal: AbortSignal.timeout(4000),
         })
         if (res.ok) {
@@ -933,7 +935,8 @@ const tools = [
           if (data && data.ok) return result(data)
         }
       } catch { /* BFF 不可达：回退本地逻辑 */ }
-      const all = readExperience()
+      // BFF 不可达：回退本地逻辑。feedback 行（任务 5.1 结果反馈）不是经验记录，本地回落一并跳过。
+      const all = readExperience().filter((r) => r.kind !== 'feedback')
       const matched = (eventType ? all.filter((r) => r.eventType === eventType) : all)
         .slice(-Math.min(Math.max(limit ?? 10, 1), 100))
         .reverse()
@@ -986,11 +989,16 @@ const tools = [
         kpiDiff: KPI_DIFF,
         published: S({ description: '"true" 已发布 / "false" 未发布（含零扰动无需发布）' }),
         note: S({ description: '一句话处置结论，如「故障落在空闲窗口，零扰动未发布」' }),
+        // 情景字段（任务 5.1）：供检索时比较同类场景，均可选，旧调用不变
+        loadLevel: S({ description: '负荷水平 LOW / NORMAL / HIGH（可据当前计划 KPI 负载/设备状态映射）', enum: ['LOW', 'NORMAL', 'HIGH'] }),
+        dueUrgency: S({ description: '交期紧迫度 LOW / MEDIUM / HIGH（可据订单 dueAt 相对当前时间与优先级映射）', enum: ['LOW', 'MEDIUM', 'HIGH'] }),
+        repairDurationMinutes: I({ description: '故障预计维修时长（分钟，BREAKDOWN 的扰动规模，取 fjsp_report_breakdown 的入参）', minimum: 1 }),
+        orderQuantity: I({ description: '插单数量（NEW_ORDER 的扰动规模，取 fjsp_insert_order 的 quantity）', minimum: 1 }),
       },
       ['eventType', 'mode'],
     ),
     meta: WRITE,
-    async execute({ eventType, machineId, mode, weights, resultStatus, kpiDiff, published, note }) {
+    async execute({ eventType, machineId, mode, weights, resultStatus, kpiDiff, published, note, loadLevel, dueUrgency, repairDurationMinutes, orderQuantity }) {
       if (eventType !== 'BREAKDOWN' && eventType !== 'NEW_ORDER') {
         return result({ ok: false, error: { code: 'FJSP_INVALID_EVENT_TYPE', message: 'eventType 必须是 BREAKDOWN 或 NEW_ORDER' } })
       }
@@ -998,6 +1006,7 @@ const tools = [
         return result({ ok: false, error: { code: 'FJSP_INVALID_MODE', message: 'mode 必须是 LOCAL_RESCHEDULE 或 FULL_RESCHEDULE' } })
       }
       const record = {
+        id: crypto.randomUUID(),
         ts: new Date().toISOString(),
         eventType,
         mode,
@@ -1007,6 +1016,10 @@ const tools = [
         ...(kpiDiff ? { kpiDiff } : {}),
         ...(published !== undefined ? { published: published === 'true' } : {}),
         ...(note ? { note } : {}),
+        ...(loadLevel ? { loadLevel } : {}),
+        ...(dueUrgency ? { dueUrgency } : {}),
+        ...(repairDurationMinutes !== undefined ? { repairDurationMinutes } : {}),
+        ...(orderQuantity !== undefined ? { orderQuantity } : {}),
         sessionId: aghSessionId(),
       }
       try {
@@ -1015,6 +1028,42 @@ const tools = [
         return result({ ok: false, error: { code: 'FJSP_EXPERIENCE_WRITE_FAILED', message: String(e) } })
       }
       return result({ ok: true, recorded: record, total: readExperience().length })
+    },
+  },
+  {
+    name: 'fjsp_experience_feedback',
+    description:
+      '对已沉淀的处置经验追加结果反馈（业务结果 / 人工评审驳回 / 返工）：不修改原始记录，追加一条 kind=feedback 的记录关联 experienceId；检索时按 outcome 对原经验降权（rejected/reworked/failed）或正常保留（success/partial）。评审被驳回、返工或事后确认处置效果不佳时调用。',
+    parameters: Obj(
+      {
+        experienceId: S({ description: '目标经验记录 id（fjsp_experience_record 返回的 recorded.id）' }),
+        outcome: S({ description: 'success 成功 / partial 部分达成 / failed 失败 / rejected 评审驳回 / reworked 返工', enum: ['success', 'partial', 'failed', 'rejected', 'reworked'] }),
+        feedbackBy: S({ description: '反馈来源操作者（人工驳回/返工时记录操作者账号）' }),
+        note: S({ description: '补充说明，如驳回原因摘要' }),
+      },
+      ['experienceId', 'outcome'],
+    ),
+    meta: WRITE,
+    async execute({ experienceId, outcome, feedbackBy, note }) {
+      const target = readExperience().find((r) => r.kind !== 'feedback' && r.id === experienceId)
+      if (!target) {
+        return result({ ok: false, error: { code: 'FJSP_NOT_FOUND', message: `经验记录 ${experienceId} 不存在（仅 fjsp_experience_record 新写入的记录带 id，旧记录无 id 不能反馈）` } })
+      }
+      const feedback = {
+        kind: 'feedback',
+        experienceId,
+        outcome,
+        feedbackAt: new Date().toISOString(),
+        ...(feedbackBy ? { feedbackBy } : {}),
+        ...(note ? { note } : {}),
+        sessionId: aghSessionId(),
+      }
+      try {
+        appendFileSync(EXPERIENCE_FILE, JSON.stringify(feedback) + '\n')
+      } catch (e) {
+        return result({ ok: false, error: { code: 'FJSP_EXPERIENCE_WRITE_FAILED', message: String(e) } })
+      }
+      return result({ ok: true, feedback, total: readExperience().length })
     },
   },
   {

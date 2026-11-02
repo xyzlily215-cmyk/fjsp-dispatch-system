@@ -2,7 +2,7 @@
 // 出参/错误 envelope、错误分类、幂等键外部化与未知结果终态查询指引。
 // 全程 mock fetch，不依赖真实 business-service，无副作用。
 // 运行：node agh-integration/fjsp-tools/test-contract.mjs
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -57,7 +57,7 @@ const { tools, __contract } = await import('./index.mjs')
 const toolMap = new Map(tools.map((t) => [t.name, t]))
 const { validateParams, classifyError, ERROR_CLASSES } = __contract
 
-assert(tools.length === 18, `工具数量=18（实际 ${tools.length}）`)
+assert(tools.length === 19, `工具数量=19（实际 ${tools.length}）`)
 
 // ---- 1. 每个工具：非法参数挡在执行前（fetch 0 次调用），envelope 形态正确 ----
 resetFetch()
@@ -211,6 +211,53 @@ resetFetch()
   assert(fetchCalls.length === 0, '经验库写入不发 HTTP 请求')
 }
 
+// ---- 3b. 经验情景字段与结果反馈（任务 5.1）：记录带 id 与情景字段；反馈仅追加、不改原记录 ----
+resetFetch()
+let feedbackTargetId
+{
+  const out = await toolMap.get('fjsp_experience_record').execute({
+    eventType: 'BREAKDOWN', mode: 'FULL_RESCHEDULE', machineId: 'M-03',
+    loadLevel: 'HIGH', dueUrgency: 'MEDIUM', repairDurationMinutes: 120,
+  })
+  const s = out.structured
+  assert(s.ok === true && typeof s.recorded.id === 'string' && s.recorded.id.length === 36, 'fjsp_experience_record 新记录携带 UUID id')
+  assert(s.recorded.loadLevel === 'HIGH' && s.recorded.dueUrgency === 'MEDIUM' && s.recorded.repairDurationMinutes === 120, '情景字段（loadLevel/dueUrgency/repairDurationMinutes）落库')
+  feedbackTargetId = s.recorded.id
+}
+{
+  const bad = await toolMap.get('fjsp_experience_record').execute({ eventType: 'BREAKDOWN', mode: 'LOCAL_RESCHEDULE', loadLevel: 'PEAK' })
+  assertErrEnvelope(bad, 'FJSP_INVALID_PARAMS', '非法 loadLevel 枚举值被 schema 拦截')
+}
+{
+  const before = readFileSync(process.env.FJSP_EXPERIENCE_FILE, 'utf8')
+  const out = await toolMap.get('fjsp_experience_feedback').execute({
+    experienceId: feedbackTargetId, outcome: 'rejected', feedbackBy: 'reviewer-01', note: '评审驳回：扰动过大',
+  })
+  const s = out.structured
+  assert(s.ok === true && s.feedback.kind === 'feedback' && s.feedback.experienceId === feedbackTargetId, 'fjsp_experience_feedback 追加 kind=feedback 记录')
+  assert(typeof s.feedback.feedbackAt === 'string' && s.feedback.feedbackBy === 'reviewer-01', '反馈携带 feedbackAt/feedbackBy')
+  const after = readFileSync(process.env.FJSP_EXPERIENCE_FILE, 'utf8')
+  assert(after.startsWith(before) && after.length > before.length, '反馈仅追加一行，原始记录字节不变')
+  assert(fetchCalls.length === 0, '反馈写入不发 HTTP 请求')
+}
+{
+  const missing = await toolMap.get('fjsp_experience_feedback').execute({ experienceId: 'no-such-id', outcome: 'success' })
+  assertErrEnvelope(missing, 'FJSP_NOT_FOUND', '反馈目标不存在返回 FJSP_NOT_FOUND')
+  const badOutcome = await toolMap.get('fjsp_experience_feedback').execute({ experienceId: feedbackTargetId, outcome: 'bogus' })
+  assertErrEnvelope(badOutcome, 'FJSP_INVALID_PARAMS', '非法 outcome 被 schema 枚举拦截')
+}
+// 本地回落（RAG 不可达）不返回 feedback 行
+resetFetch(() => {
+  throw new Error('RAG offline')
+})
+{
+  const out = await toolMap.get('fjsp_experience_query').execute({ eventType: 'BREAKDOWN' })
+  const s = out.structured
+  assert(s.ok === true && s.records.length > 0, '本地回落返回经验记录')
+  assert(s.records.every((r) => r.kind !== 'feedback'), '本地回落跳过 kind=feedback 行')
+  assert(s.total === s.records.length || s.total >= s.records.length, 'total 口径与记录一致（feedback 行不计入）')
+}
+
 // ---- 4. 校验器单测（直接调 validateParams） ----
 {
   const schema = toolMap.get('fjsp_insert_order').parameters
@@ -235,8 +282,9 @@ for (const name of HTTP_WRITE_TOOLS) {
   assert(!(toolMap.get(name).parameters.required || []).includes('idempotencyKey'), `${name} idempotencyKey 为可选（非必填）`)
 }
 assert(!('idempotencyKey' in (toolMap.get('fjsp_get_dashboard').parameters.properties || {})), '读工具 fjsp_get_dashboard 不含 idempotencyKey')
-// fjsp_experience_record 是本地 JSONL 追加写，不经过业务服务幂等机制，不提供该参数（避免暗示不存在的去重保证）
+// fjsp_experience_record / fjsp_experience_feedback 是本地 JSONL 追加写，不经过业务服务幂等机制，不提供该参数（避免暗示不存在的去重保证）
 assert(!('idempotencyKey' in (toolMap.get('fjsp_experience_record').parameters.properties || {})), 'fjsp_experience_record（本地写）不含 idempotencyKey')
+assert(!('idempotencyKey' in (toolMap.get('fjsp_experience_feedback').parameters.properties || {})), 'fjsp_experience_feedback（本地写）不含 idempotencyKey')
 
 // 5b. 传入 idempotencyKey：原样进入 Idempotency-Key 请求头
 resetFetch(() => jsonRes(200, { code: 'OK', data: { eventId: 'EVT-1', eventType: 'BREAKDOWN', machineId: 'M-03' } }))
