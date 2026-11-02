@@ -127,7 +127,7 @@ seed 在**业务服务层**固定，沿请求快照传到算法服务：
 
 ## 6. 对比口径（Skill 驱动 vs workflow 方案）
 
-- **同场景**：6 个场景逐一跑两遍——现状 Skill 驱动方案（AGH + fjsp-dispatch skill + 18 个 `fjsp_*` 工具）与后续 workflow 方案。
+- **同场景**：6 个场景逐一跑两遍——现状 Skill 驱动方案（AGH + fjsp-dispatch skill + 19 个 `fjsp_*` 工具）与后续 workflow 方案。
 - **同快照**：每遍运行前执行 `snapshot/restore-snapshot.sh`（或场景脚本自带的复位），仿真起点 FIXED。
 - **同 seed**：`randomSeed=20260916`，GA 规模参数用 `GOLDEN_ALGORITHM`（见 3 节）。
 - **同触发**：扰动输入只能由本目录场景脚本产生，prompt 模板固定（0.3 定义，逐场景一份，两方案共用）。

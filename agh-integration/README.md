@@ -11,7 +11,7 @@ agh-integration/
 │   └── server.mts            # 单文件 Node 服务（tsx 运行，默认 127.0.0.1:4178）
 ├── fjsp-tools/               # 后端工具插件（agnes.plugins 入口）
 │   ├── package.json
-│   └── index.mjs             # 18 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record）
+│   └── index.mjs             # 19 个 fjsp_* 工具，HTTP 调业务服务（含 RSI 经验库 query/record/feedback）
 ├── workflow/                 # Workflow 运行器（可恢复工作流：检查点存储 + 恢复协议，任务 3.1）
 │   ├── checkpoint.mts        # 检查点模型 + 本地 JSON 原子写存储（默认 ~/.agh/fjsp-workflows/）
 │   ├── recovery.mts          # 恢复协议：读检查点 → 查业务现态 → 副作用/审批核对 → 恢复决策
@@ -91,7 +91,7 @@ node packages/cli/dist/local/agnes.mjs --help    # 构建冒烟
 | 工作台 | `http://127.0.0.1:4177`（`FJSP_AGH_PORT` 可改） | daemon 参数 `--local-web-origin` |
 | `AGNES_HUB_ORIGIN` | `http://127.0.0.1:4180`（`FJSP_AGH_HUB_ORIGIN`） | serve 启动时注入，否则工作台无 Devices 面板 |
 | Skill | `~/.agh/skills/fjsp-dispatch/SKILL.md` | root-key `user-agnes` |
-| 经验库 | `~/.agh/fjsp-experience.jsonl`（`FJSP_EXPERIENCE_FILE` 可覆盖） | 嵌入向量缓存 `~/.agh/fjsp-experience-vectors.json` |
+| 经验库 | `~/.agh/fjsp-experience.jsonl`（`FJSP_EXPERIENCE_FILE` 可覆盖，rag.mts 同认） | 嵌入向量缓存 `~/.agh/fjsp-experience-vectors.json`（`FJSP_EXPERIENCE_VECTOR_CACHE` 可覆盖；覆盖经验库路径时默认派生 `<file>.vectors.json`）；负面经验降权策略 `FJSP_RAG_NEGATIVE_POLICY=downweight`（默认）/`filter` |
 | 模型凭据 | `~/.config/fjsp/agnes.env` | 不进仓库、不打印明文 |
 | 运行时 pid/日志 | `${TMPDIR:-/tmp}/fjsp-demo/`（`FJSP_RUNTIME_DIR` 可覆盖） | `agh.pid/agh-daemon.pid/m03.pid` 与对应 .log |
 
@@ -211,12 +211,14 @@ API：
 | GET | `/agent-api/twin/grid` | 车间平面图 PNG（长缓存；公开，同上） |
 | POST | `/agent-api/twin/device/:id/fault` / `:id/recover` | 任意机床（cnc-mXX）故障注入/恢复：写 `/tmp/mhs-fault-M-XX` / `/tmp/mhs-recover-M-XX` 触发文件，设备循环下一拍消费（与 machine-m03.py 约定一致，文件无条件消费防二次触发） |
 | POST | `/agent-api/twin/sim/start` / `sim/stop` | 虚拟车间进程启停（spawn/pgrep + SIGTERM，默认 M-01~M-08 + AGV-01，PYTHONPATH 与 start-demo.sh 一致）；快照含 `sim.running`，页面上可直接启停，免脚本 |
-| POST | `/agent-api/rag/experience-query` | 处置经验库 RAG 语义检索（fjsp_experience_query 的后端）：`{eventType?, query?, limit?}`，返回 `retrieval`（hybrid/bm25/recency）与带 score 的记录 |
+| POST | `/agent-api/rag/experience-query` | 处置经验库 RAG 语义检索（fjsp_experience_query 的后端）：`{eventType?, query?, limit?, loadLevel?, dueUrgency?}`，返回 `retrieval`（hybrid/bm25/recency）与带 score/quality/effectiveOutcome 的记录 |
 | GET | `/agent-api/openapi.json` | 由契约端点表实时生成的 OpenAPI 3.1 文档（公开） |
 
 API/SSE 契约（2.C，2026-10-30）：`agent-bff/contract/` 是 BFF 线协议的**单一事实源**——`http.mts` 端点表（全量 16 个端点的请求/响应 schema）、`events.mts` SSE 事件注册表（12 类事件，payload 统一带版本字段 `v`，由 BFF 广播时注入）、`types.ts` 纯类型定义、`validate.mts` 无依赖 JSON Schema 子集校验器。校验行为：请求入站按契约校验，缺字段/错类型/非法 JSON 一律 400 `invalid_request`（chat 的 message 保持既有 `message_required` 兼容码）；关键端点响应出站校验，失败记日志并 500 `contract_violation`，不静默发畸形数据；SSE 事件发出前校验，畸形事件记日志并丢弃（不进回放缓冲、流不断开）。前端集成：web-vue 的 `src/api/agent.ts` 协议类型全部 `import type` 自 `contract/types.ts`（构建期擦除、零运行时成本），不再手写两份；前后端事件名一致性由契约测试脚本化强制（前端监听清单必须是契约注册表子集）。版本演进规则：新增事件/可选字段向后兼容不升版；破坏性变更升 `v`（过渡期同名事件可按 v 并存双发），详见 `contract/EVENTS.md`。契约测试：`../agnes-harness/node_modules/.bin/tsx agent-bff/test-contract-api.mts`（mock 内检 + 独立端口 BFF，含 SSE 样本校验、HTTP 合法/非法请求、前后端一致性、OpenAPI 覆盖断言）。
 
-RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（携带业务服务 JWT，4s 超时或 401 回退本地统计），推荐口径不变（按模式平均加权拖期差值最优）。
+RAG 检索（`agent-bff/rag.mts`）：multilingual-e5-small 向量嵌入（本地 ONNX，`agent-bff/models/`，经 hf-mirror 离线下载、离线可跑）+ BM25 关键词双路召回，RRF 融合排序；嵌入缓存 `~/.agh/fjsp-experience-vectors.json` 按行增量更新；模型缺失时降级纯 BM25，无 query 时保持时间倒序。`fjsp_experience_query` 新增 `query` 参数（自然语言情景），优先调本端点（携带业务服务 JWT，4s 超时或 401 回退本地统计）。
+
+质量降权与情景字段（任务 5.1）：经验记录向后兼容扩展 `id` 与情景字段（`loadLevel` LOW/NORMAL/HIGH、`dueUrgency` LOW/MEDIUM/HIGH、`repairDurationMinutes`/`orderQuantity` 扰动规模）；结果反馈是独立的 `kind=feedback` 追加行（`experienceId` 关联原记录，原始记录永不修改，多条反馈取 `feedbackAt` 最新）。质量分 `quality = outcome 权重 × 时间衰减`：权重 success 1.0 / partial 0.7 / reworked 0.4 / failed 0.3 / rejected 0.2，无反馈记录 1.0（旧记录不受罚）；时间衰减半衰期 60 天。融合排序乘以质量分——负面 outcome（rejected/reworked/failed）默认**降权保留兜底**；`FJSP_RAG_NEGATIVE_POLICY=filter` 时改为过滤，候选池全负面时回落降权（空结果回落语义不变）。查询带 `loadLevel`/`dueUrgency` 时同类情景记录各 ×1.2 加权；推荐统计剔除负面 outcome 记录，不再仅凭历史平均 KPI 推荐模式。回归：`../agnes-harness/node_modules/.bin/tsx agent-bff/test-rag.mts`（临时目录夹具，22 项）。
 
 ## MCP Server（fjsp-mcp）
 
@@ -227,7 +229,7 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 # MCP 客户端配置：{ "command": "<tsx 绝对路径>", "args": ["<agent-bff 绝对路径>/mcp-server.mts"] }
 ```
 
-审批语义（P0 收紧，2026-10-30）：MCP 是无人值守直连通道，没有人工审批环节，调用方自报的 `"_confirm": true` **不再作为人工批准证据**——`requiresApproval=always` 的工具（写/高风险/破坏性）在 MCP 入口一律拒绝（`APPROVAL_CHANNEL_REQUIRED`），须改走 Web 副驾（agent-bff，五要素审批 + 身份绑定）或 AGH 会话的原生人工审批；只读工具不受影响。冒烟测试：`node agent-bff/mcp-smoke.mjs`（initialize → tools/list 18 个 → 只读调用 → 写调用带不带 `_confirm` 均拒绝）。
+审批语义（P0 收紧，2026-10-30）：MCP 是无人值守直连通道，没有人工审批环节，调用方自报的 `"_confirm": true` **不再作为人工批准证据**——`requiresApproval=always` 的工具（写/高风险/破坏性）在 MCP 入口一律拒绝（`APPROVAL_CHANNEL_REQUIRED`），须改走 Web 副驾（agent-bff，五要素审批 + 身份绑定）或 AGH 会话的原生人工审批；只读工具不受影响。冒烟测试：`node agent-bff/mcp-smoke.mjs`（initialize → tools/list 19 个 → 只读调用 → 写调用带不带 `_confirm` 均拒绝）。
 
 数字孪生通道：BFF 作为 AgnesHub 北向客户端（`ws://127.0.0.1:4180/ws/hub`，role=ui，与 Devices 面板同协议），缓存 `hub/devices` + `hub/changed` + `hub/state`，并按 1Hz 轮询 `hub/read` 取各设备 metrics 最新值；断线自动重连。web-vue「数字孪生车间」页（`/twin`）为**座舱布局**：左侧 SVG 车间地图（分区多边形 + 设备状态色 + 告警点 + AGV 位姿）、设备指标卡片、panel 画面轮询、设备控制（启停虚拟车间、任意机床注入/恢复、随机故障注入）、告警条「让副驾处置」；右侧**内嵌** AI 调度副驾对话栏（`AgentChat.vue`，与抽屉侧栏 `AgentSidebar.vue` 共用，衔接 SKILL 第三节的 MHS 告警处置流程）。对话栏多模态：语音输入（Web Speech API 中文识别，浏览器不支持时自动隐藏）、TTS 播报开关（朗读副驾答复）、设备 panel 画面视觉理解（deepseek-flash 支持 text+image 输入，`read_device` 的 returnsImages 把画面直接给模型，实测可描述状态灯/温度/曲线）。
 
@@ -244,7 +246,7 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 - **统一错误 envelope**：成功 `{ ok:true, ...业务字段 }`；失败 `{ ok:false, error:{ code, message, category, retryable, recovery, httpStatus?, requestId?, details? } }`，分类字段由 `result()` 统一补齐，`details` 是 requestId/idempotencyKey（2.B 步骤级幂等键复用）等扩展位。两个入口的 `content[0].text` 与 `structured` 始终是同一份 JSON。
 - **错误分类**：`ERROR_CLASSES` 显式映射「错误码 → category + retryable + recovery」，四类语义：`retryable`（可按 recovery 条件重试）、`needs-input`（修正输入/流程后重试）、`needs-human`（转人工）、`terminal`（停止流程）。两个专门语义：`E_EVENT_IN_PROCESS` = needs-input + 可重试，但**严禁自动移动真实事件时间**（须核实后改用不冲突的时间）；`FJSP_INVALID_STATE` = 不可盲目重试，须先 `fjsp_get_plan` 读业务现态（reads-before-retry）。未知错误码默认 needs-human + 不可重试（fail-safe）。
 - **幂等键与未知结果恢复（任务 2.B，2026-10-30）**：9 个 HTTP 写工具接受可选入参 `idempotencyKey`（string，1-120 字符），传入时原样作为 `Idempotency-Key` 请求头（服务端同键同体回放、换键同体 409 `E_DUPLICATE`）；**约定同一工作流步骤的重试复用同一键**，不传则每次自动生成新键（兼容 AGH 会话与评估脚本现状，但换键重发不触发服务端幂等）。不从业务参数推导默认键，避免误去重不同语义的调用。超时/连接中断/响应不可解析/服务端 5xx/`E_INTERNAL` 等「结果未知」错误，写工具的 `error.recovery` 会写明该工具的具体终态查询方式——建任务/重调度：已拿 taskId 用 `fjsp_task_status(taskId)`，未拿到用 `fjsp_get_dashboard` 的 recentTasks 找任务；事件类：`fjsp_get_dashboard` 的 recentEvents 核实登记；评审/退回/发布类：`fjsp_get_plan(planVersionId)` 读最新 status；演示重置：`fjsp_get_dashboard` 确认数据集重建——确认未生效后用同一键重试。`fjsp_experience_record` 是本地 JSONL 追加写，不经业务服务幂等机制，不提供该参数。
-- **契约测试**：`node fjsp-tools/test-contract.mjs`（mock fetch，不依赖真实 business-service）：18 个工具的非法参数拦截、分类映射全量覆盖、成功/失败 envelope 一致性、幂等键透传/自动生成/非法拦截与写工具终态查询指引。
+- **契约测试**：`node fjsp-tools/test-contract.mjs`（mock fetch，不依赖真实 business-service）：19 个工具的非法参数拦截、分类映射全量覆盖、成功/失败 envelope 一致性、幂等键透传/自动生成/非法拦截与写工具终态查询指引、经验情景字段与反馈追加（任务 5.1）。
 
 **认证**：业务服务自 P0 改造后所有接口需要 JWT。插件按优先级取凭据——`FJSP_AUTH_TOKEN` 直连；否则用 `FJSP_AUTH_USER`/`FJSP_AUTH_PASSWORD` 调 `/auth/login`（默认演示账号 admin/Fj@123456，与 `scripts/demo-common.sh` 一致），token 进程内缓存，401 时自动重登并重试一次。审计身份取登录用户（`X-Operator-Id` 头已不再被服务端信任，插件不再发送）。
 
@@ -280,15 +282,16 @@ cd agh-integration/agent-bff && ../agnes-harness/node_modules/.bin/tsx mcp-serve
 | fjsp_approve_review(planVersionId, decision?, comment?) | REVIEW_PENDING→REVIEWED/REJECTED；REJECT 必须填 comment；高风险人工决策点 |
 | fjsp_revise_plan(planVersionId, version) | REJECTED→DRAFT 退回修改，之后可重新 submit-review |
 | fjsp_publish(planVersionId) | 仅 REVIEWED→PUBLISHED 一步，不自动提交/审批；高风险 |
-| fjsp_experience_query(eventType?, limit?) | 查询处置经验库：同类事件历史模式/权重/KPI 结果 + 推荐策略（recommendation） |
-| fjsp_experience_record(eventType, mode, ...) | 处置结束沉淀经验：模式/权重/resultStatus/kpiDiff/是否发布/备注 |
+| fjsp_experience_query(eventType?, query?, limit?, loadLevel?, dueUrgency?) | 查询处置经验库：同类事件历史模式/权重/KPI 结果 + 推荐策略（recommendation）；loadLevel/dueUrgency 参与同类场景加权 |
+| fjsp_experience_record(eventType, mode, ..., loadLevel?, dueUrgency?, repairDurationMinutes?, orderQuantity?) | 处置结束沉淀经验：模式/权重/resultStatus/kpiDiff/是否发布/备注 + 情景字段；新记录带 id |
+| fjsp_experience_feedback(experienceId, outcome, feedbackBy?, note?) | 对已有经验追加结果反馈（success/partial/failed/rejected/reworked）：只追加 kind=feedback 行，不改原记录；检索按 outcome 降权 |
 | fjsp_get_gantt_link(planVersionId?) | 计划版本的甘特图链接（前端 `?planVersion=` 直开；fjsp_task_status 成功与 fjsp_publish 发布时也会附带 ganttUrl）。前端地址取 `FJSP_WEB_BASE`（`scripts/demo-common.sh` 已按演示端口自动推导） |
 | fjsp_get_workpiece_position(orderRef) | 工件实时位置：当前在哪台设备加工、已完成/剩余工序数、进度与下一道安排（orderRef 支持订单号或内部 id；数据来自 `GET /orders/{orderRef}/position`） |
 | fjsp_reset_demo() | 演示重置（破坏性） |
 
 ### RSI 经验闭环（2026-10-13 上线）
 
-对应官方案例分享的递归自我改进（RSI）：`fjsp_experience_query/record` 两个工具 + skill 第 3/9 步构成「处置 → 沉淀经验 → 改进后续处置」闭环。经验库是仅追加的 JSONL，默认在 `~/.agh/fjsp-experience.jsonl`（可用 `FJSP_EXPERIENCE_FILE` 覆盖）。**不要**把经验库放在插件目录下：插件从运行时快照执行，写文件会污染快照树导致下次启动 `E_PACKAGE_INTEGRITY: runtime snapshot store requires recovery`（恢复办法：删掉快照目录里多出的文件后重启 daemon）。
+对应官方案例分享的递归自我改进（RSI）：`fjsp_experience_query/record/feedback` 三个工具 + skill 第 3/9 步构成「处置 → 沉淀经验 → 改进后续处置」闭环。经验库是仅追加的 JSONL，默认在 `~/.agh/fjsp-experience.jsonl`（可用 `FJSP_EXPERIENCE_FILE` 覆盖）。**不要**把经验库放在插件目录下：插件从运行时快照执行，写文件会污染快照树导致下次启动 `E_PACKAGE_INTEGRITY: runtime snapshot store requires recovery`（恢复办法：删掉快照目录里多出的文件后重启 daemon）。
 
 端到端证据（`evidence/agh-rsi-*.jsonl/html`）：run1 M-03 故障处置（经验库为空 → 默认 LOCAL 试错 INFEASIBLE → FULL 成功 → 发布 → 记录经验）；run2 M-05 同类故障（经验推荐 FULL → 直接命中，跳过 LOCAL 试错，并在答复中引用历史依据）。
 
