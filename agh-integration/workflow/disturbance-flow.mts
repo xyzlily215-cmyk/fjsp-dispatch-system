@@ -14,7 +14,17 @@
 //   - 其余错误 envelope 原样交 runner 按 fjsp-tools 错误分类路由（terminal → terminate 等）。
 // 写节点的幂等键一律取自 ctx.checkpoint.current.idempotencyKey（wfId:node:seq），
 // 重试复用同键由 runner/checkpoint 保证。tools 与 agent 均为注入接口，本模块不接真实服务/LLM。
+// 公共件（工具面契约、judgeTask 终态判定、提交评审节点体等）在 flow-common.mts（任务 5.2 抽取）。
 import type { NodeContext, NodeAction, WorkflowNode, ErrorEnvelope } from './runner.mts'
+import {
+  envError,
+  isErr,
+  judgeTask,
+  pickDefined,
+  runSubmitReview,
+  stepResult,
+  toolsOf,
+} from './flow-common.mts'
 import {
   ALLOW_FULL_RESCHEDULE_ONCE,
   buildReviewMaterial,
@@ -27,17 +37,8 @@ import {
   type StrategySuggestion,
 } from './agent-nodes.mts'
 
-// fjsp-tools 工具的 structured 出参形态（任务 2.A envelope）
-export interface ToolStructured {
-  ok: boolean
-  error?: { code: string; message?: string }
-  [k: string]: unknown
-}
-
-// 流程依赖的工具面（fjsp-tools 的子集；测试注入 mock，真实接线时适配 fjsp-tools 的 tools 表）
-export interface FlowTools {
-  call(name: string, args?: Record<string, unknown>): Promise<ToolStructured>
-}
+// 工具面契约与公共助手已抽到 flow-common.mts；此处 re-export 保持既有 import 路径不变。
+export type { ToolStructured, FlowTools } from './flow-common.mts'
 
 // 触发输入：checkpoint.trigger.detail 的契约形状。BREAKDOWN = 设备故障，NEW_ORDER = 插单。
 export interface DisturbanceEventInput {
@@ -62,36 +63,9 @@ const REQUIRED_FIELDS: Record<DisturbanceEventInput['eventType'], (keyof Disturb
   NEW_ORDER: ['orderCode', 'productFamily', 'quantity', 'arrivalAt', 'dueAt', 'priority', 'occurredAt'],
 }
 
-function toolsOf(ctx: NodeContext): FlowTools {
-  const t = ctx.tools as FlowTools | undefined
-  if (!t || typeof t.call !== 'function') throw Object.assign(new Error('未注入 tools（FlowTools.call）'), { code: 'E_INTERNAL' })
-  return t
-}
-
 function agentOf(ctx: NodeContext): DisturbanceAgent | null {
   const a = ctx.agent as DisturbanceAgent | undefined
   return a && typeof a === 'object' ? a : null
-}
-
-// 取某节点最近一次完成的产出（流程内向后传数据的通道）
-function stepResult(ctx: NodeContext, node: string): Record<string, unknown> | null {
-  const s = [...ctx.checkpoint.completedSteps].reverse().find((s) => s.node === node)
-  return (s?.result as Record<string, unknown> | undefined) ?? null
-}
-
-function isErr(out: ToolStructured): boolean {
-  return !out || out.ok !== true
-}
-
-function envError(code: string, message: string): ErrorEnvelope {
-  return { ok: false, error: { code, message } }
-}
-
-// 只透传已定义字段，避免把 undefined 键带进写工具入参
-function pickDefined(src: Record<string, unknown>, keys: string[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const k of keys) if (src[k] !== undefined) out[k] = src[k]
-  return out
 }
 
 // 节点 1：接收事件 —— 校验触发输入完整性，并读当前发布计划作为重调度基准（只读）。
@@ -188,26 +162,6 @@ async function createReschedule(ctx: NodeContext): Promise<NodeAction | ErrorEnv
   if (isErr(out)) return out as ErrorEnvelope
   const task = out.task as { taskId?: string }
   return { action: 'advance', result: { taskId: task.taskId, mode: strategy.mode }, refs: { taskId: task.taskId ?? null } }
-}
-
-// 任务终态判定。状态枚举全集（business-service TaskStatus）：PENDING / RUNNING / RETRY_WAIT /
-// SUCCESS / TIME_LIMIT / INFEASIBLE / FAILED / CANCELLED。
-// 可行终态口径对齐 evaluation/scenarios/common.mjs：仅 status ∈ {SUCCESS, TIME_LIMIT} 且
-// resultStatus === 'FEASIBLE' 才算可行终态；PENDING/RUNNING/RETRY_WAIT（fjsp_task_status 超时
-// 返回的 RUNNING 快照）一律非终态，绝不能落入 feasible（否则带空 planVersionId 污染下游）。
-function judgeTask(out: ToolStructured): {
-  outcome: 'feasible' | 'infeasible' | 'failed' | 'pending'
-  task: Record<string, unknown>
-} {
-  const task = (out.task ?? {}) as Record<string, unknown>
-  const status = task.status as string | undefined
-  const resultStatus = task.resultStatus as string | undefined
-  if ((status === 'SUCCESS' || status === 'TIME_LIMIT') && resultStatus === 'FEASIBLE') return { outcome: 'feasible', task }
-  if (status === 'INFEASIBLE' || ((status === 'SUCCESS' || status === 'TIME_LIMIT') && resultStatus === 'INFEASIBLE')) {
-    return { outcome: 'infeasible', task }
-  }
-  if (status === 'FAILED' || status === 'CANCELLED') return { outcome: 'failed', task }
-  return { outcome: 'pending', task } // PENDING / RUNNING / RETRY_WAIT / 未识别组合
 }
 
 // 节点 7：轮询任务结果（fjsp_task_status 语义：工具内部等待至终态，超时返回 RUNNING 快照）。
@@ -337,22 +291,10 @@ async function reviewMaterial(ctx: NodeContext): Promise<NodeAction> {
   return { action: 'advance', result: { material } }
 }
 
-// 节点 11：提交评审（写）。E_VERSION_STALE（乐观锁）→ 节点已重读最新 version，返回 retry 限次重试。
+// 节点 11：提交评审（写）。节点体共享自 flow-common.runSubmitReview：
+// fjsp_get_plan 读乐观锁 version → fjsp_submit_review；E_VERSION_STALE 重读后 retry 限次重试。
 async function submitReview(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> {
-  const tools = toolsOf(ctx)
-  const planVersionId = ctx.checkpoint.refs.planVersionId!
-  const plan = await tools.call('fjsp_get_plan', { planVersionId })
-  if (isErr(plan)) return plan as ErrorEnvelope
-  const version = (plan.plan as { version?: number }).version
-  if (typeof version !== 'number') return envError('FJSP_BAD_RESPONSE', 'fjsp_get_plan 未返回乐观锁 version')
-  const out = await tools.call('fjsp_submit_review', { planVersionId, version, idempotencyKey: ctx.checkpoint.current!.idempotencyKey })
-  if (isErr(out)) {
-    if (out.error?.code === 'E_VERSION_STALE') {
-      return { action: 'retry', reason: `乐观锁冲突（E_VERSION_STALE），已重读最新 version 后重试：${out.error.message ?? ''}` }
-    }
-    return out as ErrorEnvelope
-  }
-  return { action: 'advance', result: { planVersionId, plan: out.plan ?? null } }
+  return runSubmitReview(ctx)
 }
 
 // 节点 12：挂起待人工决策 —— 评审材料已提交（REVIEW_PENDING），审批句柄入检查点，不回放旧批准。
