@@ -68,6 +68,21 @@ export const PERMISSION_REQUEST: Schema = {
   },
 }
 
+// 工作流挂起登记审批（任务 3.4）：五要素由 BFF 按 toolCall 服务端生成，与 daemon 路径同一事实源
+export const APPROVAL_REGISTER_REQUEST: Schema = {
+  type: 'object',
+  required: ['conversationId', 'toolCall'],
+  properties: {
+    conversationId: { type: 'string', pattern: '^[\\w-]{1,80}$' },
+    toolCall: {
+      type: 'object',
+      required: ['name'],
+      properties: { name: { type: 'string', minLength: 1 }, args: { type: 'object' } },
+    },
+    ttlMs: { type: 'integer', minimum: 15_000, maximum: 30 * 60_000 },
+  },
+}
+
 export const RAG_QUERY_REQUEST: Schema = {
   type: 'object',
   properties: {
@@ -115,6 +130,32 @@ export const PERMISSION_ACCEPTED: Schema = {
   type: 'object',
   required: ['ok', 'verdict'],
   properties: { ok: { type: 'boolean' }, verdict: { type: 'string', enum: ['allowed-once', 'rejected'] } },
+}
+
+// 审批记录五要素摘要 + 状态（GET 查询 / POST 登记共用；任务 3.4）
+export const APPROVAL_STATUS_RESPONSE: Schema = {
+  type: 'object',
+  required: ['ok', 'approval'],
+  properties: {
+    ok: { type: 'boolean' },
+    approval: {
+      type: 'object',
+      required: ['requestId', 'conversationId', 'tool', 'risk', 'argsDigest', 'argsSummary', 'bizObject', 'requiredRoles', 'createdAt', 'expiresAt', 'status'],
+      properties: {
+        requestId: { type: 'string' },
+        conversationId: { type: 'string' },
+        tool: { type: 'string' },
+        risk: { type: 'string', enum: ['READ', 'WRITE', 'HIGH_RISK', 'DESTRUCTIVE', 'UNKNOWN'] },
+        argsDigest: { type: 'string' },
+        argsSummary: { type: 'string' },
+        bizObject: { type: ['object', 'null'] },
+        requiredRoles: { type: 'array', items: { type: 'string' } },
+        createdAt: { type: 'integer' },
+        expiresAt: { type: 'integer' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired', 'timeout'] },
+      },
+    },
+  },
 }
 
 export const TWIN_ACTION_ACCEPTED: Schema = {
@@ -203,6 +244,15 @@ export const HTTP_CONTRACT: EndpointContract[] = [
     method: 'POST', path: '/agent-api/permission', summary: '审批裁决（五要素重校验 + 审计，见 1.2）', auth: 'bearer',
     requestBody: PERMISSION_REQUEST,
     responses: { 202: PERMISSION_ACCEPTED, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE, 410: ERROR_RESPONSE, 503: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/approvals', summary: '登记审批请求（工作流挂起接线，任务 3.4；五要素服务端生成 + SSE 卡片下发）', auth: 'bearer',
+    requestBody: APPROVAL_REGISTER_REQUEST,
+    responses: { 202: APPROVAL_STATUS_RESPONSE, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+  },
+  {
+    method: 'GET', path: '/agent-api/approvals/{id}', summary: '审批状态查询（五要素摘要 + 状态；路径参数为 requestId，任务 3.4）', auth: 'bearer',
+    responses: { 200: APPROVAL_STATUS_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
   },
   {
     method: 'GET', path: '/agent-api/twin/snapshot', summary: 'MHS 设备快照（数字孪生页）', auth: 'bearer',

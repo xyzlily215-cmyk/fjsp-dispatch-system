@@ -89,6 +89,25 @@ export interface ApprovalInfo {
   expiresAt: number;
 }
 
+/** 审批记录状态（GET /agent-api/approvals/{requestId}；not_found 走 HTTP 404 不进此枚举） */
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'timeout';
+
+/** 审批状态查询/登记响应中的审批记录（五要素摘要 + 状态，任务 3.4） */
+export interface ApprovalStatusInfo {
+  requestId: string;
+  conversationId: string;
+  tool: string;
+  risk: ApprovalInfo['risk'];
+  /** 参数规范化 JSON 的完整 SHA-256（区别于卡片上下文的 12 位前缀） */
+  argsDigest: string;
+  argsSummary: string;
+  bizObject: Record<string, string> | null;
+  requiredRoles: string[];
+  createdAt: number;
+  expiresAt: number;
+  status: ApprovalStatus;
+}
+
 /** 数字孪生 SSE 事件（twin）信封：快照详细结构的事实源是 agent-bff/mhs.mts 的
  *  AgnesHub（设备层字段由前端 src/api/twin.ts 展开），契约层只约束信封。 */
 export interface TwinEventPayload {

@@ -10,6 +10,8 @@
 //   POST /agent-api/chat       { conversationId?, message, context? }
 //   POST /agent-api/cancel     { conversationId }
 //   POST /agent-api/permission { conversationId, requestId, verdict: 'allowed-once' | 'rejected' }
+//   POST /agent-api/approvals  { conversationId, toolCall, ttlMs? }  工作流登记审批（任务 3.4）
+//   GET  /agent-api/approvals/:requestId           审批状态查询（五要素摘要 + 状态，任务 3.4）
 //   GET  /agent-api/twin/snapshot              MHS device snapshot (digital twin page)
 //   GET  /agent-api/twin/stream?ticket=...     SSE 1Hz device snapshot ticks
 //   GET  /agent-api/twin/device/:id/panel      latest panel JPEG（公开：<img> 无法带请求头）
@@ -31,13 +33,15 @@
 // 参数摘要=规范化 JSON 的 SHA-256 + 人类可读摘要 / 业务对象 / 有效期 / 可审批角色），
 // /permission 裁决时重校验：会话归属、未过期、角色匹配（ticket 路径同样带 role）、
 // 一次性（未裁决过）；全部裁决与越权/过期尝试追加到 .approval-audit.jsonl 审计。
+// 审批记录轻量持久化到 .approvals.json（任务 3.4）：只为"重启后状态可查"——
+// pending 承诺随进程消亡，重启加载时遗留 pending 一律置 expired 并记审计，旧批准不回放。
 //
 // Run:  ../agnes-harness/node_modules/.bin/tsx server.mts
 // Env:  AGENT_BFF_PORT (default 4178), AGENT_BFF_HOST (default 127.0.0.1),
 //       AGNES_HUB_URL (default ws://127.0.0.1:4180/ws/hub),
 //       FJSP_API_BASE (default http://localhost:8081/api/v1，JWT 内检地址),
 //       AGENT_BFF_APPROVAL_TTL_MS（审批有效期，默认 5 分钟）,
-//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE（测试隔离覆盖用）
+//       AGH_OWNER_FILE / AGENT_BFF_STORE_FILE / AGENT_BFF_SESSION_ID_FILE / AGENT_BFF_AUDIT_FILE / AGENT_BFF_APPROVALS_FILE（测试隔离覆盖用）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -49,6 +53,7 @@ import { experienceQuery } from './rag.mts'
 import { validateEvent, withVersion } from './contract/events.mts'
 import {
   buildOpenApi, validateRequestBody, findEndpoint,
+  APPROVAL_STATUS_RESPONSE,
   CHAT_ACCEPTED, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
 } from './contract/http.mts'
@@ -69,6 +74,7 @@ const HEARTBEAT_MS = 25_000
 const PERMISSION_TIMEOUT_MS = 10 * 60_000
 const APPROVAL_TTL_MS = Number(process.env.AGENT_BFF_APPROVAL_TTL_MS ?? 5 * 60_000)
 const AUDIT_FILE = process.env.AGENT_BFF_AUDIT_FILE ?? new URL('./.approval-audit.jsonl', import.meta.url)
+const APPROVALS_FILE = process.env.AGENT_BFF_APPROVALS_FILE ?? new URL('./.approvals.json', import.meta.url)
 
 // ---- 审批风险级 → 可审批角色（显式配置；对齐 business-service 各端点的 @PreAuthorize）----
 // 工具风险级以 fjsp-tools/index.mjs 的 meta 为唯一事实来源（MCP 与 AGH 插件共用）。
@@ -108,7 +114,8 @@ type PendingPermission = {
   timer: ReturnType<typeof setTimeout>
 }
 // 审批记录（五要素绑定）：工具名、参数摘要（规范化 JSON 的 SHA-256 + 人类可读摘要）、
-// 业务对象、有效期、可审批角色。内存保存（pending 承诺随进程消亡，持久化无意义），
+// 业务对象、有效期、可审批角色。轻量持久化到 APPROVALS_FILE（任务 3.4：重启后状态可查；
+// pending 承诺随进程消亡，重启加载时一律置 expired，旧批准不回放），
 // 全部裁决结果追加持久化到 AUDIT_FILE（JSONL，可按会话/业务对象回溯）。
 type ApprovalRecord = {
   requestId: string
@@ -403,6 +410,39 @@ function startPump(conv: Conversation) {
 // ---- 审批记录与审计 ----
 const approvals = new Map<string, ApprovalRecord>()
 
+// 审批记录轻量持久化（任务 3.4）：与 sessions 存储同款 JSON 文件方式。写失败只记日志
+// 不阻断流程（持久化为可查性服务；审计落盘才是 fail-closed 的那一路）。
+// 路径晚绑定 env：测试可在运行中切换 AGENT_BFF_APPROVALS_FILE。
+function saveApprovals() {
+  try {
+    writeFileSync(process.env.AGENT_BFF_APPROVALS_FILE ?? APPROVALS_FILE, JSON.stringify(Object.fromEntries(approvals), null, 2))
+  } catch (err) {
+    console.error('[agent-bff] 审批记录持久化写入失败:', err)
+  }
+}
+
+// 从持久化文件恢复审批记录（模块初始化与测试共用）。pending → expired：pending 承诺
+// （daemon 回调）随进程消亡，重启后绝无可能再裁决，必须按过期处理、旧批准不回放；
+// 转换经 onConverted 回调交调用方记审计。
+function loadApprovalsFromFile(file: string | URL, onConverted?: (rec: ApprovalRecord) => void): ApprovalRecord[] {
+  let raw: Record<string, ApprovalRecord>
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, ApprovalRecord>
+  } catch {
+    return []
+  }
+  const out: ApprovalRecord[] = []
+  for (const rec of Object.values(raw)) {
+    if (!rec || typeof rec !== 'object' || typeof rec.requestId !== 'string') continue
+    if (rec.status === 'pending') {
+      rec.status = 'expired'
+      onConverted?.(rec)
+    }
+    out.push(rec)
+  }
+  return out
+}
+
 /** 规范化 JSON（键排序，递归）→ SHA-256：审批记录与裁决时的参数一致性校验共用。 */
 function canonicalDigest(value: unknown): { canonical: string; digest: string } {
   const norm = (v: unknown): unknown => {
@@ -436,7 +476,7 @@ function buildArgsSummary(tool: string, canonical: string): string {
   return `${tool} ${short}`
 }
 
-function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Record<string, unknown>): ApprovalRecord {
+function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Record<string, unknown>, ttlMs?: number): ApprovalRecord {
   const tool = String(toolCall.name ?? toolCall.title ?? '')
   const args = (toolCall.args ?? toolCall.arguments ?? {}) as Record<string, unknown>
   const { canonical, digest } = canonicalDigest(args)
@@ -453,7 +493,7 @@ function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Re
     bizObject: extractBizObject(args),
     requiredRoles,
     createdAt: now,
-    expiresAt: now + APPROVAL_TTL_MS,
+    expiresAt: now + (ttlMs ?? APPROVAL_TTL_MS),
     status: 'pending',
   }
   // 惰性清理：上限外丢弃最旧的非 pending 记录
@@ -464,7 +504,35 @@ function buildApprovalRecord(conv: Conversation, requestId: string, toolCall: Re
     }
   }
   approvals.set(requestId, record)
+  saveApprovals()
   return record
+}
+
+/** 审批状态查询/登记响应的五要素摘要 + 状态（contract APPROVAL_STATUS_RESPONSE）。 */
+function approvalSummary(record: ApprovalRecord) {
+  return {
+    requestId: record.requestId,
+    conversationId: record.conversationId,
+    tool: record.tool,
+    risk: record.risk,
+    argsDigest: record.argsDigest,
+    argsSummary: record.argsSummary,
+    bizObject: record.bizObject,
+    requiredRoles: record.requiredRoles,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    status: record.status,
+  }
+}
+
+// 惰性过期（仅无 daemon 承诺可 settle 的路径：GET 查询 / 工作流登记审批的裁决）：
+// 读取时发现 pending 已过有效期 → 落 expired + 审计 + 持久化。返回是否发生了过期转换。
+function expireIfDue(record: ApprovalRecord, by: string): boolean {
+  if (record.status !== 'pending' || Date.now() <= record.expiresAt) return false
+  record.status = 'expired'
+  auditApproval(record, 'expired', by, '读取时发现已过有效期（惰性过期）')
+  saveApprovals()
+  return true
 }
 
 // 审计：批准/拒绝/过期/越权尝试/超时一律落 JSONL，含操作者、工具、参数摘要、业务对象。
@@ -511,6 +579,51 @@ function auditAttempt(conversationId: string, requestId: string, by: string, det
   })
 }
 
+// 启动时恢复持久化的审批记录（任务 3.4）：遗留 pending 一律置 expired 并记审计——
+// pending 承诺随进程消亡，旧批准不回放（1.2 语义保持，持久化只为状态可查）。
+for (const rec of loadApprovalsFromFile(APPROVALS_FILE, (converted) => {
+  auditApproval(converted, 'expired', 'system', 'BFF 重启，pending 承诺随进程消亡（旧批准不回放）')
+})) {
+  approvals.set(rec.requestId, rec)
+}
+
+// 工作流登记的审批（POST /agent-api/approvals，无 daemon 承诺可 settle）的裁决路径：
+// 与 daemon 路径同一套重校验（一次性已由上层 status!=='pending' 拦截、归属已校验），
+// 差异只在无承诺可解——裁决落记录 + 持久化 + 广播 permission_resolved，工作流轮询 GET 拿结果。
+function decideRegisteredApproval(
+  record: ApprovalRecord,
+  body: Record<string, unknown>,
+  user: AuthUser,
+  conv: Conversation,
+  res: ServerResponse,
+) {
+  if (expireIfDue(record, user.username)) {
+    return sendJson(res, 410, { error: 'approval_expired', detail: '审批请求已过期' })
+  }
+  const verdict = body.verdict === 'allowed-once' ? 'allowed-once' as const : 'rejected' as const
+  if (verdict === 'allowed-once') {
+    if (!record.requiredRoles.includes(user.role)) {
+      auditApproval(record, 'forbidden', user.username, `角色 ${user.role || '(空)'} 不在可审批角色 [${record.requiredRoles.join(',')}]`)
+      return sendJson(res, 403, {
+        error: 'approval_forbidden',
+        detail: `当前角色无权审批该操作（需要：${record.requiredRoles.join(' / ') || '无可用角色'}）`,
+      })
+    }
+    // 审计先落盘再放行（fail-closed），与 daemon 路径一致
+    if (!auditApproval(record, 'approved', user.username)) {
+      return sendJson(res, 503, { error: 'audit_unavailable', detail: '审批审计写入失败，批准未生效，请重试或联系管理员' })
+    }
+    record.status = 'approved'
+  } else {
+    // 拒绝不受角色闸限制（安全操作，避免挂起方悬挂到超时）
+    auditApproval(record, 'rejected', user.username)
+    record.status = 'rejected'
+  }
+  saveApprovals()
+  broadcast(conv, 'permission_resolved', { requestId: record.requestId, verdict: { verdict } })
+  return sendJsonChecked(res, 202, { ok: true, verdict }, PERMISSION_ACCEPTED, 'permission')
+}
+
 function onPermissionRequest(
   conv: Conversation,
   req: { toolCall: Record<string, unknown>; options: unknown[]; deadlineMs?: number },
@@ -545,6 +658,7 @@ function onPermissionRequest(
         const r = result ?? ('verdict' in outcome && outcome.verdict === 'allowed-once' ? 'approved' : 'rejected')
         record.status = r === 'approved' ? 'approved' : r === 'expired' ? 'expired' : r === 'timeout' ? 'timeout' : 'rejected'
         auditApproval(record, r, by)
+        saveApprovals()
       }
       broadcast(conv, 'permission_resolved', { requestId, verdict: outcome })
       resolve(outcome)
@@ -793,7 +907,11 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 409, { error: 'approval_already_decided', detail: '该审批已被裁决过' })
       }
       const pending = conv.pendingPermissions.get(requestId)
-      if (!pending) return sendJson(res, 404, { error: 'permission_not_found' })
+      if (!pending) {
+        // 工作流登记的审批（POST /approvals，无 daemon 承诺）：同一套重校验，裁决落记录，
+        // 工作流侧轮询 GET /approvals/:requestId 拿结果（任务 3.4）
+        return decideRegisteredApproval(record, body, user, conv, res)
+      }
       if (Date.now() > record.expiresAt) {
         pending.settle({ verdict: 'rejected' }, 'expired', user.username)
         return sendJson(res, 410, { error: 'approval_expired', detail: '审批请求已过期' })
@@ -819,9 +937,61 @@ const server = createServer(async (req, res) => {
           return sendJson(res, 503, { error: 'audit_unavailable', detail: '审批审计写入失败，批准未生效，请重试或联系管理员' })
         }
         record.status = 'approved' // 已审计，settle 内不再重复
+        saveApprovals()
       }
       pending.settle({ verdict }, verdict === 'allowed-once' ? 'approved' : 'rejected', user.username)
       return sendJsonChecked(res, 202, { ok: true, verdict }, PERMISSION_ACCEPTED, 'permission')
+    }
+    if (req.method === 'POST' && path === '/agent-api/approvals') {
+      // 工作流挂起登记审批（任务 3.4）：五要素由 BFF 按 toolCall 服务端生成（与 daemon
+      // 路径同一事实源），卡片经 SSE permission_request 下发给会话订阅者；无 daemon
+      // 承诺可悬挂——裁决走 /permission（decideRegisteredApproval），工作流轮询 GET 拿结果。
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      const body = await readBody(req)
+      if (!checkBody('POST', '/agent-api/approvals', body, res)) return
+      const conv = getConversation(String(body.conversationId), user.username)
+      if (!authorizeConversation(conv, user, res)) return
+      const toolCall = body.toolCall as Record<string, unknown>
+      const requestId = randomUUID()
+      const record = buildApprovalRecord(conv, requestId, toolCall, typeof body.ttlMs === 'number' ? body.ttlMs : undefined)
+      broadcast(conv, 'permission_request', {
+        requestId,
+        toolCall,
+        options: [],
+        deadlineMs: record.expiresAt,
+        approval: {
+          tool: record.tool,
+          risk: record.risk,
+          summary: record.argsSummary,
+          digest: record.argsDigest.slice(0, 12),
+          bizObject: record.bizObject,
+          requiredRoles: record.requiredRoles,
+          expiresAt: record.expiresAt,
+        },
+      })
+      return sendJsonChecked(res, 202, { ok: true, approval: approvalSummary(record) }, APPROVAL_STATUS_RESPONSE, 'approvals/register')
+    }
+    if (req.method === 'GET' && path.startsWith('/agent-api/approvals/')) {
+      // 审批状态查询（任务 3.4）：requireAuth + 会话归属校验（与 /permission 同口径，
+      // 越权查询记 forbidden 审计；conv 不在内存时以持久化会话属主为准）。
+      const m = path.match(/^\/agent-api\/approvals\/([\w-]{1,80})$/)
+      if (!m) return sendJson(res, 404, { error: 'not_found' })
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      const record = approvals.get(m[1])
+      if (!record) return sendJson(res, 404, { error: 'approval_not_found' })
+      const owner = conversations.get(record.conversationId)?.owner ?? loadStore()[record.conversationId]?.owner ?? null
+      if (!owner) {
+        auditApproval(record, 'forbidden', user.username, '审批查询：会话为历史遗留（legacy）')
+        return sendJson(res, 403, { error: 'conversation_legacy', detail: '历史会话无属主记录，请新建会话' })
+      }
+      if (owner !== user.username) {
+        auditApproval(record, 'forbidden', user.username, `审批查询：会话归属不符（属主 ${owner}）`)
+        return sendJson(res, 403, { error: 'conversation_forbidden', detail: '审批所属会话属于其他用户' })
+      }
+      expireIfDue(record, user.username)
+      return sendJsonChecked(res, 200, { ok: true, approval: approvalSummary(record) }, APPROVAL_STATUS_RESPONSE, 'approvals/get')
     }
     if (req.method === 'GET' && path === '/agent-api/twin/snapshot') {
       if (!(await requireAuth(req, url, res))) return
@@ -917,5 +1087,6 @@ server.listen(PORT, HOST, () => {
 
 // 供 test-approval.mts（tsx 直接 import 本模块）注入审批请求、检查审批记录：
 // 不新增任何 HTTP 测试端点，生产路径无 test-only 分支。
-export { conversations, approvals, onPermissionRequest }
+// loadApprovalsFromFile 供测试验证重启恢复语义（pending → expired）。
+export { conversations, approvals, onPermissionRequest, loadApprovalsFromFile }
 export type { Conversation, ApprovalRecord }

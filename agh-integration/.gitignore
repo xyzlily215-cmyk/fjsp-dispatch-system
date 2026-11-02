@@ -14,6 +14,9 @@ agent-bff/.conversations.json
 # agent-bff 审批裁决审计（JSONL，runtime artifact）
 agent-bff/.approval-audit.jsonl
 
+# agent-bff 审批记录轻量持久化（runtime artifact，任务 3.4）
+agent-bff/.approvals.json
+
 # agent-bff runtime deps & local models
 agent-bff/node_modules/
 agent-bff/models/
