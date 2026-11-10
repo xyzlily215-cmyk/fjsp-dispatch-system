@@ -23,7 +23,10 @@ import com.fjsp.business.repository.EventRepository;
 import com.fjsp.business.repository.InputSnapshotRepository;
 import com.fjsp.business.repository.PlanVersionRepository;
 import com.fjsp.business.repository.ScheduleTaskRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -31,6 +34,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class ScheduleTaskCommandService {
 
+    private static final Logger log = LoggerFactory.getLogger(ScheduleTaskCommandService.class);
     private static final List<String> MODES = List.of("BASELINE", "LOCAL_RESCHEDULE", "FULL_RESCHEDULE");
 
     private final ScheduleTaskRepository taskRepository;
@@ -178,7 +182,25 @@ public class ScheduleTaskCommandService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                taskRunner.run(taskId);
+                try {
+                    taskRunner.run(taskId);
+                } catch (TaskRejectedException e) {
+                    log.warn("task {} dispatch rejected", taskId, e);
+                    try {
+                        stateService.markDispatchRejected(taskId);
+                    } catch (RuntimeException persistFailure) {
+                        log.error("task {} dispatch rejected but failure state could not be saved; startup recovery required",
+                                taskId, persistFailure);
+                    }
+                } catch (RuntimeException e) {
+                    log.error("task {} dispatch failed after commit", taskId, e);
+                    try {
+                        stateService.markDispatchFailed(taskId, e.getClass().getSimpleName() + ": " + e.getMessage());
+                    } catch (RuntimeException persistFailure) {
+                        log.error("task {} dispatch failed but retry state could not be saved; startup recovery required",
+                                taskId, persistFailure);
+                    }
+                }
             }
         });
     }
@@ -187,7 +209,7 @@ public class ScheduleTaskCommandService {
 
     @Transactional
     public ScheduleTaskDetailResponse retryTask(String taskIdOrCode) {
-        ScheduleTask task = queryService.findTask(taskIdOrCode);
+        ScheduleTask task = findTaskForUpdate(taskIdOrCode);
         if (!TaskStatus.FAILED.name().equals(task.getStatus())
                 && !TaskStatus.CANCELLED.name().equals(task.getStatus())) {
             throw BizException.stateConflict("仅 FAILED/CANCELLED 状态的任务可人工重试，当前: " + task.getStatus());
@@ -221,7 +243,7 @@ public class ScheduleTaskCommandService {
 
     @Transactional
     public ScheduleTaskDetailResponse cancelTask(String taskIdOrCode) {
-        ScheduleTask task = queryService.findTask(taskIdOrCode);
+        ScheduleTask task = findTaskForUpdate(taskIdOrCode);
         String status = task.getStatus();
         if (TaskStatus.PENDING.name().equals(status) || TaskStatus.RETRY_WAIT.name().equals(status)) {
             stateService.applyCancelled(task, "cancelled by operator while " + status);
@@ -237,6 +259,13 @@ public class ScheduleTaskCommandService {
             throw BizException.stateConflict("终态任务不可取消，当前: " + status);
         }
         return queryService.getTask(task.getId());
+    }
+
+    private ScheduleTask findTaskForUpdate(String idOrCode) {
+        return taskRepository.findByIdForUpdate(idOrCode)
+                .or(() -> taskRepository.findIdByTaskCode(idOrCode)
+                        .flatMap(taskRepository::findByIdForUpdate))
+                .orElseThrow(() -> BizException.notFound("任务不存在: " + idOrCode));
     }
 
     PlanVersion findPlanVersion(String idOrCode) {

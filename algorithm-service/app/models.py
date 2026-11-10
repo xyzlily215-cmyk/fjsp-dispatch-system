@@ -33,6 +33,14 @@ class OperationIn(BaseModel):
     seqNo: int = Field(ge=1)
     candidates: List[CandidateIn] = Field(min_length=1, max_length=MAX_CANDIDATES_PER_OP)
 
+    @field_validator("candidates")
+    @classmethod
+    def _unique_candidate_machines(cls, candidates):
+        machine_ids = [c.machineId for c in candidates]
+        if len(machine_ids) != len(set(machine_ids)):
+            raise ValueError("同一工序的候选设备不能重复")
+        return candidates
+
 
 class OrderIn(BaseModel):
     orderId: str

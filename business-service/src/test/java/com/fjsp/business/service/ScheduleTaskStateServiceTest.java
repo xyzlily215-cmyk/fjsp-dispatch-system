@@ -7,6 +7,7 @@ import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.entity.ScheduleTask;
 import com.fjsp.business.repository.ScheduleTaskRepository;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -24,6 +25,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
+import org.springframework.core.task.TaskRejectedException;
 
 @ExtendWith(MockitoExtension.class)
 class ScheduleTaskStateServiceTest {
@@ -43,6 +46,11 @@ class ScheduleTaskStateServiceTest {
 
     @InjectMocks
     private ScheduleTaskStateService stateService;
+
+    @BeforeEach
+    void injectSelf() {
+        org.springframework.test.util.ReflectionTestUtils.setField(stateService, "self", stateService);
+    }
 
     private ScheduleTask runningTask() {
         ScheduleTask task = new ScheduleTask();
@@ -84,9 +92,65 @@ class ScheduleTaskStateServiceTest {
     }
 
     @Test
+    void markRunning_recordsTimeSpentWaiting() {
+        ScheduleTask pending = new ScheduleTask();
+        pending.setId("t1");
+        pending.setMode("BASELINE");
+        pending.setCreatedAt(OffsetDateTime.now().minusSeconds(5));
+        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(pending));
+        when(properties.getAlgorithm()).thenReturn(new FjspProperties.Algorithm());
+        when(properties.getTask()).thenReturn(new FjspProperties.Task());
+        when(taskRepository.markRunningIfDispatchable(eq("t1"), any(), any())).thenReturn(1);
+
+        assertTrue(stateService.markRunning("t1"));
+        verify(metrics).recordQueueWait(eq("BASELINE"), argThat(wait ->
+                wait.toMillis() >= 4000 && wait.toMillis() < 10000));
+    }
+
+    @Test
+    void markDispatchRejected_failsPendingTaskWithCapacityReason() {
+        ScheduleTask pending = new ScheduleTask();
+        pending.setId("t1");
+        pending.setStatus("PENDING");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(pending));
+
+        stateService.markDispatchRejected("t1");
+
+        assertEquals("FAILED", pending.getStatus());
+        assertTrue(pending.getErrorMessage().contains("队列已满"));
+        verify(metrics).recordDispatchRejected();
+    }
+
+    @Test
+    void markDispatchFailed_retriesPendingWithoutTouchingQueuedTasks() {
+        ScheduleTask pending = new ScheduleTask();
+        pending.setId("t1");
+        pending.setStatus("PENDING");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(pending));
+
+        stateService.markDispatchFailed("t1", "executor unavailable");
+
+        assertEquals("RETRY_WAIT", pending.getStatus());
+        assertEquals(1, pending.getRetryCount());
+        assertNotNull(pending.getNextRetryAt());
+        verify(metrics).recordRetry();
+    }
+
+    @Test
+    void markDispatchFailed_doesNotOverwriteRunningTask() {
+        ScheduleTask running = runningTask();
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(running));
+
+        stateService.markDispatchFailed("t1", "late dispatch exception");
+
+        assertEquals("RUNNING", running.getStatus());
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
     void markFailed_recordsFailureAndTruncatesMessage() {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
         String longMessage = "x".repeat(5000);
 
         stateService.markFailed("t1", longMessage);
@@ -104,7 +168,7 @@ class ScheduleTaskStateServiceTest {
     @Test
     void markFailed_nullMessage() {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.markFailed("t1", null);
 
@@ -118,7 +182,7 @@ class ScheduleTaskStateServiceTest {
     void scheduleRetryOrFail_firstFailure_schedulesRetryWait() {
         ScheduleTask task = runningTask();
         task.setTimeoutAt(OffsetDateTime.now().plusMinutes(5));
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.scheduleRetryOrFail("t1", "ResourceAccessException: Connection refused");
 
@@ -140,7 +204,7 @@ class ScheduleTaskStateServiceTest {
         task.setRetryCount(3);
         task.setMaxRetries(3);
         task.setFingerprint("fp-1");
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.scheduleRetryOrFail("t1", "ResourceAccessException: Read timed out");
 
@@ -161,7 +225,7 @@ class ScheduleTaskStateServiceTest {
     void scheduleRetryOrFail_cancelRequested_cancelsInsteadOfRetry() {
         ScheduleTask task = runningTask();
         task.setCancelRequested(true);
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.scheduleRetryOrFail("t1", "ResourceAccessException: Connection refused");
 
@@ -176,13 +240,25 @@ class ScheduleTaskStateServiceTest {
         task.setTimeoutAt(OffsetDateTime.now().minusMinutes(1));
         when(taskRepository.findByStatusAndTimeoutAtBefore(eq("RUNNING"), any()))
                 .thenReturn(List.of(task));
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.processTimeouts();
 
         assertEquals("RETRY_WAIT", task.getStatus());
         assertTrue(task.getErrorMessage().contains("TaskTimeout"));
         verify(auditService).record(eq("TASK_RETRY_SCHEDULED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void timeoutScan_doesNotRetryNewerAttempt() {
+        ScheduleTask task = runningTask();
+        task.setTimeoutAt(OffsetDateTime.now().plusMinutes(5));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
+
+        stateService.timeoutIfDue("t1", OffsetDateTime.now());
+
+        assertEquals("RUNNING", task.getStatus());
+        verify(taskRepository, never()).save(any());
     }
 
     @Test
@@ -201,16 +277,45 @@ class ScheduleTaskStateServiceTest {
     }
 
     @Test
+    void redispatchDueRetries_queueFullMarksTaskFailed() {
+        ScheduleTask due = new ScheduleTask();
+        due.setId("t1");
+        due.setTaskCode("TSK-001");
+        due.setStatus("RETRY_WAIT");
+        when(taskRepository.findByStatusAndNextRetryAtLessThanEqual(eq("RETRY_WAIT"), any()))
+                .thenReturn(List.of(due));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(due));
+        doThrow(new TaskRejectedException("queue full")).when(taskRunner).run("t1");
+
+        stateService.redispatchDueRetries();
+
+        assertEquals("FAILED", due.getStatus());
+        verify(metrics).recordDispatchRejected();
+    }
+
+    @Test
     void recoverInterruptedTasks_runningTaskRecoveredToRetryWait() {
         ScheduleTask task = runningTask();
         when(taskRepository.findByStatus("RUNNING")).thenReturn(List.of(task));
-        when(taskRepository.findById("t1")).thenReturn(java.util.Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
 
         stateService.recoverInterruptedTasks();
 
         assertEquals("RETRY_WAIT", task.getStatus());
         assertEquals(1, task.getRetryCount());
         verify(auditService).record(eq("TASK_RECOVERED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void recoverInterruptedTask_doesNotTouchNewerAttempt() {
+        ScheduleTask task = runningTask();
+        task.setStartedAt(OffsetDateTime.now());
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
+
+        stateService.recoverInterruptedTask("t1", task.getStartedAt().minusSeconds(10));
+
+        assertEquals("RUNNING", task.getStatus());
+        verify(auditService, never()).record(eq("TASK_RECOVERED"), eq("schedule_task"), eq("t1"), any());
     }
 
     @Test
@@ -232,5 +337,19 @@ class ScheduleTaskStateServiceTest {
         assertEquals(2, dispatched);
         verify(taskRunner).run("t1");
         verify(taskRunner).run("t2");
+    }
+
+    @Test
+    void lateFailureAndProgressCannotOverwriteTerminalTask() {
+        ScheduleTask task = runningTask();
+        task.setStatus("CANCELLED");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(java.util.Optional.of(task));
+
+        stateService.updateProgress("t1", 85);
+        stateService.markFailed("t1", "late failure");
+        stateService.scheduleRetryOrFail("t1", "late timeout");
+
+        assertEquals("CANCELLED", task.getStatus());
+        verify(taskRepository, never()).save(any());
     }
 }

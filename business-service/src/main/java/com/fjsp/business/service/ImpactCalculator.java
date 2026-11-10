@@ -2,6 +2,7 @@ package com.fjsp.business.service;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,10 +61,8 @@ public class ImpactCalculator {
     }
 
     public PlanVersion currentPublishedPlan() {
-        return planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")).stream()
-                .max((a, b) -> a.getPublishedAt() != null && b.getPublishedAt() != null
-                        ? a.getPublishedAt().compareTo(b.getPublishedAt()) : 0)
-                .orElse(null);
+        return planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(
+                List.of("PUBLISHED", "EXECUTING")).orElse(null);
     }
 
     public void recordNewOrderImpacts(Event event, String orderId) {
@@ -131,14 +130,19 @@ public class ImpactCalculator {
         Map<String, OrderOperation> impactedOrderOps = impactedIds.isEmpty() ? Map.of()
                 : orderOperationRepository.findAllById(impactedIds).stream()
                         .collect(Collectors.toMap(OrderOperation::getId, oo -> oo));
-        Map<String, List<OrderOperation>> opsByOrder = new LinkedHashMap<>();
+        // 受影响订单的全部工序一次性取回并按 orderId 分组，替代逐订单 computeIfAbsent 的 N+1
+        List<String> impactedOrderIds = impactedOrderOps.values().stream()
+                .map(OrderOperation::getOrderId).distinct().toList();
+        Map<String, List<OrderOperation>> opsByOrder = impactedOrderIds.isEmpty() ? Map.of()
+                : orderOperationRepository.findByOrderIdIn(impactedOrderIds).stream()
+                        .sorted(Comparator.comparingInt(OrderOperation::getSequenceNo))
+                        .collect(Collectors.groupingBy(OrderOperation::getOrderId));
         for (String opId : impactedIds) {
             OrderOperation oo = impactedOrderOps.get(opId);
             if (oo == null) {
                 continue;
             }
-            List<OrderOperation> orderOps = opsByOrder.computeIfAbsent(oo.getOrderId(),
-                    orderOperationRepository::findByOrderIdOrderBySequenceNo);
+            List<OrderOperation> orderOps = opsByOrder.getOrDefault(oo.getOrderId(), List.of());
             for (OrderOperation successor : orderOps) {
                 if (successor.getSequenceNo() <= oo.getSequenceNo() || impacted.containsKey(successor.getId())) {
                     continue;

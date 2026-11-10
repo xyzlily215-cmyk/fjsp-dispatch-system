@@ -23,13 +23,9 @@ def compute_delta(problem: Problem, placements) -> Dict[str, float]:
     if problem.mode == MODE_BASELINE or not problem.old_plan:
         return zero
 
-    adjustable_old = [
-        op for op in problem.ops
-        if not op.is_new and not op.hard_locked
-        and (problem.mode != "LOCAL_RESCHEDULE" or op.operation_id in problem.affected)
-    ]
+    adjustable_old = problem.delta_adjustable_old
     # sequence change uses all non-new ops (pairs with locked ops can still change order)
-    non_new = [op for op in problem.ops if not op.is_new and op.operation_id in problem.old_plan]
+    non_new = problem.delta_non_new
 
     d = len(adjustable_old)
     if d == 0:
@@ -101,6 +97,28 @@ def compute_delta(problem: Problem, placements) -> Dict[str, float]:
     }
 
 
+def _machine_utilizations(problem: Problem, schedule: Schedule):
+    for m in problem.machine_ids:
+        avail_min = problem.machines[m].avail_minutes
+        total = sum(blk[1] - blk[BS] for blk in schedule.timelines[m])
+        yield m, total / avail_min if avail_min > 0 else 0.0
+
+
+def _load_imbalance(us):
+    if not us:
+        return 0.0
+    mean_u = sum(us) / len(us)
+    return sum(abs(u - mean_u) for u in us) / len(us)
+
+
+def load_metrics(problem: Problem, schedule: Schedule):
+    """Build the per-machine utilization dictionary only for the final KPI."""
+    utilization = dict(_machine_utilizations(problem, schedule))
+    return _load_imbalance([
+        u for m, u in utilization.items() if problem.machines[m].avail_minutes > 0
+    ]), utilization
+
+
 def compute_metrics(problem: Problem, schedule: Schedule) -> Dict:
     placements = schedule.placements
     cmax = 0
@@ -119,44 +137,36 @@ def compute_metrics(problem: Problem, schedule: Schedule) -> Dict:
             t_weighted += order.weight * t
             n_tardy += 1
 
-    utilization = {}
-    us = []
-    for m in problem.machine_ids:
-        total = 0
-        for blk in schedule.timelines[m]:
-            total += blk[1] - blk[BS]  # (endAt) - (startAt - changeover)
-        avail_min = problem.machines[m].avail_minutes
-        u = (total / avail_min) if avail_min > 0 else 0.0
-        utilization[m] = u
-        if avail_min > 0:
-            us.append(u)
-    if us:
-        mean_u = sum(us) / len(us)
-        load_imbalance = sum(abs(u - mean_u) for u in us) / len(us)
-    else:
-        load_imbalance = 0.0
+    # 负载指标只在 BASELINE 目标项里参与 fitness；重调度模式在 build_kpi 里按需
+    # 计算一次，避免每次求值都做 O(总工序) 的机器时间线扫描
+    load_imbalance = 0.0
+    if problem.mode == MODE_BASELINE:
+        load_imbalance = _load_imbalance([
+            u for m, u in _machine_utilizations(problem, schedule)
+            if problem.machines[m].avail_minutes > 0
+        ])
 
     delta = compute_delta(problem, placements)
     return {
         "cmax": cmax,
         "tWeighted": t_weighted,
         "nTardy": n_tardy,
-        "utilization": utilization,
         "loadImbalance": load_imbalance,
         "delta": delta,
         "nMachineChange": delta["nMachineChange"],
     }
 
 
-def build_kpi(problem: Problem, metrics: Dict) -> Dict:
+def build_kpi(problem: Problem, metrics: Dict, schedule: Schedule) -> Dict:
+    load_imbalance, utilization = load_metrics(problem, schedule)
     kpi = {
         "cMaxMinutes": metrics["cmax"],
         "weightedTardinessMinutes": metrics["tWeighted"],
         "nTardy": metrics["nTardy"],
         "utilizationByMachine": dict(
-            (m, round(u, 4)) for m, u in metrics["utilization"].items()
+            (m, round(u, 4)) for m, u in utilization.items()
         ),
-        "loadImbalance": round(metrics["loadImbalance"], 6),
+        "loadImbalance": round(load_imbalance, 6),
     }
     if problem.mode != MODE_BASELINE:
         d = metrics["delta"]

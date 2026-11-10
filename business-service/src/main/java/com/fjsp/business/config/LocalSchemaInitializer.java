@@ -12,7 +12,7 @@ import org.springframework.jdbc.datasource.init.DatabasePopulatorUtils;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Component;
 
-/** Local uses Hibernate update rather than Flyway; apply the constraints Hibernate cannot create. */
+/** Local uses Hibernate update; apply missing constraints and backfill existing data. */
 @Component
 @Profile("local")
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -31,7 +31,8 @@ public class LocalSchemaInitializer implements ApplicationRunner {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(
                 new ClassPathResource("db/migration/V5__execution_record_running_unique.sql"),
                 new ClassPathResource("db/migration/V6__execution_feedback_enhancement.sql"),
-                new ClassPathResource("db/migration/V13__plan_version_single_active.sql"));
+                new ClassPathResource("db/migration/V13__plan_version_single_active.sql"),
+                new ClassPathResource("db/migration/V14__schedule_operation_order_id.sql"));
         DatabasePopulatorUtils.execute(populator, dataSource);
     }
 }

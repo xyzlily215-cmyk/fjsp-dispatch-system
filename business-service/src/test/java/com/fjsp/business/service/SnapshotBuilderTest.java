@@ -4,7 +4,6 @@ import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import com.fjsp.business.entity.CalendarInterval;
 import com.fjsp.business.entity.Event;
@@ -31,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -198,7 +198,7 @@ class SnapshotBuilderTest {
                 oldOp("OP-RUN", "2026-09-16T08:30:00+08:00", "2026-09-16T09:30:00+08:00"),
                 oldOp("OP-FROZEN", "2026-09-16T09:10:00+08:00", "2026-09-16T09:40:00+08:00"),
                 oldOp("OP-SOFT", "2026-09-16T12:00:00+08:00", "2026-09-16T13:00:00+08:00")));
-        when(orderOperationRepository.findAll()).thenReturn(List.of(
+        when(orderOperationRepository.findAllById(any())).thenReturn(List.of(
                 orderOp("OP-DONE", 1), orderOp("OP-RUN", 2),
                 orderOp("OP-FROZEN", 3), orderOp("OP-SOFT", 4)));
         ProductionOrder order = new ProductionOrder();
@@ -209,8 +209,8 @@ class SnapshotBuilderTest {
         order.setDueAt(OffsetDateTime.parse("2026-09-16T18:00:00+08:00"));
         order.setPriority(3);
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
-        when(productionOrderRepository.findById("ORD-1")).thenReturn(Optional.of(order));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1")).thenReturn(List.of(
+        when(productionOrderRepository.findAllById(any())).thenReturn(List.of(order));
+        when(orderOperationRepository.findByOrderIdIn(any())).thenReturn(List.of(
                 orderOp("OP-DONE", 1), orderOp("OP-RUN", 2),
                 orderOp("OP-FROZEN", 3), orderOp("OP-SOFT", 4)));
         when(eventImpactRepository.findByEventId("EVT-1")).thenReturn(List.of());
@@ -258,6 +258,27 @@ class SnapshotBuilderTest {
         assertTrue(request.containsKey("affectedOperationIds"));
         assertTrue(request.containsKey("deltaPlanWeights"));
         assertTrue(request.containsKey("oldPlan"));
+        verify(scheduleOperationRepository).findByPlanVersionId("PV-OLD");
+    }
+
+    @Test
+    void sharedCalendarIsLoadedOnceButBreakdownsRemainMachineSpecific() {
+        stubSeedService();
+        when(machineRepository.findAll()).thenReturn(List.of(
+                machine("M1", "ACTIVE", "CAL1"), machine("M2", "ACTIVE", "CAL1")));
+        when(calendarIntervalRepository.findByCalendarIdOrderByStartAt("CAL1"))
+                .thenReturn(List.of(interval("CAL1", "WORK",
+                        "2026-09-16T08:00:00+08:00", "2026-09-16T16:00:00+08:00")));
+        when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of(breakdown("M1",
+                "2026-09-16T10:00:00+08:00", "2026-09-16T11:00:00+08:00")));
+        when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
+        Map<String, Object> request = snapshotBuilder.buildSolveRequest("BASELINE", null, null,
+                null, SIM_START, 30, null, null);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> machines = (List<Map<String, Object>>) request.get("machines");
+        assertEquals(List.of(List.of(0L, 120L), List.of(180L, 480L)), machines.get(0).get("availableIntervals"));
+        assertEquals(List.of(List.of(0L, 480L)), machines.get(1).get("availableIntervals"));
+        verify(calendarIntervalRepository).findByCalendarIdOrderByStartAt("CAL1");
     }
 
     @Test
@@ -269,7 +290,6 @@ class SnapshotBuilderTest {
         when(machineRepository.findAll()).thenReturn(List.of());
         when(eventRepository.findByEventType(Event.TYPE_BREAKDOWN)).thenReturn(List.of());
         when(scheduleOperationRepository.findByPlanVersionId("PV-OLD")).thenReturn(List.of());
-        when(orderOperationRepository.findAll()).thenReturn(List.of());
         when(productionOrderRepository.findByStatusIn(List.of("WAITING"))).thenReturn(List.of());
 
         Map<String, Object> request = snapshotBuilder.buildSolveRequest("FULL_RESCHEDULE", null,

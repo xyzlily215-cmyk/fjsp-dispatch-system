@@ -1,6 +1,7 @@
 package com.fjsp.business.service;
 
 import java.time.OffsetDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.core.task.TaskRejectedException;
 
 @Service
 public class ScheduleTaskStateService {
@@ -25,6 +28,10 @@ public class ScheduleTaskStateService {
     private final TaskRunner taskRunner;
     private final TaskEventService taskEventService;
     private final FjspMetrics metrics;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private ScheduleTaskStateService self;
 
     public ScheduleTaskStateService(ScheduleTaskRepository taskRepository,
                                     AuditService auditService,
@@ -48,6 +55,7 @@ public class ScheduleTaskStateService {
     @Transactional
     public boolean markRunning(String taskId) {
         OffsetDateTime now = OffsetDateTime.now();
+        ScheduleTask waiting = taskRepository.findById(taskId).orElse(null);
         int updated = taskRepository.markRunningIfDispatchable(taskId, now,
                 now.plus(properties.getAlgorithm().getTimeout())
                         .plus(properties.getTask().getTimeoutBuffer()));
@@ -55,13 +63,44 @@ public class ScheduleTaskStateService {
             log.info("task {} dispatch aborted: not in PENDING/RETRY_WAIT (cancelled or already dispatched)", taskId);
             return false;
         }
+        if (waiting != null) {
+            OffsetDateTime queuedAt = TaskStatus.RETRY_WAIT.name().equals(waiting.getStatus())
+                    && waiting.getNextRetryAt() != null ? waiting.getNextRetryAt() : waiting.getCreatedAt();
+            metrics.recordQueueWait(waiting.getMode(), Duration.between(queuedAt, now));
+        }
         taskEventService.publish(taskId);
         return true;
     }
 
+    /** afterCommit 时原业务事务已经提交，需新事务写入可见的容量失败状态。 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markDispatchRejected(String taskId) {
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.PENDING.name().equals(task.getStatus())
+                && !TaskStatus.RETRY_WAIT.name().equals(task.getStatus())) {
+            return;
+        }
+        metrics.recordDispatchRejected();
+        applyFailed(task, "任务执行队列已满，请稍后人工重试");
+    }
+
+    /** 提交后投递抛出非容量异常：只重试明确未成功投递的任务。 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markDispatchFailed(String taskId, String reason) {
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.PENDING.name().equals(task.getStatus())
+                && !TaskStatus.RETRY_WAIT.name().equals(task.getStatus())) {
+            return;
+        }
+        retryOrFail(task, "dispatch failed: " + reason);
+    }
+
     @Transactional
     public void updateProgress(String taskId, int progress) {
-        taskRepository.findById(taskId).ifPresent(t -> {
+        taskRepository.findByIdForUpdate(taskId).ifPresent(t -> {
+            if (!TaskStatus.RUNNING.name().equals(t.getStatus())) {
+                return;
+            }
             t.setProgress(progress);
             taskRepository.save(t);
             taskEventService.publish(taskId);
@@ -70,7 +109,14 @@ public class ScheduleTaskStateService {
 
     @Transactional
     public void markFailed(String taskId, String errorMessage) {
-        ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.RUNNING.name().equals(task.getStatus())) {
+            return;
+        }
+        if (Boolean.TRUE.equals(task.getCancelRequested())) {
+            applyCancelled(task, "cancel requested before failure: " + errorMessage);
+            return;
+        }
         applyFailed(task, errorMessage);
     }
 
@@ -80,14 +126,19 @@ public class ScheduleTaskStateService {
      */
     @Transactional
     public void scheduleRetryOrFail(String taskId, String reason) {
-        ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
-        if (TaskStatus.CANCELLED.name().equals(task.getStatus())) {
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.RUNNING.name().equals(task.getStatus())) {
             return;
         }
         if (Boolean.TRUE.equals(task.getCancelRequested())) {
             applyCancelled(task, "cancel requested, transient failure not retried: " + reason);
             return;
         }
+        retryOrFail(task, reason);
+    }
+
+    private void retryOrFail(ScheduleTask task, String reason) {
+        String taskId = task.getId();
         int retries = task.getRetryCount() + 1;
         task.setRetryCount(retries);
         if (retries <= task.getMaxRetries()) {
@@ -147,12 +198,26 @@ public class ScheduleTaskStateService {
 
     // ---- scheduled scan & startup recovery ----
 
-    @Transactional
     public void processTimeouts() {
         OffsetDateTime now = OffsetDateTime.now();
         for (ScheduleTask task : taskRepository.findByStatusAndTimeoutAtBefore(
                 TaskStatus.RUNNING.name(), now)) {
-            scheduleRetryOrFail(task.getId(), "TaskTimeout: 执行超过时限 timeoutAt=" + task.getTimeoutAt());
+            self.timeoutIfDue(task.getId(), now);
+        }
+    }
+
+    @Transactional
+    public void timeoutIfDue(String taskId, OffsetDateTime now) {
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.RUNNING.name().equals(task.getStatus())
+                || task.getTimeoutAt() == null || task.getTimeoutAt().isAfter(now)) {
+            return;
+        }
+        String reason = "TaskTimeout: 执行超过时限 timeoutAt=" + task.getTimeoutAt();
+        if (Boolean.TRUE.equals(task.getCancelRequested())) {
+            applyCancelled(task, "cancel requested, transient failure not retried: " + reason);
+        } else {
+            retryOrFail(task, reason);
         }
     }
 
@@ -162,17 +227,31 @@ public class ScheduleTaskStateService {
                 TaskStatus.RETRY_WAIT.name(), now);
         for (ScheduleTask task : due) {
             log.info("redispatch retry-wait task {}", task.getTaskCode());
-            taskRunner.run(task.getId());
+            dispatch(task);
         }
         return due.size();
     }
 
-    @Transactional
     public void recoverInterruptedTasks() {
         for (ScheduleTask task : taskRepository.findByStatus(TaskStatus.RUNNING.name())) {
-            auditService.record("TASK_RECOVERED", "schedule_task", task.getId(),
-                    "process restarted while task was RUNNING; applying retry policy");
-            scheduleRetryOrFail(task.getId(), "进程重启时任务仍处于 RUNNING，按中断恢复处理");
+            self.recoverInterruptedTask(task.getId(), task.getStartedAt());
+        }
+    }
+
+    @Transactional
+    public void recoverInterruptedTask(String taskId, OffsetDateTime startedAt) {
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.RUNNING.name().equals(task.getStatus())
+                || !java.util.Objects.equals(startedAt, task.getStartedAt())) {
+            return;
+        }
+        auditService.record("TASK_RECOVERED", "schedule_task", taskId,
+                "process restarted while task was RUNNING; applying retry policy");
+        String reason = "进程重启时任务仍处于 RUNNING，按中断恢复处理";
+        if (Boolean.TRUE.equals(task.getCancelRequested())) {
+            applyCancelled(task, "cancel requested, transient failure not retried: " + reason);
+        } else {
+            retryOrFail(task, reason);
         }
     }
 
@@ -184,8 +263,20 @@ public class ScheduleTaskStateService {
                 TaskStatus.RETRY_WAIT.name(), now));
         for (ScheduleTask task : toDispatch) {
             log.info("redispatch task {} on startup", task.getTaskCode());
-            taskRunner.run(task.getId());
+            dispatch(task);
         }
         return toDispatch.size();
+    }
+
+    private void dispatch(ScheduleTask task) {
+        try {
+            taskRunner.run(task.getId());
+        } catch (TaskRejectedException e) {
+            log.warn("task {} rejected: execution queue full", task.getTaskCode(), e);
+            self.markDispatchRejected(task.getId());
+        } catch (RuntimeException e) {
+            log.error("task {} dispatch failed", task.getTaskCode(), e);
+            self.markDispatchFailed(task.getId(), e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 }

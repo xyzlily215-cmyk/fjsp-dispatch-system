@@ -1,23 +1,30 @@
 <template>
-  <div class="ai-bar" :class="{ expanded }">
+  <section class="ai-bar" :class="{ expanded }" aria-label="AI 调度助手">
+    <div class="ai-head">
+      <span class="ai-badge" aria-hidden="true">AI</span>
+      <div class="ai-heading">
+        <strong>{{ title || 'AI 调度助手' }}</strong>
+        <span>关联当前页面 · {{ route.meta.title || '调度工作台' }}</span>
+      </div>
+      <div class="ai-meta">
+        <span class="ai-status" :class="connClass" :title="connTitle"><span class="conn-dot"></span>{{ connText }}</span>
+        <button type="button" class="ai-link" title="打开 AI 调度助手对话" @click="openSidebar">打开对话 <span aria-hidden="true">↗</span></button>
+      </div>
+    </div>
     <div class="ai-row">
-      <span class="ai-badge" title="AI 副驾">✨</span>
       <div class="ai-triggers">
         <button v-for="a in actions" :key="a.label" type="button" class="ai-chip" :class="{ primary: a.primary }"
                 :disabled="agent.busy" @click="run(a)">{{ a.label }}</button>
         <template v-if="freeInput">
-          <input v-model="draft" class="ai-free" :placeholder="freeInput.placeholder"
+          <input v-model="draft" class="ai-free" :placeholder="freeInput.placeholder" :aria-label="freeInput.placeholder"
                  @keydown.enter.prevent="runFree" />
           <button type="button" class="ai-chip primary" :disabled="agent.busy || !draft.trim()" @click="runFree">
             {{ freeInput.button ?? '发送' }}
           </button>
         </template>
       </div>
-      <div class="ai-meta">
-        <span class="conn-dot" :class="agent.connected ? 'ok' : 'wait'" :title="agent.connected ? '副驾已连接' : '连接中…'"></span>
-        <button type="button" class="ai-link" title="在完整副驾侧栏中继续对话" @click="openSidebar">副驾 ↗</button>
-        <button v-if="expanded" type="button" class="ai-link" @click="collapsed = true">收起 ▴</button>
-      </div>
+      <button v-if="collapsed && hasResult" type="button" class="ai-collapse" @click="collapsed = false">查看结果</button>
+      <button v-if="expanded" type="button" class="ai-collapse" @click="collapsed = true">收起结果</button>
     </div>
 
     <template v-if="expanded">
@@ -37,10 +44,10 @@
             </div>
           </div>
         </template>
-        <div v-if="agent.busy && !hasStreamingText" class="ai-thinking">副驾处置中<span class="cursor">▍</span></div>
+        <div v-if="agent.busy && !hasStreamingText" class="ai-thinking">正在处理调度请求<span class="cursor">▍</span></div>
       </div>
     </template>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -83,17 +90,24 @@ const segment = computed(() => {
   return agent.messages.slice(startIdx.value).filter((m) => m.role === 'assistant');
 });
 const hasStreamingText = computed(() => segment.value.some((m) => m.streaming && m.text));
+const hasResult = computed(() => startIdx.value !== null && (segment.value.length > 0 || agent.approvals.length > 0 || agent.busy));
 const expanded = computed(
-  () => !collapsed.value && (segment.value.length > 0 || (startIdx.value !== null && agent.approvals.length > 0)),
+  () => !collapsed.value && hasResult.value,
 );
+const connClass = computed(() => agent.connected ? 'ok' : agent.health && !agent.health.ok ? 'bad' : 'wait');
+const connText = computed(() => agent.connected ? '已连接' : agent.health && !agent.health.ok ? '未连接' : '连接中');
+const connTitle = computed(() => agent.health && !agent.health.ok ? agent.health.hint || '智能体未连接' : connText.value);
 
 function stepIcon(status: string) {
   return status === 'done' ? '✓' : status === 'error' ? '✗' : '⏳';
 }
 
 async function run(a: AiAction) {
+  if (agent.busy) return false;
   const text = typeof a.prompt === 'function' ? a.prompt() : a.prompt;
-  if (!text.trim()) return;
+  if (!text.trim()) return false;
+  const previousIdx = startIdx.value;
+  const wasCollapsed = collapsed.value;
   startIdx.value = agent.messages.length;
   collapsed.value = false;
   try {
@@ -103,18 +117,24 @@ async function run(a: AiAction) {
       route: route.name,
       query: route.query,
     });
+    return true;
   } catch (e) {
+    startIdx.value = previousIdx;
+    collapsed.value = wasCollapsed;
     const err = e as { code?: string; message?: string };
-    if (err.code === 'turn_in_progress') ElMessage.warning('副驾正在处置上一轮任务，请稍候');
+    if (err.code === 'turn_in_progress') ElMessage.warning('AI 调度助手正在处理上一轮任务，请稍候');
     else ElMessage.error(err.message || '发送失败');
+    return false;
   }
 }
 
 function runFree() {
+  if (agent.busy) return;
   const text = draft.value.trim();
   if (!text) return;
+  const prompt = props.freeInput?.wrap ? props.freeInput.wrap(text) : text;
   draft.value = '';
-  run({ label: 'free', prompt: props.freeInput?.wrap ? props.freeInput.wrap(text) : text });
+  run({ label: 'free', prompt }).then((sent) => { if (!sent && !draft.value) draft.value = text; });
 }
 
 function openSidebar() {
@@ -123,24 +143,37 @@ function openSidebar() {
 </script>
 
 <style scoped>
-.ai-bar { background:#fff; border:1px solid var(--line, #e4e7ed); border-radius:10px; }
-.ai-row { display:flex; align-items:center; gap:10px; padding:7px 12px; }
-.ai-badge { flex:none; font-size:13px; }
-.ai-triggers { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0; }
-.ai-meta { flex:none; display:flex; align-items:center; gap:8px; margin-left:auto; }
-.conn-dot { width:8px; height:8px; border-radius:50%; }
-.conn-dot.ok { background:#67c23a; }
-.conn-dot.wait { background:#e6a23c; }
-.ai-link { border:0; background:transparent; color:var(--blue, #409eff); font-size:12px; cursor:pointer; padding:2px 4px; }
+.ai-bar { background:#fff; border:1px solid var(--line, #e5eaf1); border-radius:8px; overflow:hidden; }
+.ai-head { display:flex; align-items:center; gap:12px; padding:12px 16px 10px; }
+.ai-badge { flex:none; display:grid; place-items:center; width:32px; height:32px; border-radius:7px; background:#eaf1ff; color:var(--blue-deep, #1d4ed8); font-size:12px; font-weight:750; }
+.ai-heading { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.ai-heading strong { color:var(--ink, #152334); font-size:13px; line-height:1.3; }
+.ai-heading > span { color:#66758a; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ai-meta { display:flex; align-items:center; gap:16px; margin-left:auto; flex:none; }
+.ai-status { display:flex; align-items:center; gap:6px; color:#66758a; font-size:11px; white-space:nowrap; }
+.conn-dot { width:7px; height:7px; border-radius:50%; background:#d28b28; }
+.ai-status.ok .conn-dot { background:#1e9b72; }
+.ai-status.bad .conn-dot { background:#d85b5b; }
+.ai-link { border:0; background:transparent; color:var(--blue-deep, #1d4ed8); font-size:12px; font-weight:600; cursor:pointer; padding:5px 0; white-space:nowrap; }
 .ai-link:hover { text-decoration:underline; }
-
-.ai-chip { border:1px solid #dcdfe6; background:#fff; color:#606266; border-radius:6px; padding:5px 12px; font-size:12.5px; cursor:pointer; }
-.ai-chip:hover:not(:disabled) { border-color:var(--blue, #409eff); color:var(--blue, #409eff); }
-.ai-chip.primary { background:var(--blue, #409eff); border-color:var(--blue, #409eff); color:#fff; }
-.ai-chip.primary:hover:not(:disabled) { background:#66b1ff; color:#fff; }
+.ai-row { display:flex; align-items:center; gap:12px; padding:10px 16px 12px; border-top:1px solid #f0f2f6; }
+.ai-triggers { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0; }
+.ai-chip { border:1px solid #d9e1eb; background:#fff; color:#334155; border-radius:5px; padding:7px 12px; font-size:12px; cursor:pointer; min-height:32px; }
+.ai-chip:hover:not(:disabled), .ai-chip:focus-visible { border-color:var(--blue, #2563eb); color:var(--blue-deep, #1d4ed8); background:#f3f7ff; }
+.ai-chip.primary { background:var(--blue, #2563eb); border-color:var(--blue, #2563eb); color:#fff; }
+.ai-chip.primary:hover:not(:disabled) { background:var(--blue-deep, #1d4ed8); color:#fff; }
 .ai-chip:disabled { opacity:.55; cursor:default; }
-.ai-free { flex:1; min-width:220px; border:1px solid #dcdfe6; border-radius:6px; padding:5px 12px; font-size:12.5px; outline:none; }
-.ai-free:focus { border-color:var(--blue, #409eff); }
+.ai-collapse { border:0; background:transparent; color:#66758a; font-size:11px; white-space:nowrap; cursor:pointer; padding:6px; }
+.ai-collapse:hover { color:var(--blue-deep, #1d4ed8); }
+.ai-free { flex:1; min-width:180px; border:1px solid #d9e1eb; border-radius:5px; padding:7px 10px; font-size:12px; outline:none; }
+.ai-free:focus { border-color:var(--blue, #2563eb); }
+.ai-free::placeholder { color:#718093; }
+@media (max-width:640px) {
+  .ai-head { flex-wrap:wrap; }
+  .ai-meta { width:100%; margin-left:0; padding-left:44px; justify-content:space-between; }
+  .ai-row { align-items:stretch; flex-wrap:wrap; }
+  .ai-free { min-width:0; width:100%; }
+}
 
 .ai-approvals { padding:0 12px 10px; }
 .ai-result { margin:0 12px 10px; border-top:1px dashed var(--line, #e4e7ed); padding-top:10px; display:flex; flex-direction:column; gap:8px; max-height:420px; overflow-y:auto; }

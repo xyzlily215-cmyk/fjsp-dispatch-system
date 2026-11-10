@@ -13,6 +13,9 @@ public interface PlanVersionRepository extends JpaRepository<PlanVersion, String
 
     List<PlanVersion> findByStatusIn(List<String> statuses);
 
+    /** 取最新发布/执行中的计划（数据库侧按 publishedAt 降序取 1 条，替代内存 max）。 */
+    Optional<PlanVersion> findTopByStatusInOrderByPublishedAtDesc(List<String> statuses);
+
     List<PlanVersion> findAllByOrderByCreatedAtDesc();
 
     Page<PlanVersion> findAllBy(Pageable pageable);

@@ -28,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.core.task.TaskRejectedException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,6 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class ScheduleTaskCommandServiceTest {
@@ -296,6 +298,7 @@ class ScheduleTaskCommandServiceTest {
         task.setTaskCode("TSK-001");
         task.setStatus("PENDING");
         task.setFingerprint("fp-1");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
 
         ScheduleTaskDetailResponse data = commandService.cancelTask("t1");
@@ -312,6 +315,7 @@ class ScheduleTaskCommandServiceTest {
         ScheduleTask task = runningTask();
         task.setStatus("RETRY_WAIT");
         task.setNextRetryAt(OffsetDateTime.now().plusSeconds(30));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
 
         commandService.cancelTask("t1");
@@ -324,6 +328,7 @@ class ScheduleTaskCommandServiceTest {
     @Test
     void cancelTask_running_setsCancelRequestedOnly() {
         ScheduleTask task = runningTask();
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
 
         ScheduleTaskDetailResponse data = commandService.cancelTask("t1");
@@ -338,7 +343,7 @@ class ScheduleTaskCommandServiceTest {
     void cancelTask_terminal_rejected() {
         ScheduleTask task = runningTask();
         task.setStatus("SUCCESS");
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
 
         BizException e = assertThrows(BizException.class, () -> commandService.cancelTask("t1"));
         assertEquals("E_STATE_CONFLICT", e.getCode());
@@ -355,6 +360,7 @@ class ScheduleTaskCommandServiceTest {
         task.setFingerprint(null);
         task.setSnapshotHash("snapshot-hash-1");
         when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
         when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
 
         ScheduleTaskDetailResponse data = commandService.retryTask("t1");
@@ -379,9 +385,58 @@ class ScheduleTaskCommandServiceTest {
     }
 
     @Test
+    void retryTask_dispatchQueueFull_exposesFailedStatus() {
+        ScheduleTask task = runningTask();
+        task.setStatus("FAILED");
+        task.setSnapshotHash("snapshot-hash-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
+        doThrow(new TaskRejectedException("queue full")).when(taskRunner).run("t1");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
+
+        commandService.retryTask("t1");
+        TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
+
+        assertEquals("FAILED", task.getStatus());
+        assertTrue(task.getErrorMessage().contains("队列已满"));
+        verify(metrics).recordDispatchRejected();
+    }
+
+    @Test
+    void retryTask_unexpectedDispatchFailureSchedulesRetryAfterCommit() {
+        ScheduleTask task = runningTask();
+        task.setStatus("FAILED");
+        task.setSnapshotHash("snapshot-hash-1");
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByFingerprintAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
+        doThrow(new IllegalStateException("executor unavailable")).when(taskRunner).run("t1");
+
+        commandService.retryTask("t1");
+        TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
+
+        assertEquals("RETRY_WAIT", task.getStatus());
+        assertEquals(1, task.getRetryCount());
+        assertNotNull(task.getNextRetryAt());
+        assertTrue(task.getErrorMessage().contains("executor unavailable"));
+    }
+
+    @Test
+    void createTask_afterCommitDispatchFailureAndDatabaseFailureDoNotThrow() {
+        stubCreateHappyPath(baselineRequest());
+        ScheduleTaskCreateResponse created = commandService.createTask("key-1", baselineRequest());
+        doThrow(new IllegalStateException("executor unavailable")).when(taskRunner).run(created.taskId());
+        when(taskRepository.findByIdForUpdate(created.taskId())).thenThrow(new IllegalStateException("db down"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() ->
+                TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit());
+    }
+
+    @Test
     void retryTask_nonTerminal_rejected() {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
 
         BizException e = assertThrows(BizException.class, () -> commandService.retryTask("t1"));
         assertEquals("E_STATE_CONFLICT", e.getCode());
@@ -395,11 +450,24 @@ class ScheduleTaskCommandServiceTest {
         task.setSnapshotHash("snapshot-hash-1");
         ScheduleTask other = new ScheduleTask();
         other.setTaskCode("TSK-777");
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
         when(taskRepository.findByFingerprintAndStatusIn(anyString(), any()))
                 .thenReturn(Optional.of(other));
 
         BizException e = assertThrows(BizException.class, () -> commandService.retryTask("t1"));
         assertEquals("E_DUPLICATE", e.getCode());
+    }
+
+    @Test
+    void cancelTask_byCodeLocksResolvedRow() {
+        ScheduleTask task = runningTask();
+        task.setStatus("PENDING");
+        when(taskRepository.findByIdForUpdate("TSK-001")).thenReturn(Optional.empty());
+        when(taskRepository.findIdByTaskCode("TSK-001")).thenReturn(Optional.of("t1"));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+
+        assertEquals("CANCELLED", commandService.cancelTask("TSK-001").status());
+        verify(taskRepository).findByIdForUpdate("t1");
     }
 }

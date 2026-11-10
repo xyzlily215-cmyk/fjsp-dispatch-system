@@ -1,6 +1,7 @@
 package com.fjsp.business.service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,9 +166,13 @@ public class ProcessTemplateCommandService {
             if (op.defaultCandidates() == null || op.defaultCandidates().isEmpty()) {
                 throw BizException.validation("工序 " + op.operationCode() + " 的候选设备不能为空");
             }
+            Set<String> candidateMachineIds = new HashSet<>();
             for (TemplateUpsertRequest.CandidateInput c : op.defaultCandidates()) {
                 if (c.machineId() == null || c.machineId().isBlank()) {
                     throw BizException.validation("工序 " + op.operationCode() + " 存在未指定设备的候选");
+                }
+                if (!candidateMachineIds.add(c.machineId())) {
+                    throw BizException.validation("工序 " + op.operationCode() + " 的候选设备不能重复: " + c.machineId());
                 }
                 if (machineRepository.findById(c.machineId()).isEmpty()) {
                     throw BizException.validation("候选设备不存在: " + c.machineId());

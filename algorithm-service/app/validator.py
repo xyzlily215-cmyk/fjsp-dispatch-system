@@ -122,10 +122,10 @@ def validate_plan(problem: Problem,
         pl = placements.get(op.operation_id)
         if pl is None:
             continue
-        if pl[0] != machine or pl[1] != start or pl[2] != end:
+        if pl[0] != machine or pl[1] != start or pl[2] != end or pl[3] != co:
             conflicts.append(_conflict(
                 "HARD_LOCK_VIOLATION", [op.operation_id], "ERROR",
-                "硬锁定工序 %s 的设备或起止时间被改变" % op.operation_id))
+                "硬锁定工序 %s 的设备、起止时间或换型时间被改变" % op.operation_id))
 
     # ---- LOCAL mode equality constraints ----
     if problem.mode == MODE_LOCAL and problem.old_plan:

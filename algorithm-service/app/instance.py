@@ -83,6 +83,10 @@ class Problem:
     # machine -> [(opId, oldStart)] sorted by (oldStart, opId); static old-plan
     # ordering reused by every compute_delta call during the GA
     old_seq_by_machine: Dict[str, List[Tuple[str, int]]] = field(default_factory=dict)
+    # static operand lists for compute_delta: invariant across chromosomes,
+    # precomputed once at build time instead of rebuilt on every evaluation
+    delta_adjustable_old: List[OpRec] = field(default_factory=list)
+    delta_non_new: List[OpRec] = field(default_factory=list)
     _co_cache: Dict[Tuple[str, str], int] = field(default_factory=dict)
 
     def changeover(self, fam_a, fam_b, completed_a, completed_b):
@@ -226,14 +230,11 @@ def _resolve_lockings(req, sim_start, conflicts):
                 "硬锁定工序必须提供 machineId 与固定起止时间"))
             continue
         if lt == "in_progress" and lk.actualStartAtMinutes is not None:
-            # 实际开工即事实：窗口锚定到 actualStart，结束时间按剩余工时顺延。
-            # 剩余工时 = 计划加工时长 - 已进行时长；假设迟到反馈≈刚开工，elapsed 近似进度；
-            # 超期仍在加工的至少保留 1 分钟余量。
+            # actualStart 是实际开工，不是进度上报时间；迟开工不能抵扣加工时长。
+            # 未提供独立加工进度时保留完整计划时长，并以实际开工为锚。
             actual = lk.actualStartAtMinutes
-            planned_proc = max(0, end - start)
-            elapsed = max(0, actual - start)
-            remaining = max(1, planned_proc - elapsed)
-            start, end = actual, actual + remaining
+            planned_duration = end - start
+            start, end = actual, actual + planned_duration
         hard_locks[lk.operationId] = (lk.machineId, start, end, lk.changeoverMinutes, lt)
     return hard_locks, soft_locked_ids
 
@@ -406,6 +407,7 @@ def build_problem(req: Union[SolveRequest, ValidateRequest],
     _derive_structures(problem)
     _build_fixed_blocks(problem, conflicts)
     _precompute_old_sequences(problem)
+    _precompute_delta_lists(problem)
 
     _pre_check(problem, conflicts)
     return problem
@@ -423,6 +425,20 @@ def _precompute_old_sequences(problem):
     for seq in by_m.values():
         seq.sort(key=lambda x: (x[1], x[0]))
     problem.old_seq_by_machine = by_m
+
+
+def _precompute_delta_lists(problem):
+    # compute_delta 的静态操作数：不随染色体变化，构建时算一次即可，
+    # 避免在每次求值（compute_metrics → compute_delta）里重复构造列表。
+    problem.delta_adjustable_old = [
+        op for op in problem.ops
+        if not op.is_new and not op.hard_locked
+        and (problem.mode != MODE_LOCAL or op.operation_id in problem.affected)
+    ]
+    problem.delta_non_new = [
+        op for op in problem.ops
+        if not op.is_new and op.operation_id in problem.old_plan
+    ]
 
 
 def _duration_on(op, machine_id):

@@ -1,24 +1,24 @@
 <template>
   <AsyncPage :loading="loading" :error="error" error-title="订单加载失败" loading-text="正在加载订单…">
     <div class="page-header">
-      <div><h1>基线排程</h1><p>选择待排订单并配置算法参数，创建 BASELINE 求解任务</p></div>
+      <div><h1>基线排程</h1><p>选择订单、设置求解参数并创建排程任务</p></div>
     </div>
     <AiInsightCard title="AI 排程助手" :actions="aiActions" style="margin-bottom:12px" />
-    <div class="grid-2" style="grid-template-columns:1.5fr 1fr;align-items:start">
-      <section class="card table-card">
-        <div class="toolbar">
-          <div class="filters"><b>待排订单</b><span class="muted">勾选参与本次排程的订单（默认全选）</span></div>
+    <div class="baseline-workspace">
+      <section class="card table-card baseline-orders">
+        <div class="toolbar baseline-toolbar">
+          <div class="baseline-heading"><h2>待排订单</h2><span class="muted" aria-live="polite">已选 {{ checkedIds.length }} / {{ orders.length }} 单</span></div>
           <div class="buttons">
-            <button class="btn small" @click="checkAll(true)">全选</button>
-            <button class="btn small" @click="checkAll(false)">清空</button>
+            <button class="btn small" :disabled="!orders.length || checkedIds.length === orders.length" @click="checkAll(true)">全选</button>
+            <button class="btn small" :disabled="!checkedIds.length" @click="checkAll(false)">清空</button>
           </div>
         </div>
-        <div class="table-wrap" style="max-height:560px">
+        <div class="table-wrap baseline-table">
           <table class="data-table">
-            <thead><tr><th class="checkbox-cell"></th><th>订单号</th><th>产品族</th><th>数量</th><th>优先级</th><th>交期</th><th>状态</th><th>工序数</th></tr></thead>
+            <thead><tr><th class="checkbox-cell"><span class="sr-only">选择</span></th><th>订单号</th><th>产品族</th><th>数量</th><th>优先级</th><th>交期</th><th>状态</th><th>工序数</th></tr></thead>
             <tbody>
               <tr v-for="o in orders" :key="o.orderId">
-                <td class="checkbox-cell"><input type="checkbox" :value="o.orderId" v-model="checkedIds"></td>
+                <td class="checkbox-cell"><input type="checkbox" :value="o.orderId" :aria-label="`选择订单 ${o.orderCode}`" v-model="checkedIds"></td>
                 <td>{{ o.orderCode }}</td>
                 <td>{{ o.productFamily }}</td>
                 <td>{{ o.quantity }}</td>
@@ -27,31 +27,35 @@
                 <td><StatusTag :status="o.status" /></td>
                 <td>{{ (o.operations || []).length }}</td>
               </tr>
+              <tr v-if="!orders.length"><td colspan="8" class="baseline-no-orders">暂无可选订单</td></tr>
             </tbody>
           </table>
         </div>
       </section>
-      <section class="card">
-        <div class="section-pad">
-          <h3 style="margin:0 0 14px;font-size:15px">排程参数</h3>
-          <div class="form-row">
-            <label>仿真起点</label>
-            <input type="datetime-local" class="field" v-model="form.simStart">
-            <span class="muted" style="font-size:12px">留空 = 默认（seed 基准，RELATIVE 模式为当前时间）</span>
+      <section class="card baseline-settings">
+        <form class="section-pad" @submit.prevent="submit">
+          <h2>排程参数</h2>
+          <div class="form-row baseline-start">
+            <label for="baseline-start">仿真起点</label>
+            <div><input id="baseline-start" type="datetime-local" class="field" v-model="form.simStart">
+              <span class="muted baseline-hint">留空时使用系统默认起点</span></div>
           </div>
-          <div class="form-row"><label>C_max 权重</label><input type="number" class="field" v-model="form.wm" step="0.1" min="0"></div>
-          <div class="form-row"><label>拖期权重</label><input type="number" class="field" v-model="form.wt" step="0.1" min="0"></div>
-          <div class="form-row"><label>均衡权重</label><input type="number" class="field" v-model="form.wl" step="0.1" min="0"></div>
-          <div class="form-row"><label>种群规模</label><input type="number" class="field" v-model="form.pop" min="2"></div>
-          <div class="form-row"><label>迭代代数</label><input type="number" class="field" v-model="form.gen" min="1"></div>
-          <div class="form-row"><label>随机种子</label><input type="number" class="field" v-model="form.seed"></div>
-          <div class="form-row"><label>时间上限(秒)</label><input type="number" class="field" v-model="form.limit" min="1" max="600"></div>
+          <div class="baseline-group-title">优化目标 <span>权重</span></div>
+          <div class="form-row"><label for="baseline-wm">完工时间</label><input id="baseline-wm" type="number" class="field" v-model="form.wm" step="0.1" min="0" required></div>
+          <div class="form-row"><label for="baseline-wt">拖期</label><input id="baseline-wt" type="number" class="field" v-model="form.wt" step="0.1" min="0" required></div>
+          <div class="form-row"><label for="baseline-wl">负载均衡</label><input id="baseline-wl" type="number" class="field" v-model="form.wl" step="0.1" min="0" required></div>
+          <div class="baseline-group-title">求解设置</div>
+          <div class="form-row"><label for="baseline-pop">种群规模</label><input id="baseline-pop" type="number" class="field" v-model="form.pop" min="2" step="1" required></div>
+          <div class="form-row"><label for="baseline-gen">迭代代数</label><input id="baseline-gen" type="number" class="field" v-model="form.gen" min="1" step="1" required></div>
+          <div class="form-row"><label for="baseline-seed">随机种子</label><input id="baseline-seed" type="number" class="field" v-model="form.seed" step="1" required></div>
+          <div class="form-row"><label for="baseline-limit">时间上限（秒）</label><input id="baseline-limit" type="number" class="field" v-model="form.limit" min="1" max="600" step="1" required></div>
           <ErrorBox v-if="apiError" :error="apiError" title="创建任务失败" />
           <div v-else-if="errText" class="error-box">{{ errText }}</div>
-          <button class="btn primary" style="width:100%;height:36px" v-role="['DISPATCHER','ADMIN']"
-            :disabled="submitting" @click="submit">{{ submitting ? '创建中…' : '创建基线排程任务' }}</button>
-          <p class="muted" style="margin-top:10px">提交后将创建基线排程任务，自动跳转到调度任务页跟踪求解进度。</p>
-        </div>
+          <div class="baseline-submit" v-role="['DISPATCHER','ADMIN']">
+            <button type="submit" class="btn primary" :disabled="submitting || !checkedIds.length">{{ submitting ? '创建中…' : `创建排程任务（${checkedIds.length} 单）` }}</button>
+            <p class="muted">创建后可在调度任务页查看进度</p>
+          </div>
+        </form>
       </section>
     </div>
   </AsyncPage>
@@ -141,3 +145,35 @@ async function submit() {
 
 onMounted(load);
 </script>
+
+<style scoped>
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.baseline-workspace { display:grid; grid-template-columns:minmax(0,1fr) clamp(360px,32%,520px); align-items:start; gap:16px; }
+.baseline-orders, .baseline-settings { min-width:0; }
+.baseline-toolbar { min-height:66px; }
+.baseline-heading { display:flex; align-items:baseline; gap:12px; }
+.baseline-heading h2, .baseline-settings h2 { margin:0; font-size:15px; font-weight:650; }
+.baseline-table { max-height:clamp(420px,calc(100dvh - 300px),960px); }
+.baseline-table .data-table { min-width:660px; }
+.baseline-no-orders { height:120px !important; text-align:center; color:var(--muted) !important; }
+.baseline-settings .section-pad { padding:16px 22px; }
+.baseline-settings h2 { margin-bottom:12px; }
+.baseline-settings .form-row { grid-template-columns:110px minmax(0,1fr); margin-bottom:7px; }
+.baseline-settings .field { height:32px; }
+.baseline-hint { display:block; margin-top:5px; line-height:1.4; }
+.baseline-group-title { display:flex; align-items:baseline; gap:8px; margin:12px 0 8px; padding-top:10px; border-top:1px solid var(--line); font-size:13px; font-weight:650; }
+.baseline-group-title span { color:var(--muted); font-size:12px; font-weight:400; }
+.baseline-submit { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.baseline-submit .btn { width:100%; }
+.baseline-submit p { margin:8px 0 0; text-align:center; }
+@media (max-width:1380px) {
+  .baseline-workspace { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:560px) {
+  .baseline-toolbar { align-items:flex-start; flex-wrap:wrap; }
+  .baseline-heading { flex-wrap:wrap; }
+  .baseline-settings .section-pad { padding:16px; }
+  .baseline-settings .form-row { grid-template-columns:minmax(0,1fr); gap:4px; margin-bottom:12px; }
+  .baseline-settings .form-row label { text-align:left; }
+}
+</style>

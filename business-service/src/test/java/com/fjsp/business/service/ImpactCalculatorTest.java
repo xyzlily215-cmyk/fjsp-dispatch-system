@@ -100,8 +100,8 @@ class ImpactCalculatorTest {
     }
 
     private void stubPublishedPlan(List<ScheduleOperation> ops) {
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of(publishedPlan()));
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.of(publishedPlan()));
         when(scheduleOperationRepository.findByPlanVersionId("PV-1")).thenReturn(ops);
     }
 
@@ -112,8 +112,8 @@ class ImpactCalculatorTest {
 
     @Test
     void computeBreakdownImpacts_noPublishedPlan_returnsEmpty() {
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of());
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.empty());
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
 
@@ -131,7 +131,7 @@ class ImpactCalculatorTest {
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of(running));
         when(orderOperationRepository.findAllById(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
+        when(orderOperationRepository.findByOrderIdIn(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1), orderOp("OP-2", "ORD-1", 2)));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
@@ -156,7 +156,7 @@ class ImpactCalculatorTest {
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
         when(orderOperationRepository.findAllById(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
+        when(orderOperationRepository.findByOrderIdIn(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
@@ -173,7 +173,7 @@ class ImpactCalculatorTest {
                 "2026-09-16T13:00:00+08:00")));
         when(orderOperationRepository.findAllById(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
+        when(orderOperationRepository.findByOrderIdIn(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
@@ -192,7 +192,7 @@ class ImpactCalculatorTest {
                 "2026-09-16T11:00:00+08:00")));
         when(orderOperationRepository.findAllById(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
+        when(orderOperationRepository.findByOrderIdIn(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(15));
@@ -238,7 +238,7 @@ class ImpactCalculatorTest {
         when(executionRecordRepository.findByOperationIdIn(any())).thenReturn(List.of());
         when(orderOperationRepository.findAllById(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1)));
-        when(orderOperationRepository.findByOrderIdOrderBySequenceNo("ORD-1"))
+        when(orderOperationRepository.findByOrderIdIn(any()))
                 .thenReturn(List.of(orderOp("OP-1", "ORD-1", 1), orderOp("OP-2", "ORD-1", 2)));
 
         List<EventImpact> impacts = impactCalculator.computeBreakdownImpacts(breakdownEvent(60));
@@ -269,17 +269,13 @@ class ImpactCalculatorTest {
     }
 
     @Test
-    void currentPublishedPlan_picksLatestPublishedAt() {
-        PlanVersion older = new PlanVersion();
-        older.setId("PV-OLD");
-        older.setStatus("PUBLISHED");
-        older.setPublishedAt(OCCURRED.minusHours(5));
+    void currentPublishedPlan_returnsLatestPublishedFromRepository() {
         PlanVersion newer = new PlanVersion();
         newer.setId("PV-NEW");
         newer.setStatus("EXECUTING");
         newer.setPublishedAt(OCCURRED.minusHours(1));
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of(older, newer));
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.of(newer));
 
         PlanVersion current = impactCalculator.currentPublishedPlan();
 
@@ -288,8 +284,8 @@ class ImpactCalculatorTest {
 
     @Test
     void currentPublishedPlan_none_returnsNull() {
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of());
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.empty());
 
         assertNull(impactCalculator.currentPublishedPlan());
     }
@@ -388,8 +384,8 @@ class ImpactCalculatorTest {
 
     @Test
     void reschedulePreview_noPublishedPlan_stateConflict() {
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of());
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.empty());
 
         BizException e = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
                 () -> impactCalculator.reschedulePreview(breakdownEvent(60), null, null));
@@ -399,8 +395,8 @@ class ImpactCalculatorTest {
 
     @Test
     void reschedulePreview_freezeWindowOutOfRange_rejected() {
-        when(planVersionRepository.findByStatusIn(List.of("PUBLISHED", "EXECUTING")))
-                .thenReturn(List.of(publishedPlan()));
+        when(planVersionRepository.findTopByStatusInOrderByPublishedAtDesc(List.of("PUBLISHED", "EXECUTING")))
+                .thenReturn(Optional.of(publishedPlan()));
 
         BizException e = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
                 () -> impactCalculator.reschedulePreview(breakdownEvent(60), null, 1441));

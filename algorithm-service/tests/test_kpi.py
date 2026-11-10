@@ -1,5 +1,9 @@
+from unittest.mock import patch
+
+import pytest
+
 from app.instance import build_problem
-from app.kpi import compute_metrics
+from app.kpi import build_kpi, compute_metrics, load_metrics
 from app.models import SolveRequest
 from conftest import make_schedule
 
@@ -52,13 +56,18 @@ def test_kpi_cmax_tardiness_utilization():
         "A1-20": ("M1", 25, 45, 0),
         "B1-10": ("M2", 0, 30, 0),
     }
-    metrics = compute_metrics(problem, make_schedule(problem, plan))
+    schedule = make_schedule(problem, plan)
+    with patch("app.kpi.load_metrics", wraps=load_metrics) as loads:
+        metrics = compute_metrics(problem, schedule)
+        loads.assert_not_called()
+    assert "utilization" not in metrics
     assert metrics["cmax"] == 45
     # B1: C=30, due=20, T=10, priority weight 2 -> 20
     assert metrics["tWeighted"] == 20
     assert metrics["nTardy"] == 1
-    assert abs(metrics["utilization"]["M1"] - 45 / 600) < 1e-9
-    assert abs(metrics["utilization"]["M2"] - 30 / 600) < 1e-9
+    _imbalance, utilization = load_metrics(problem, schedule)
+    assert abs(utilization["M1"] - 45 / 600) < 1e-9
+    assert abs(utilization["M2"] - 30 / 600) < 1e-9
     # mean = 0.0625, both deviations 0.0125
     assert abs(metrics["loadImbalance"] - 0.0125) < 1e-9
 
@@ -100,6 +109,24 @@ OLD_PLAN = [
     {"operationId": "C1-10", "machineId": "M1", "startAtMinutes": 45, "endAtMinutes": 60},
     {"operationId": "B1-10", "machineId": "M2", "startAtMinutes": 0, "endAtMinutes": 30},
 ]
+
+
+@pytest.mark.parametrize("mode", ["LOCAL_RESCHEDULE", "FULL_RESCHEDULE"])
+def test_reschedule_defers_load_metrics_but_keeps_final_kpi(mode):
+    req = SolveRequest(**_request(mode, DELTA_ORDERS, old_plan=OLD_PLAN, affected=[]))
+    problem = build_problem(req, [])
+    plan = {op["operationId"]: (op["machineId"], op["startAtMinutes"],
+                                op["endAtMinutes"], 0) for op in OLD_PLAN}
+    schedule = make_schedule(problem, plan)
+    with patch("app.kpi.load_metrics", wraps=load_metrics) as loads:
+        metrics = compute_metrics(problem, schedule)
+        loads.assert_not_called()
+        assert "utilization" not in metrics
+        kpi = build_kpi(problem, metrics, schedule)
+        loads.assert_called_once_with(problem, schedule)
+    assert kpi["utilizationByMachine"] == {"M1": 0.1, "M2": 0.05}
+    assert kpi["loadImbalance"] == 0.025
+    assert kpi["deltaPlan"]["deltaPlan"] == 0.0
 
 
 def _delta_problem_and_metrics(new_plan):

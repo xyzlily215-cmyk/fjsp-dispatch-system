@@ -281,6 +281,40 @@ export const CONVERSATION_SNAPSHOT_RESPONSE: Schema = {
   },
 }
 
+// ---- 导入文件通道（F-05 AI 导入）：xlsx→CSV 转换与上传暂存 ----
+
+export const IMPORT_CONVERT_REQUEST: Schema = {
+  type: 'object',
+  required: ['fileName', 'contentBase64'],
+  properties: {
+    fileName: { type: 'string', minLength: 1 },
+    contentBase64: { type: 'string', minLength: 1 },
+  },
+}
+
+export const IMPORT_CONVERT_RESULT: Schema = {
+  type: 'object',
+  required: ['ok', 'csv', 'rows'],
+  properties: {
+    ok: { type: 'boolean' },
+    csv: { type: 'string' },
+    rows: { type: 'integer' },
+  },
+}
+
+export const IMPORT_UPLOAD_RESULT: Schema = {
+  type: 'object',
+  required: ['ok', 'uploadId', 'fileName', 'csvPath', 'rows', 'converted'],
+  properties: {
+    ok: { type: 'boolean' },
+    uploadId: { type: 'string' },
+    fileName: { type: 'string' },
+    csvPath: { type: 'string' },
+    rows: { type: 'integer' },
+    converted: { type: 'boolean' },
+  },
+}
+
 // ---- 端点表 ----
 
 export type EndpointAuth = 'public' | 'bearer' | 'ticket'
@@ -381,6 +415,15 @@ export const HTTP_CONTRACT: EndpointContract[] = [
     method: 'POST', path: '/agent-api/rag/experience-query', summary: '处置经验检索（向量 + BM25 双路召回）', auth: 'bearer',
     requestBody: RAG_QUERY_REQUEST,
     responses: { 200: RAG_QUERY_RESULT, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/import/upload', summary: '导入文件上传暂存（body 为文件二进制，filename 走 query；CSV 原样落盘，xlsx 先转 CSV；仅暂存不触发业务写）', auth: 'bearer',
+    responses: { 200: IMPORT_UPLOAD_RESULT, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 413: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/import/convert', summary: 'xlsx → CSV 转换（fjsp-tools 的 xlsx 路径用，base64 进 / CSV 文本出，不落盘）', auth: 'bearer',
+    requestBody: IMPORT_CONVERT_REQUEST,
+    responses: { 200: IMPORT_CONVERT_RESULT, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 413: ERROR_RESPONSE },
   },
 ]
 

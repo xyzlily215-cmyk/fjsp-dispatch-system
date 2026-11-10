@@ -6,17 +6,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fjsp.business.client.AlgorithmClient;
 import com.fjsp.business.common.BizException;
 import com.fjsp.business.entity.InputSnapshot;
+import com.fjsp.business.entity.OrderOperation;
 import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.ScheduleTask;
 import com.fjsp.business.entity.TaskStatus;
 import com.fjsp.business.metrics.FjspMetrics;
 import com.fjsp.business.repository.InputSnapshotRepository;
+import com.fjsp.business.repository.OrderOperationRepository;
 import com.fjsp.business.repository.PlanVersionRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import com.fjsp.business.repository.ScheduleTaskRepository;
@@ -42,6 +45,7 @@ public class ScheduleResultAssembler {
     private final ValidateRequestFactory validateRequestFactory;
     private final ScheduleTaskStateService stateService;
     private final FjspMetrics metrics;
+    private final OrderOperationRepository orderOperationRepository;
 
     // 自注入代理：handleSolveResult 的远程复核在事务外执行，落库部分通过代理开启事务
     // （同类自调用 @Transactional 不生效）
@@ -60,7 +64,8 @@ public class ScheduleResultAssembler {
                                    TaskEventService taskEventService,
                                    ValidateRequestFactory validateRequestFactory,
                                    ScheduleTaskStateService stateService,
-                                   FjspMetrics metrics) {
+                                   FjspMetrics metrics,
+                                   OrderOperationRepository orderOperationRepository) {
         this.taskRepository = taskRepository;
         this.snapshotRepository = snapshotRepository;
         this.planVersionRepository = planVersionRepository;
@@ -73,6 +78,7 @@ public class ScheduleResultAssembler {
         this.validateRequestFactory = validateRequestFactory;
         this.stateService = stateService;
         this.metrics = metrics;
+        this.orderOperationRepository = orderOperationRepository;
     }
 
     /**
@@ -116,7 +122,11 @@ public class ScheduleResultAssembler {
      */
     @Transactional
     public void persistSolveResult(String taskId, JsonNode resp, JsonNode validation) {
-        ScheduleTask task = taskRepository.findById(taskId).orElseThrow();
+        ScheduleTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow();
+        if (!TaskStatus.RUNNING.name().equals(task.getStatus())) {
+            log.info("task {} result discarded: current status {}", taskId, task.getStatus());
+            return;
+        }
         if (Boolean.TRUE.equals(task.getCancelRequested())) {
             // 协作式取消：算法 HTTP 调用无法中断，求解结果到达后直接丢弃，不建计划版本
             stateService.applyCancelled(task, "cancel requested while RUNNING; solve result discarded");
@@ -210,12 +220,24 @@ public class ScheduleResultAssembler {
         pv.setTaskId(task.getId());
         pv.setKpi(parse(resp.path("kpi")));
 
+        // 批量解析 operationId -> orderId（一次查询），写入冗余 order_id 列，
+        // 供看板等按订单归组，替代靠 operationId 命名约定字符串截取的脆弱做法
+        List<String> opIds = new ArrayList<>();
+        for (JsonNode op : resp.path("operations")) {
+            opIds.add(op.path("operationId").asText());
+        }
+        Map<String, String> orderIdByOp = opIds.isEmpty() ? Map.of()
+                : orderOperationRepository.findAllById(opIds).stream()
+                        .collect(Collectors.toMap(OrderOperation::getId,
+                                OrderOperation::getOrderId, (a, b) -> a));
+
         List<ScheduleOperation> operations = new ArrayList<>();
         for (JsonNode op : resp.path("operations")) {
             ScheduleOperation so = new ScheduleOperation();
             so.setId(UUID.randomUUID().toString());
             so.setPlanVersionId(pv.getId());
             so.setOperationId(op.path("operationId").asText());
+            so.setOrderId(orderIdByOp.get(op.path("operationId").asText()));
             so.setMachineId(op.path("machineId").asText());
             so.setSetupStartAt(OffsetDateTime.parse(op.path("setupStartAt").asText()));
             so.setProcessStartAt(OffsetDateTime.parse(op.path("processStartAt").asText()));

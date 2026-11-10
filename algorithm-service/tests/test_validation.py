@@ -1,3 +1,5 @@
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app.api import app
@@ -20,6 +22,36 @@ def _validate_request(**over):
     ]
     req.update(over)
     return req
+
+
+@pytest.mark.parametrize("endpoint", ["/solve", "/validate"])
+@pytest.mark.parametrize("same_duration", [True, False])
+def test_duplicate_candidate_machine_rejected(endpoint, same_duration):
+    req = tiny_request() if endpoint == "/solve" else _validate_request()
+    candidate = dict(req["orders"][0]["operations"][0]["candidates"][0])
+    if not same_duration:
+        candidate["processMinutes"] += 10
+    req["orders"][0]["operations"][0]["candidates"].append(candidate)
+    response = client.post(endpoint, json=req)
+    assert response.status_code == 422
+    assert "候选设备不能重复" in response.text
+
+
+@pytest.mark.parametrize("lock_type", ["completed", "in_progress", "frozen"])
+@pytest.mark.parametrize("recorded,reserved", [(10, 0), (0, 10)])
+def test_validate_first_hard_lock_changeover_is_immutable(lock_type, recorded, reserved):
+    req = _validate_request()
+    req["operations"][0].update(startAtMinutes=60, endAtMinutes=85,
+                                 changeoverMinutes=recorded)
+    req["operations"][1].update(startAtMinutes=85, endAtMinutes=105)
+    req["operations"][2]["endAtMinutes"] = 30
+    req["lockings"] = [{"operationId": "A1-10", "lockType": lock_type,
+                         "machineId": "M1", "startAtMinutes": 60,
+                         "endAtMinutes": 85, "changeoverMinutes": reserved}]
+    response = client.post("/validate", json=req)
+    assert response.status_code == 200
+    assert not response.json()["passed"]
+    assert any(c["rule"] == "HARD_LOCK_VIOLATION" for c in response.json()["conflicts"])
 
 
 def test_init_mix_negative_value_rejected():

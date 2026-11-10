@@ -37,6 +37,22 @@ class LocalSchemaIT {
         assertIndexesPresent();
     }
 
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void localInitializerBackfillsExistingScheduleOwnership() {
+        jdbcTemplate.update("INSERT INTO order_operation (id, order_id, sequence_no, status) "
+                + "VALUES ('local-opaque-op', 'local-real-order', 1, 'WAITING')");
+        jdbcTemplate.update("INSERT INTO schedule_operation "
+                + "(id, operation_id, plan_version_id, machine_id, start_at, end_at, "
+                + "changeover_minutes, frozen, affected) VALUES ('local-old-schedule', "
+                + "'local-opaque-op', 'local-old-plan', 'M1', CURRENT_TIMESTAMP, "
+                + "CURRENT_TIMESTAMP + interval '1 hour', 0, false, false)");
+        initializer.run(null);
+        initializer.run(null);
+        assertEquals("local-real-order", jdbcTemplate.queryForObject(
+                "SELECT order_id FROM schedule_operation WHERE id='local-old-schedule'", String.class));
+    }
+
     private void assertIndexesPresent() {
         List<String> indexes = jdbcTemplate.queryForList(
                 "SELECT indexname FROM pg_indexes WHERE schemaname='public' "

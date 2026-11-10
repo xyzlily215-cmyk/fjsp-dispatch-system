@@ -68,6 +68,7 @@ class PlanRollbackServiceTest {
         ScheduleOperation op = new ScheduleOperation();
         op.setPlanVersionId(planId);
         op.setOperationId(opId);
+        op.setOrderId("ORDER-INDEPENDENT-OF-OP-ID");
         op.setMachineId(machineId);
         op.setStartAt(OffsetDateTime.parse(startAt));
         op.setEndAt(OffsetDateTime.parse(endAt));
@@ -204,6 +205,7 @@ class PlanRollbackServiceTest {
         verify(scheduleOperationRepository).saveAll(captor.capture());
         List<ScheduleOperation> saved = captor.getValue();
         assertEquals(3, saved.size());
+        saved.forEach(o -> assertEquals("ORDER-INDEPENDENT-OF-OP-ID", o.getOrderId()));
         Map<String, ScheduleOperation> byOp = new java.util.HashMap<>();
         saved.forEach(o -> byOp.put(o.getOperationId(), o));
         assertEquals(Boolean.TRUE, byOp.get("OP-1").getFrozen());

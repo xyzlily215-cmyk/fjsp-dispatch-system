@@ -72,12 +72,14 @@ public class SnapshotBuilder {
                                                  OffsetDateTime simStart, int freezeWindowMinutes,
                                                  Map<String, Double> objectiveWeights,
                                                  Map<String, Object> algorithmOverrides) {
+        List<ScheduleOperation> oldOps = "BASELINE".equals(mode) ? List.of()
+                : scheduleOperationRepository.findByPlanVersionId(oldPlanVersionId);
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("mode", mode);
         request.put("simulationStartAt", simStart.toString());
         request.put("freezeWindowMinutes", freezeWindowMinutes);
         request.put("machines", buildMachines(simStart));
-        request.put("orders", buildOrders(mode, orderIds, oldPlanVersionId, simStart));
+        request.put("orders", buildOrders(mode, orderIds, oldOps, simStart));
         request.put("changeoverDefault", seedService.changeoverDefault());
         request.put("changeoverMatrix", seedService.changeoverMatrix());
         request.put("objectiveWeights",
@@ -89,7 +91,6 @@ public class SnapshotBuilder {
         request.put("algorithm", algorithm);
 
         if (!"BASELINE".equals(mode)) {
-            List<ScheduleOperation> oldOps = scheduleOperationRepository.findByPlanVersionId(oldPlanVersionId);
             List<Map<String, Object>> oldPlan = new ArrayList<>();
             for (ScheduleOperation op : oldOps) {
                 Map<String, Object> entry = new LinkedHashMap<>();
@@ -166,21 +167,24 @@ public class SnapshotBuilder {
                 .filter(e -> e.getRepairEndAt() != null)
                 .toList();
         List<Map<String, Object>> machines = new ArrayList<>();
+        // 请求内复用共享日历，避免多台设备重复读取同一份日历；不跨请求缓存。
+        Map<String, List<CalendarInterval>> calendars = new HashMap<>();
         for (Machine machine : machineRepository.findAll()) {
             if (!MachineStatus.ACTIVE.equals(machine.getStatus())) {
                 continue;
             }
             List<long[]> intervals = new ArrayList<>();
             if (machine.getCalendarId() != null) {
-                for (CalendarInterval ci : calendarIntervalRepository
-                        .findByCalendarIdOrderByStartAt(machine.getCalendarId())) {
+                // 一次取回该日历全部区间，内存分流 WORK / 非 WORK，替代两次同名查询
+                List<CalendarInterval> calendar = calendars.computeIfAbsent(machine.getCalendarId(),
+                        calendarIntervalRepository::findByCalendarIdOrderByStartAt);
+                for (CalendarInterval ci : calendar) {
                     if ("WORK".equals(ci.getIntervalType())) {
                         intervals.add(new long[]{minutesBetween(simStart, ci.getStartAt()),
                                 minutesBetween(simStart, ci.getEndAt())});
                     }
                 }
-                for (CalendarInterval ci : calendarIntervalRepository
-                        .findByCalendarIdOrderByStartAt(machine.getCalendarId())) {
+                for (CalendarInterval ci : calendar) {
                     if (!"WORK".equals(ci.getIntervalType())) {
                         intervals = subtract(intervals, minutesBetween(simStart, ci.getStartAt()),
                                 minutesBetween(simStart, ci.getEndAt()));
@@ -211,15 +215,25 @@ public class SnapshotBuilder {
     }
 
     private List<Map<String, Object>> buildOrders(String mode, List<String> orderIds,
-                                                  String oldPlanVersionId, OffsetDateTime simStart) {
+                                                  List<ScheduleOperation> oldOps, OffsetDateTime simStart) {
         List<ProductionOrder> orders;
         if ("BASELINE".equals(mode)) {
             if (orderIds != null && !orderIds.isEmpty()) {
+                // 一次性按 id / orderCode 批量取回，替代逐条 findById(+code 回退) 的 N+1
+                Map<String, ProductionOrder> byId = productionOrderRepository.findAllById(orderIds).stream()
+                        .collect(Collectors.toMap(ProductionOrder::getId, o -> o, (a, b) -> a));
+                Map<String, ProductionOrder> byCode = productionOrderRepository.findByOrderCodeIn(orderIds).stream()
+                        .collect(Collectors.toMap(ProductionOrder::getOrderCode, o -> o, (a, b) -> a));
                 orders = new ArrayList<>();
                 for (String id : orderIds) {
-                    orders.add(productionOrderRepository.findById(id)
-                            .or(() -> productionOrderRepository.findByOrderCode(id))
-                            .orElseThrow(() -> BizException.notFound("订单不存在: " + id)));
+                    ProductionOrder o = byId.get(id);
+                    if (o == null) {
+                        o = byCode.get(id);
+                    }
+                    if (o == null) {
+                        throw BizException.notFound("订单不存在: " + id);
+                    }
+                    orders.add(o);
                 }
             } else {
                 orders = new ArrayList<>(
@@ -227,26 +241,26 @@ public class SnapshotBuilder {
             }
         } else {
             Set<String> included = new HashSet<>();
-            List<ScheduleOperation> oldOps = scheduleOperationRepository.findByPlanVersionId(oldPlanVersionId);
-            Map<String, OrderOperation> opById = new HashMap<>();
-            for (OrderOperation oo : orderOperationRepository.findAll()) {
-                opById.put(oo.getId(), oo);
-            }
-            for (ScheduleOperation so : oldOps) {
-                OrderOperation oo = opById.get(so.getOperationId());
-                if (oo != null) {
+            // 只取回旧计划涉及的工序行，替代 findAll() 全表加载
+            List<String> oldOpIds = oldOps.stream().map(ScheduleOperation::getOperationId).toList();
+            if (!oldOpIds.isEmpty()) {
+                for (OrderOperation oo : orderOperationRepository.findAllById(oldOpIds)) {
                     included.add(oo.getOrderId());
                 }
             }
             for (ProductionOrder o : productionOrderRepository.findByStatusIn(List.of(OrderStatus.WAITING))) {
                 included.add(o.getId());
             }
-            orders = new ArrayList<>();
-            for (String id : included) {
-                productionOrderRepository.findById(id).ifPresent(orders::add);
-            }
+            orders = new ArrayList<>(productionOrderRepository.findAllById(included));
         }
         orders.sort(Comparator.comparing(ProductionOrder::getId));
+        // 一次性取回全部订单工序并按 orderId 分组，替代逐单 findByOrderId 的 N+1
+        List<String> orderIdList = orders.stream().map(ProductionOrder::getId).toList();
+        Map<String, List<OrderOperation>> opsByOrder = orderIdList.isEmpty()
+                ? Map.of()
+                : orderOperationRepository.findByOrderIdIn(orderIdList).stream()
+                        .sorted(Comparator.comparingInt(OrderOperation::getSequenceNo))
+                        .collect(Collectors.groupingBy(OrderOperation::getOrderId));
         List<Map<String, Object>> result = new ArrayList<>();
         for (ProductionOrder order : orders) {
             Map<String, Object> entry = new LinkedHashMap<>();
@@ -257,7 +271,7 @@ public class SnapshotBuilder {
             entry.put("dueMinutes", Math.max(0, minutesBetween(simStart, order.getDueAt())));
             entry.put("priority", order.getPriority());
             List<Map<String, Object>> ops = new ArrayList<>();
-            for (OrderOperation oo : orderOperationRepository.findByOrderIdOrderBySequenceNo(order.getId())) {
+            for (OrderOperation oo : opsByOrder.getOrDefault(order.getId(), List.of())) {
                 Map<String, Object> op = new LinkedHashMap<>();
                 op.put("operationId", oo.getId());
                 op.put("seqNo", oo.getSequenceNo());

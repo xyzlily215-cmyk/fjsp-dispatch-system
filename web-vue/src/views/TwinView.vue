@@ -33,7 +33,7 @@
             <b>{{ a.name }}</b>
             <span class="alarm-reason">{{ alarmReason(a) }}</span>
           </div>
-          <button type="button" class="t-btn primary small" @click="askAgent(a)">让副驾处置</button>
+          <button type="button" class="t-btn primary small" @click="askAgent(a)">交给 AI 处理</button>
         </div>
       </div>
 
@@ -43,7 +43,12 @@
           <image v-if="gridOk" :href="gridUrl" x="0" y="0" width="1000" height="500" opacity="0.5" preserveAspectRatio="none" />
           <polygon v-for="z in zones" :key="z.id" :points="z.svgPoints" class="zone" />
           <text v-for="z in zones" :key="z.id + '-label'" :x="z.labelX" :y="z.labelY" class="zone-label">{{ z.name }}</text>
-          <g v-for="m in machines" :key="m.id" @click.stop="select(m)" class="machine" :class="{ selected: selected?.id === m.id }">
+          <g v-for="m in machines" :key="m.id" @click.stop="select(m)" class="machine"
+             :class="{ selected: selected?.id === m.id, bad: m.online && m.health?.level === 'bad', attention: m.online && m.health?.level === 'attention' }">
+            <template v-if="m.online && m.health && m.health.level !== 'ok'">
+              <circle :cx="sx(m.position.x)" :cy="sy(m.position.y)" r="34" class="ripple" :class="m.health.level" />
+              <circle :cx="sx(m.position.x)" :cy="sy(m.position.y)" r="34" class="ripple r2" :class="m.health.level" />
+            </template>
             <rect :x="sx(m.position.x) - 40" :y="sy(m.position.y) - 25" width="80" height="50" rx="6"
                   :fill="statusColor(m)" :transform="`rotate(${-m.position.yaw} ${sx(m.position.x)} ${sy(m.position.y)})`"
                   class="machine-rect" />
@@ -51,7 +56,8 @@
             <circle v-if="m.health.level !== 'ok'" :cx="sx(m.position.x) + 34" :cy="sy(m.position.y) - 19" r="8"
                     :fill="m.health.level === 'bad' ? '#f56c6c' : '#e6a23c'" class="alarm-pip" />
           </g>
-          <g v-for="a in agvs" :key="a.id">
+          <g v-for="a in agvs" :key="a.id" class="agv">
+            <polyline v-if="trailPoints(a.id)" :points="trailPoints(a.id)" class="agv-trail" />
             <circle :cx="sx(a.position.x)" :cy="sy(a.position.y)" r="14" fill="#409eff" opacity="0.9" />
             <line :x1="sx(a.position.x)" :y1="sy(a.position.y)"
                   :x2="sx(a.position.x) + 18 * Math.cos((a.position.yaw * Math.PI) / 180)"
@@ -72,7 +78,7 @@
               <button type="button" class="t-btn danger-outline small" @click="injectFault(selected)">注入过热故障</button>
               <button type="button" class="t-btn small" @click="recover(selected)">恢复正常</button>
             </template>
-            <button v-if="isAlarm(selected)" type="button" class="t-btn primary small" @click="askAgent(selected)">让副驾处置</button>
+            <button v-if="isAlarm(selected)" type="button" class="t-btn primary small" @click="askAgent(selected)">交给 AI 处理</button>
             <button type="button" class="t-btn small" @click="selected = null">收起</button>
           </div>
         </div>
@@ -115,10 +121,10 @@
 </template>
 
 <script setup>
-/* 数字孪生车间（AI 驾驶舱）：MHS 虚拟设备实时状态 + 设备控制 + 内嵌 AI 调度副驾。
+/* 数字孪生车间（AI 驾驶舱）：MHS 虚拟设备实时状态 + 设备控制 + 内嵌 AI 调度助手。
  * 数据：/twin/stream SSE 1Hz 快照；画面：/twin/device/:id/panel 轮询刷新；
  * 控制：虚拟车间启停、M-03 故障注入/恢复（agent-bff 直控仿真进程，免脚本）；
- * 告警联动：一键让副驾处置（附设备快照上下文，衔接 SKILL 的 MHS 告警处置流程）。 */
+ * 告警联动：一键请求 AI 处理（附设备快照上下文，衔接 SKILL 的 MHS 告警处置流程）。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   openTwinStream, twinGridUrl, twinInjectFault, twinPanelUrl, twinRecover, twinSimStart, twinSimStop,
@@ -250,7 +256,7 @@ async function stopSim() {
 
 async function askAgent(d) {
   if (agent.busy) {
-    ElMessage.warning('副驾正在处置上一轮任务，请稍候或先停止');
+    ElMessage.warning('AI 调度助手正在处理上一轮任务，请稍候或先停止');
     return;
   }
   const temp = d.metrics?.temperature != null ? `${Number(d.metrics.temperature).toFixed(1)}°C` : '未知';
@@ -265,8 +271,25 @@ async function askAgent(d) {
   }
 }
 
+/* AGV 尾迹：每次快照记录最近 12 个位置，地图上渲染渐隐虚线轨迹 */
+const agvTrails = {};
+
+function trailPoints(id) {
+  const t = agvTrails[id];
+  return t && t.length > 1 ? t.map(([x, y]) => `${sx(x)},${sy(y)}`).join(' ') : '';
+}
+
 function applySnapshot(s) {
   snap.value = s;
+  for (const d of s.devices) {
+    if (d.kind !== 'agv' || !d.position) continue;
+    const trail = agvTrails[d.id] ?? (agvTrails[d.id] = []);
+    const last = trail[trail.length - 1];
+    if (!last || last[0] !== d.position.x || last[1] !== d.position.y) {
+      trail.push([d.position.x, d.position.y]);
+      if (trail.length > 12) trail.shift();
+    }
+  }
   if (selected.value) {
     const fresh = s.devices.find((d) => d.id === selected.value.id);
     if (fresh) selected.value = fresh;
@@ -344,6 +367,18 @@ onBeforeUnmount(() => {
 .machine-label { font-size:15px; font-weight:700; fill:#fff; text-anchor:middle; pointer-events:none; }
 .alarm-pip { stroke:#fff; stroke-width:2; animation:pip 1.2s ease-in-out infinite; }
 @keyframes pip { 50% { opacity:.35; } }
+/* 告警联动动效：故障/关注设备呼吸闪烁 + 波纹扩散；AGV 平滑移动 + 尾迹 */
+.machine.bad .machine-rect { animation:breathe 1.1s ease-in-out infinite; }
+@keyframes breathe { 50% { filter:brightness(1.3) drop-shadow(0 0 8px rgba(245,108,108,.85)); } }
+.ripple { fill:none; stroke-width:2.5; opacity:0; pointer-events:none; animation:ripple 2.2s ease-out infinite; }
+.ripple.r2 { animation-delay:1.1s; }
+.ripple.bad { stroke:#f56c6c; }
+.ripple.attention { stroke:#e6a23c; }
+@keyframes ripple { 0% { r:34px; opacity:.8; } 100% { r:92px; opacity:0; } }
+.agv circle, .agv line, .agv text { transition:cx .95s linear, cy .95s linear, x .95s linear, y .95s linear, x1 .95s linear, y1 .95s linear, x2 .95s linear, y2 .95s linear; }
+.agv-trail { fill:none; stroke:#409eff; stroke-width:2; opacity:.35; stroke-dasharray:2 5; stroke-linecap:round; }
+.alarm-card.bad { animation:alarmGlow 1.6s ease-in-out infinite; }
+@keyframes alarmGlow { 50% { box-shadow:0 0 0 4px rgba(245,108,108,.16); } }
 .agv-label { font-size:12px; fill:#409eff; text-anchor:middle; font-weight:600; }
 
 .detail-card { background:#fff; border:1px solid var(--line,#e4e7ed); border-radius:10px; padding:14px; }

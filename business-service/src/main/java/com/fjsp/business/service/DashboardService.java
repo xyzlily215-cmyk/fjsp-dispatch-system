@@ -167,11 +167,11 @@ public class DashboardService {
         if (plan != null) {
             Map<String, ScheduleOperation> lastEndByOrder = new LinkedHashMap<>();
             for (ScheduleOperation op : scheduleOperationRepository.findByPlanVersionId(plan.getId())) {
-                // 依赖 operationId 命名约定 "{orderCode}-{sequenceNo}"（建单时生成，见 OrderCommandService）：
-                // 截掉最后一段序号得到 orderId；不改 schema 的前提下只能这样归属订单
-                String orderId = op.getOperationId().contains("-")
-                        ? op.getOperationId().substring(0, op.getOperationId().lastIndexOf('-'))
-                        : op.getOperationId();
+                // 冗余 order_id 列：直接按订单归组，不再依赖 operationId 命名约定字符串截取
+                String orderId = op.getOrderId();
+                if (orderId == null) {
+                    continue;
+                }
                 ScheduleOperation existing = lastEndByOrder.get(orderId);
                 if (existing == null || op.getEndAt().isAfter(existing.getEndAt())) {
                     lastEndByOrder.put(orderId, op);

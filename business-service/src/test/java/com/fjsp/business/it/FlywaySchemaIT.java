@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Flyway 迁移与实体映射的真实回归：V1-V13 在空库执行成功、validate 通过、索引存在。 */
+/** Flyway 迁移与实体映射的真实回归：V1-V14 在空库执行成功、validate 通过、索引存在。 */
 class FlywaySchemaIT extends AbstractPostgresIT {
 
     @Autowired
@@ -20,10 +20,41 @@ class FlywaySchemaIT extends AbstractPostgresIT {
         List<String> versions = jdbcTemplate.queryForList(
                 "SELECT version || ':' || type || ':' || success FROM flyway_schema_history ORDER BY installed_rank",
                 String.class);
-        // 空库：V1-V13 全部以 SQL 迁移执行（无 baseline 行），全部 success
-        assertEquals(13, versions.size());
+        // 空库：V1-V14 全部以 SQL 迁移执行（无 baseline 行），全部 success
+        assertEquals(14, versions.size());
         assertTrue(versions.get(0).startsWith("1:SQL:true"));
         assertTrue(versions.stream().allMatch(v -> v.endsWith(":SQL:true")), "全部迁移成功: " + versions);
+    }
+
+    @Test
+    @org.springframework.transaction.annotation.Transactional
+    void v14BackfillsRealOrderOwnershipAndIsIdempotent() {
+        jdbcTemplate.update("INSERT INTO order_operation (id, order_id, sequence_no, status) "
+                + "VALUES ('v14-opaque-op', 'actual-order', 1, 'WAITING')");
+        for (String[] row : List.of(
+                new String[]{"v14-backfill", "v14-opaque-op", null},
+                new String[]{"v14-preserved", "v14-opaque-op", "preserve-order"},
+                new String[]{"v14-orphan", "missing-op", null})) {
+            jdbcTemplate.update("INSERT INTO schedule_operation "
+                    + "(id, operation_id, order_id, plan_version_id, machine_id, start_at, end_at, "
+                    + "changeover_minutes, frozen, affected) VALUES (?, ?, ?, ?, 'M1', "
+                    + "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + interval '1 hour', 0, false, false)",
+                    row[0], row[1], row[2], row[0] + "-plan");
+        }
+        for (int i = 0; i < 2; i++) {
+            jdbcTemplate.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> {
+                org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(connection,
+                        new org.springframework.core.io.ClassPathResource(
+                                "db/migration/V14__schedule_operation_order_id.sql"));
+                return null;
+            });
+            assertEquals("actual-order", jdbcTemplate.queryForObject(
+                    "SELECT order_id FROM schedule_operation WHERE id='v14-backfill'", String.class));
+            assertEquals("preserve-order", jdbcTemplate.queryForObject(
+                    "SELECT order_id FROM schedule_operation WHERE id='v14-preserved'", String.class));
+            org.junit.jupiter.api.Assertions.assertNull(jdbcTemplate.queryForObject(
+                    "SELECT order_id FROM schedule_operation WHERE id='v14-orphan'", String.class));
+        }
     }
 
     @Test

@@ -126,9 +126,9 @@ class HybridGA:
         self.params = params
         self.weights = weights
         self.rng = random.Random(params.randomSeed)
-        self.cache: "OrderedDict[Tuple, Tuple[int, float, Optional[Dict], Optional[Schedule]]]" = OrderedDict()
-        # bumped whenever bases change; cached entries from an older bases
-        # version are stale and recomputed lazily on next access
+        # Cache deterministic metrics and penalty data separately from the
+        # normalized fitness; changing bases must not invalidate decoding.
+        self.cache: "OrderedDict[Tuple, Tuple[int, float, Dict, Optional[Schedule], List[str], int]]" = OrderedDict()
         self.bases_version = 0
         self.bases: Dict[str, float] = {
             "cmax": 0.0, "tWeighted": 0.0, "loadImbalance": 0.0,
@@ -156,21 +156,21 @@ class HybridGA:
     def evaluate(self, chrom: Chromosome, keep_solution: bool = False):
         key = chrom.key()
         hit = self.cache.get(key)
-        if hit is not None and hit[0] == self.bases_version:
-            schedule = hit[3]
+        if hit is not None:
+            version, fit, metrics, schedule, penalty_ops, overflow = hit
+            if version != self.bases_version:
+                fit = self.fitness_of(metrics, penalty_ops, overflow)
             if keep_solution and schedule is None:
-                # the entry was cached with keep_solution=False; decoding is
-                # deterministic, so backfill the schedule into the cache entry
-                # instead of making every caller re-decode on its own
                 schedule = decode(self.problem, chrom.os_seq, chrom.ms)
-                self.cache[key] = (hit[0], hit[1], hit[2], schedule)
+            self.cache[key] = (self.bases_version, fit, metrics, schedule, penalty_ops, overflow)
             self.cache.move_to_end(key)
-            return hit[1], hit[2], schedule
+            return fit, metrics, schedule
         schedule = decode(self.problem, chrom.os_seq, chrom.ms)
         metrics = compute_metrics(self.problem, schedule)
         fit = self.fitness_of(metrics, schedule.penalty_ops, schedule.overflow)
         entry = (self.bases_version, fit, metrics,
-                 schedule if keep_solution else None)
+                 schedule if keep_solution else None,
+                 schedule.penalty_ops, schedule.overflow)
         self.cache[key] = entry
         self.cache.move_to_end(key)
         if len(self.cache) > CACHE_MAX_ENTRIES:
@@ -225,10 +225,11 @@ class HybridGA:
         return pop[:pop_size]
 
     def compute_bases(self, pop: List[Chromosome], deadline: float) -> None:
-        # normalization bases: metrics of the best initial individual
+        # Determine normalization bases without retaining initial schedules.
+        # evaluate() will reuse cached metrics when re-scoring under new bases.
         best_fit, best_metrics = None, None
         for chrom in pop:
-            fit, metrics, _s = self.evaluate(chrom)
+            fit, metrics, _schedule = self.evaluate(chrom)
             if best_fit is None or fit < best_fit:
                 best_fit, best_metrics = fit, metrics
             if time.monotonic() >= deadline:
@@ -245,8 +246,7 @@ class HybridGA:
             "deltaPlan": best_metrics["delta"]["deltaPlan"],
             "nMachineChange": best_metrics["nMachineChange"],
         }
-        # entries cached under the unit bases are stale; invalidate them
-        # lazily via the version tag instead of clearing the whole cache
+        # Only scalar fitness becomes stale; decoded metrics remain valid.
         self.bases_version += 1
 
     # ---------------- genetic operators ----------------
@@ -468,7 +468,7 @@ class HybridGA:
         scored = []
         timed_out = False
         for chrom in pop:
-            fit, metrics, _s = self.evaluate(chrom)
+            fit, _metrics, _schedule = self.evaluate(chrom)
             scored.append((fit, chrom))
             if time.monotonic() >= deadline:
                 timed_out = True

@@ -123,7 +123,7 @@ def solve(req: SolveRequest) -> dict:
         "resultStatus": "FEASIBLE" if passed else "INFEASIBLE",
         "feasibleSolution": passed,
         "operations": operations,
-        "kpi": build_kpi(problem, metrics),
+        "kpi": build_kpi(problem, metrics, schedule),
         "constraintCheck": {"passed": passed, "conflicts": check_conflicts},
         "meta": {
             "generations": result.generations,

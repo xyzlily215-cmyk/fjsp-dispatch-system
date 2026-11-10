@@ -238,7 +238,9 @@ class DashboardServiceTest {
         PlanVersion published = plan("pv-1", "PV-001", base);
         when(impactCalculator.currentPublishedPlan()).thenReturn(published);
         ScheduleOperation op = new ScheduleOperation();
-        op.setOperationId("ord-1-1");
+        // 工序编号与订单编号无关联，必须使用显式 orderId。
+        op.setOperationId("opaque-operation-id");
+        op.setOrderId("ord-1");
         op.setEndAt(base.plusHours(10));
         when(scheduleOperationRepository.findByPlanVersionId("pv-1")).thenReturn(List.of(op));
         ProductionOrder order = new ProductionOrder();

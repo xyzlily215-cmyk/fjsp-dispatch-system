@@ -19,6 +19,8 @@
 //   GET  /agent-api/twin/stream?ticket=...     SSE 1Hz device snapshot ticks
 //   GET  /agent-api/twin/device/:id/panel      latest panel JPEG（公开：<img> 无法带请求头）
 //   GET  /agent-api/twin/grid                  workshop floor-plan PNG（公开，同上）
+//   POST /agent-api/import/upload?filename=    导入文件暂存（body 为文件二进制；CSV 原样落盘，xlsx 先转 CSV）
+//   POST /agent-api/import/convert             xlsx → CSV 转换（{ fileName, contentBase64 } → { csv, rows }）
 //
 // 契约（2.C）：`contract/` 目录是 HTTP/SSE 线协议的单一事实源——http.mts 端点表
 // （请求/响应 schema）、events.mts SSE 事件注册表（payload 带版本字段 v）、types.ts
@@ -55,7 +57,8 @@
 //       FJSP_WORKFLOW_DIR（审计聚合读取工作流检查点目录，默认 ~/.agh/fjsp-workflows，与 workflow/checkpoint.mts 同约定）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import * as XLSX from 'xlsx'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createClient, type PermissionOutcome, type Session } from '../agnes-harness/packages/sdk/src/index.node.ts'
@@ -70,6 +73,7 @@ import {
   AUDIT_TRAIL_RESPONSE,
   CHAT_ACCEPTED, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
+  IMPORT_CONVERT_RESULT, IMPORT_UPLOAD_RESULT,
 } from './contract/http.mts'
 import { validateValue, type Schema } from './contract/validate.mts'
 
@@ -1055,6 +1059,39 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
+// ---- 导入文件通道（F-05 AI 导入）：上传暂存 + xlsx→CSV 转换 ----
+// fjsp-tools 保持零依赖单文件，xlsx 解析（SheetJS）集中在 BFF；业务写仍走
+// business-service 的 /import/{type}/preview|commit（ preview 免批、commit 走审批）。
+const IMPORT_UPLOAD_DIR = process.env.AGENT_BFF_IMPORT_DIR ?? join(homedir(), '.agh', 'import-uploads')
+const IMPORT_MAX_BYTES = 5 * 1024 * 1024 // 演示规模（≤50 订单）远小于此；xlsx base64 另算 4/3 膨胀
+const IMPORT_CONVERT_MAX_BYTES = 8 * 1024 * 1024
+
+async function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > limit) throw new Error('body_too_large')
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
+/** 首个工作表转 CSV（UTF-8）。时间单元格需为文本形态的 ISO 串，与导入模板一致。 */
+function xlsxToCsv(buf: Buffer): string {
+  const wb = XLSX.read(buf, { type: 'buffer' })
+  const sheetName = wb.SheetNames[0]
+  if (!sheetName) throw new Error('工作簿没有工作表')
+  const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sheetName])
+  if (!csv.trim()) throw new Error('首个工作表为空')
+  return csv
+}
+
+/** 数据行数 = 非空行数 - 表头（与 business-service 的 rows 口径一致，仅供展示） */
+function csvDataRows(csv: string): number {
+  return Math.max(csv.split('\n').filter((l) => l.trim()).length - 1, 0)
+}
+
 function cors(req: IncomingMessage, res: ServerResponse) {
   const origin = req.headers.origin ?? ''
   const loopback = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)
@@ -1421,6 +1458,65 @@ const server = createServer(async (req, res) => {
         dueUrgency: typeof body.dueUrgency === 'string' ? body.dueUrgency : undefined,
       })
       return sendJsonChecked(res, 200, result, RAG_QUERY_RESULT, 'rag/experience-query')
+    }
+    if (req.method === 'POST' && path === '/agent-api/import/upload') {
+      // 导入文件暂存：body 为文件原始二进制（不解析 multipart，前端 fetch(body: file)
+      // 即可），filename 走 query。xlsx 先转 CSV，统一落盘为 .csv；返回的 csvPath 供
+      // 用户在对话里交给 fjsp_import_preview。仅暂存到本机目录，不触发任何业务写。
+      if (!(await requireAuth(req, url, res))) return
+      const fileName = (url.searchParams.get('filename') ?? '').trim()
+      const lower = fileName.toLowerCase()
+      if (!/\.(csv|xlsx)$/.test(lower)) {
+        return sendJson(res, 400, { error: 'invalid_request', detail: '仅支持 .csv / .xlsx 文件（filename 走 query 参数）' })
+      }
+      let buf: Buffer
+      try {
+        buf = await readRawBody(req, IMPORT_MAX_BYTES)
+      } catch {
+        return sendJson(res, 413, { error: 'body_too_large', detail: `文件超过 ${IMPORT_MAX_BYTES / 1024 / 1024}MB 上限` })
+      }
+      if (!buf.length) return sendJson(res, 400, { error: 'invalid_request', detail: '文件内容为空' })
+      let csv: string
+      try {
+        csv = lower.endsWith('.xlsx') ? xlsxToCsv(buf) : buf.toString('utf8')
+      } catch (err) {
+        return sendJson(res, 400, { error: 'import_convert_failed', detail: `xlsx 解析失败：${err instanceof Error ? err.message : String(err)}` })
+      }
+      const uploadId = randomUUID()
+      const safeName = lower.replace(/\.(csv|xlsx)$/, '').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'import'
+      mkdirSync(IMPORT_UPLOAD_DIR, { recursive: true })
+      const csvPath = join(IMPORT_UPLOAD_DIR, `${uploadId}-${safeName}.csv`)
+      writeFileSync(csvPath, csv, 'utf8')
+      return sendJsonChecked(res, 200, {
+        ok: true, uploadId, fileName, csvPath, rows: csvDataRows(csv), converted: lower.endsWith('.xlsx'),
+      }, IMPORT_UPLOAD_RESULT, 'import/upload')
+    }
+    if (req.method === 'POST' && path === '/agent-api/import/convert') {
+      // xlsx → CSV 转换（fjsp-tools 的 xlsx 路径调用）：JSON 进 JSON 出，不落盘。
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      let body: Record<string, unknown>
+      try {
+        const raw = (await readRawBody(req, IMPORT_CONVERT_MAX_BYTES)).toString('utf8')
+        body = raw ? JSON.parse(raw) : {}
+      } catch (err) {
+        if (err instanceof Error && err.message === 'body_too_large') {
+          return sendJson(res, 413, { error: 'body_too_large', detail: `请求体超过 ${IMPORT_CONVERT_MAX_BYTES / 1024 / 1024}MB 上限` })
+        }
+        return sendJson(res, 400, { error: 'invalid_request', detail: '请求体不是合法 JSON' })
+      }
+      if (!checkBody('POST', '/agent-api/import/convert', body, res)) return
+      const fileName = String(body.fileName)
+      if (!fileName.toLowerCase().endsWith('.xlsx')) {
+        return sendJson(res, 400, { error: 'invalid_request', detail: '仅支持 .xlsx 文件（CSV 无需转换，直接传给 fjsp_import_preview）' })
+      }
+      let csv: string
+      try {
+        csv = xlsxToCsv(Buffer.from(String(body.contentBase64), 'base64'))
+      } catch (err) {
+        return sendJson(res, 400, { error: 'import_convert_failed', detail: `xlsx 解析失败：${err instanceof Error ? err.message : String(err)}` })
+      }
+      return sendJsonChecked(res, 200, { ok: true, csv, rows: csvDataRows(csv) }, IMPORT_CONVERT_RESULT, 'import/convert')
     }
     sendJson(res, 404, { error: 'not_found' })
   } catch (err) {

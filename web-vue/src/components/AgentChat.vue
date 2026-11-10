@@ -1,17 +1,20 @@
 <template>
   <div class="chat" :class="{ embedded }">
     <header class="chat-head">
-      <span class="chat-title">
-        <span class="chat-badge">AI</span>调度副驾
-        <span class="conn-dot" :class="connClass" :title="connTitle"></span>
-      </span>
+      <div class="chat-identity">
+        <span class="chat-badge" aria-hidden="true">AI</span>
+        <div class="chat-heading">
+          <strong>AI 调度助手</strong>
+          <span class="chat-connection" :class="connClass" :title="connTitle"><span class="conn-dot"></span>{{ connText }}</span>
+        </div>
+      </div>
       <div class="chat-actions">
         <button type="button" class="chat-icon-btn" :class="{ 'tts-on': ttsOn }"
-                :title="ttsOn ? '关闭语音播报' : '开启语音播报（朗读副驾答复）'" @click="toggleTts">
-          {{ ttsOn ? '🔊' : '🔇' }}
+                :title="ttsOn ? '关闭语音播报' : '开启语音播报'" :aria-label="ttsOn ? '关闭语音播报' : '开启语音播报'" @click="toggleTts">
+          <span aria-hidden="true">朗读</span>
         </button>
-        <button type="button" class="chat-icon-btn" title="新会话" @click="onNewConversation">✚</button>
-        <button v-if="!embedded" type="button" class="chat-icon-btn" title="关闭" @click="$emit('close')">✕</button>
+        <button type="button" class="chat-icon-btn" title="新会话" aria-label="新会话" @click="onNewConversation">＋</button>
+        <button v-if="!embedded" type="button" class="chat-icon-btn" title="关闭" aria-label="关闭" @click="$emit('close')">×</button>
       </div>
     </header>
 
@@ -21,15 +24,18 @@
     </div>
 
     <div class="chat-context" :title="contextTooltip">
-      <span class="ctx-label">上下文</span>
-      <span class="ctx-page">{{ pageContext.title }}</span>
+      <span class="ctx-label">当前页面</span>
+      <span class="ctx-page">{{ pageContext.title || '调度工作台' }}</span>
       <span v-if="pageContext.queryText" class="ctx-query">{{ pageContext.queryText }}</span>
+      <span class="ctx-note">提问时关联此页面</span>
     </div>
 
     <div ref="scrollEl" class="chat-body" @scroll="onScroll">
       <div v-if="!agent.messages.length" class="chat-empty">
-        <p class="empty-title">我是车间的 AI 调度副驾</p>
-        <p class="empty-sub">可以让我做基线排程、处置插单/设备故障、对比方案、查订单位置。</p>
+        <span class="empty-mark" aria-hidden="true">AI</span>
+        <p class="empty-title">从{{ pageContext.title || '当前页面' }}开始</p>
+        <p class="empty-sub">可询问排程、订单风险或方案差异；涉及调度操作时，处理过程与待审批步骤会显示在这里。</p>
+        <p class="empty-label">试试这些问题</p>
         <div class="empty-hints">
           <button v-for="hint in hints" :key="hint" type="button" class="hint-chip" @click="fillHint(hint)">{{ hint }}</button>
         </div>
@@ -40,6 +46,7 @@
           <div class="msg-bubble user">{{ msg.text }}</div>
         </div>
         <div v-else class="msg-row assistant">
+          <span class="msg-author">AI 调度助手</span>
           <div class="msg-block" :class="{ error: msg.error }">
             <div v-if="msg.steps.length" class="steps">
               <details v-for="step in msg.steps" :key="step.toolUseId || step.seq" class="step">
@@ -70,20 +77,21 @@
 
     <footer class="chat-input">
       <textarea ref="inputEl" v-model="draft" class="input-box" rows="2"
-                :placeholder="agent.busy ? '处置进行中，可随时追加或停止…' : '向副驾下达调度指令，Enter 发送'"
+                :placeholder="agent.busy ? '正在处理，可追加问题或停止当前任务…' : `询问${pageContext.title || '当前页面'}的调度问题…`"
+                aria-label="向 AI 调度助手提问"
                 @keydown.enter.exact.prevent="onSend"></textarea>
       <button v-if="speechSupported" type="button" class="send-btn mic" :class="{ recording }"
-              :title="recording ? '停止语音输入' : '语音输入（中文）'" @click="toggleMic">
-        {{ recording ? '⏹' : '🎤' }}
+              :title="recording ? '停止语音输入' : '语音输入（中文）'" :aria-label="recording ? '停止语音输入' : '语音输入（中文）'" @click="toggleMic">
+        {{ recording ? '■' : '语音' }}
       </button>
-      <button v-if="agent.busy" type="button" class="send-btn stop" title="停止当前处置" @click="agent.stop()">■</button>
-      <button v-else type="button" class="send-btn" :disabled="!draft.trim()" title="发送" @click="onSend">➤</button>
+      <button v-if="agent.busy" type="button" class="send-btn stop" title="停止当前处理" aria-label="停止当前处理" @click="agent.stop()">■</button>
+      <button v-else type="button" class="send-btn" :disabled="!draft.trim()" title="发送" aria-label="发送" @click="onSend">↑</button>
     </footer>
   </div>
 </template>
 
 <script setup>
-/* AI 调度副驾对话本体：抽屉侧栏（AgentSidebar）与数字孪生页内嵌栏共用。
+/* AI 调度助手对话本体：抽屉侧栏（AgentSidebar）与数字孪生页内嵌栏共用。
  * embedded=true 时隐藏关闭按钮、填充父容器而非抽屉。状态全部在 stores/agent.js。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -102,7 +110,7 @@ const inputEl = ref(null);
 const draft = ref('');
 const stickBottom = ref(true);
 
-/* 路由感知的快捷指令：副驾在每个页面都"知道该帮什么忙" */
+/* 路由感知的快捷问题，选择后填入输入框。 */
 const ROUTE_HINTS = {
   board: ['当前发布计划的 KPI 怎么样？', '今天有哪些订单可能拖期？', '帮我做一次基线排程', '负载最不均衡的是哪几台设备？'],
   twin: ['M-03 故障停机 2 小时，重新调度', '当前发布计划的 KPI 怎么样？', '帮我做一次基线排程', '订单 SO-1001 现在在哪台设备上？'],
@@ -150,6 +158,7 @@ const connTitle = computed(() => {
   if (agent.health && !agent.health.ok) return agent.health.hint || '智能体未连接';
   return '连接中…';
 });
+const connText = computed(() => agent.connected ? '已连接 · 可处理调度问题' : agent.health && !agent.health.ok ? '服务未连接' : '连接中');
 const bannerHint = computed(() => agent.health?.hint || 'agent-bff 未启动');
 
 const hints = computed(() => ROUTE_HINTS[route.name] ?? ROUTE_HINTS.default);
@@ -230,7 +239,7 @@ function toggleMic() {
   recognizer.start();
 }
 
-/* ---- TTS 语音播报：朗读副驾的最终答复（文本），工具步骤不读 ---- */
+/* ---- TTS 语音播报：朗读最终答复（文本），工具步骤不读 ---- */
 const ttsOn = ref(localStorage.getItem('fjsp.agentTts') === '1');
 let lastSpokenText = '';
 
@@ -289,38 +298,46 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.chat { display:flex; flex-direction:column; height:100%; min-height:0; background:#fff; }
-.chat-head { height:44px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 8px 0 16px; border-bottom:1px solid var(--line, #e4e7ed); background:#fafbfc; user-select:none; }
-.chat-title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink, #303133); }
-.chat-badge { display:grid; place-items:center; width:20px; height:20px; border-radius:5px; background:var(--blue, #409eff); color:#fff; font-size:10px; font-weight:700; }
-.conn-dot { width:8px; height:8px; border-radius:50%; background:#c0c4cc; }
-.conn-dot.ok { background:#67c23a; box-shadow:0 0 0 3px rgba(103,194,58,.18); }
-.conn-dot.wait { background:#e6a23c; }
-.conn-dot.bad { background:#f56c6c; }
-.chat-actions { display:flex; align-items:center; gap:2px; }
-.chat-icon-btn { width:28px; height:28px; border:0; border-radius:5px; background:transparent; color:#606266; font-size:13px; display:grid; place-items:center; cursor:pointer; }
-.chat-icon-btn:hover { background:#ecf5ff; color:var(--blue, #409eff); }
+.chat { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; background:#fff; }
+.chat-head { min-height:72px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px 12px 18px; border-bottom:1px solid var(--line, #e5eaf1); background:#fff; user-select:none; }
+.chat-identity { display:flex; align-items:center; gap:11px; min-width:0; }
+.chat-heading { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.chat-heading strong { color:var(--ink, #152334); font-size:15px; line-height:1.3; white-space:nowrap; }
+.chat-badge { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:7px; background:var(--blue, #2563eb); color:#fff; font-size:12px; font-weight:700; }
+.chat-connection { display:flex; align-items:center; gap:6px; color:#66758a; font-size:11px; white-space:nowrap; }
+.conn-dot { flex:none; width:7px; height:7px; border-radius:50%; background:#c98228; }
+.chat-connection.ok .conn-dot { background:#1e9b72; }
+.chat-connection.bad .conn-dot { background:#d85b5b; }
+.chat-actions { display:flex; align-items:center; gap:2px; flex:none; }
+.chat-icon-btn { min-width:30px; height:30px; padding:0 5px; border:0; border-radius:5px; background:transparent; color:#59677b; font-size:16px; display:grid; place-items:center; cursor:pointer; }
+.chat-icon-btn:first-child { font-size:11px; }
+.chat-icon-btn:hover, .chat-icon-btn:focus-visible { background:#eaf1ff; color:var(--blue-deep, #1d4ed8); }
 
 .chat-banner { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 14px; background:#fef0f0; color:#f56c6c; font-size:12px; border-bottom:1px solid #fde2e2; }
 .chat-link-btn { border:0; background:transparent; color:var(--blue, #409eff); font-size:12px; cursor:pointer; text-decoration:underline; }
 
-.chat-context { flex:none; display:flex; align-items:center; gap:6px; padding:6px 14px; font-size:11px; color:#909399; border-bottom:1px solid var(--line, #e4e7ed); background:#fcfdff; overflow:hidden; white-space:nowrap; }
-.ctx-label { flex:none; padding:1px 6px; border-radius:4px; background:#ecf5ff; color:var(--blue, #409eff); font-weight:600; }
-.ctx-page { color:#606266; }
-.ctx-query { color:#b0b6c0; overflow:hidden; text-overflow:ellipsis; }
+.chat-context { flex:none; display:flex; align-items:center; gap:7px; padding:10px 18px; font-size:11px; color:#66758a; border-bottom:1px solid var(--line, #e5eaf1); background:#f7f9fc; min-width:0; }
+.ctx-label { flex:none; color:#66758a; }
+.ctx-page { color:#1d4ed8; font-weight:600; flex:none; }
+.ctx-query { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ctx-note { margin-left:auto; white-space:nowrap; }
 
-.chat-body { flex:1; overflow-y:auto; padding:14px 14px 8px; display:flex; flex-direction:column; gap:10px; min-height:0; }
-.chat-empty { margin:auto; text-align:center; color:#909399; padding:0 18px; }
-.empty-title { font-size:14px; font-weight:600; color:#606266; margin:0 0 6px; }
-.empty-sub { font-size:12px; margin:0 0 14px; line-height:1.6; }
-.empty-hints { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
-.hint-chip { border:1px solid #d9ecff; background:#ecf5ff; color:var(--blue, #409eff); border-radius:14px; padding:5px 12px; font-size:12px; cursor:pointer; }
-.hint-chip:hover { background:#d9ecff; }
+.chat-body { flex:1; overflow-y:auto; padding:18px 18px 12px; display:flex; flex-direction:column; gap:14px; min-height:0; }
+.chat-empty { width:100%; margin:auto 0; padding:24px 0; color:#66758a; }
+.empty-mark { display:grid; place-items:center; width:40px; height:40px; margin-bottom:16px; border-radius:7px; background:#eaf1ff; color:var(--blue-deep, #1d4ed8); font-size:12px; font-weight:750; }
+.empty-title { font-size:18px; font-weight:650; color:var(--ink, #152334); margin:0 0 8px; line-height:1.4; }
+.empty-sub { font-size:12px; margin:0 0 24px; line-height:1.7; max-width:38ch; }
+.empty-label { margin:0 0 9px; font-size:11px; font-weight:600; color:#66758a; }
+.empty-hints { display:flex; flex-direction:column; gap:7px; }
+.hint-chip { width:100%; border:1px solid #e5eaf1; background:#fff; color:#334155; border-radius:5px; padding:10px 12px; font-size:12px; line-height:1.5; text-align:left; cursor:pointer; }
+.hint-chip:hover, .hint-chip:focus-visible { border-color:#a7c3fc; background:#f3f7ff; color:var(--blue-deep, #1d4ed8); }
 
-.msg-row { display:flex; }
+.msg-row { display:flex; min-width:0; }
 .msg-row.user { justify-content:flex-end; }
-.msg-bubble.user { max-width:86%; background:var(--blue, #409eff); color:#fff; border-radius:12px 12px 4px 12px; padding:8px 12px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
-.msg-block { max-width:94%; background:#f4f6fa; border:1px solid #e8ecf3; border-radius:4px 12px 12px 12px; padding:8px 12px; font-size:13px; line-height:1.6; }
+.msg-row.assistant { flex-direction:column; align-items:flex-start; gap:5px; }
+.msg-author { color:#66758a; font-size:11px; font-weight:600; }
+.msg-bubble.user { max-width:86%; background:#eaf1ff; color:#1d3555; border-radius:7px; padding:9px 12px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+.msg-block { max-width:100%; width:100%; background:#fff; border:1px solid #e5eaf1; border-radius:7px; padding:11px 12px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
 .msg-block.error { background:#fef0f0; border-color:#fde2e2; color:#f56c6c; }
 .msg-text { white-space:pre-wrap; word-break:break-word; color:var(--ink, #303133); }
 .msg-block.error .msg-text { color:#f56c6c; }
@@ -371,17 +388,25 @@ onMounted(() => {
 .ap-btn.reject:hover:not(:disabled) { color:#f56c6c; border-color:#fbc4c4; }
 .ap-btn:disabled { opacity:.55; cursor:default; }
 
-.chat-input { flex:none; display:flex; align-items:flex-end; gap:8px; padding:10px 14px; border-top:1px solid var(--line, #e4e7ed); background:#fff; }
-.input-box { flex:1; resize:none; border:1px solid #dcdfe6; border-radius:8px; padding:8px 10px; font-size:13px; line-height:1.5; font-family:inherit; outline:none; }
-.input-box:focus { border-color:var(--blue, #409eff); }
-.send-btn { flex:none; width:36px; height:36px; border:0; border-radius:8px; background:var(--blue, #409eff); color:#fff; font-size:14px; cursor:pointer; display:grid; place-items:center; }
+.chat-input { flex:none; display:flex; align-items:flex-end; gap:8px; padding:12px 18px 16px; border-top:1px solid var(--line, #e5eaf1); background:#fff; }
+.input-box { flex:1; min-width:0; resize:none; border:1px solid #d9e1eb; border-radius:6px; padding:9px 11px; font-size:12px; line-height:1.5; font-family:inherit; outline:none; }
+.input-box:focus { border-color:var(--blue, #2563eb); box-shadow:0 0 0 2px #eaf1ff; }
+.input-box::placeholder { color:#718093; }
+.send-btn { flex:none; min-width:36px; height:36px; padding:0 8px; border:0; border-radius:6px; background:var(--blue, #2563eb); color:#fff; font-size:17px; cursor:pointer; display:grid; place-items:center; }
 .send-btn:hover:not(:disabled) { background:#66b1ff; }
 .send-btn:disabled { background:#a0cfff; cursor:default; }
 .send-btn.stop { background:#f56c6c; }
 .send-btn.stop:hover { background:#f78989; }
-.send-btn.mic { background:#fff; color:#606266; border:1px solid #dcdfe6; }
+.send-btn.mic { background:#fff; color:#475569; border:1px solid #d9e1eb; font-size:11px; }
 .send-btn.mic:hover { border-color:var(--blue, #409eff); }
 .send-btn.mic.recording { background:#f56c6c; border-color:#f56c6c; color:#fff; animation:mic-pulse 1.2s ease-in-out infinite; }
 @keyframes mic-pulse { 50% { box-shadow:0 0 0 6px rgba(245,108,108,.18); } }
 .chat-icon-btn.tts-on { color:var(--blue, #409eff); background:#ecf5ff; }
+@media (max-width:460px) {
+  .chat-head { padding-left:12px; padding-right:10px; }
+  .chat-body { padding:14px 12px 10px; }
+  .chat-context { padding:9px 12px; }
+  .ctx-note { display:none; }
+  .chat-input { padding:10px 12px 12px; }
+}
 </style>

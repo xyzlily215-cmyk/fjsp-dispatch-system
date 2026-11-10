@@ -15,6 +15,7 @@ import com.fjsp.business.entity.PlanVersion;
 import com.fjsp.business.entity.ScheduleOperation;
 import com.fjsp.business.entity.ScheduleTask;
 import com.fjsp.business.repository.InputSnapshotRepository;
+import com.fjsp.business.repository.OrderOperationRepository;
 import com.fjsp.business.repository.PlanVersionRepository;
 import com.fjsp.business.repository.ScheduleOperationRepository;
 import com.fjsp.business.repository.ScheduleTaskRepository;
@@ -67,6 +68,8 @@ class ScheduleResultAssemblerTest {
     private TaskEventService taskEventService;
     @Mock
     private com.fjsp.business.metrics.FjspMetrics metrics;
+    @Mock
+    private OrderOperationRepository orderOperationRepository;
     @Spy
     private ValidateRequestFactory validateRequestFactory = new ValidateRequestFactory();
 
@@ -79,7 +82,7 @@ class ScheduleResultAssemblerTest {
         resultAssembler = new ScheduleResultAssembler(taskRepository, snapshotRepository,
                 planVersionRepository, scheduleOperationRepository, algorithmClient, codeGenerator,
                 auditService, integrityGuard, taskEventService, validateRequestFactory, stateService,
-                metrics);
+                metrics, orderOperationRepository);
         // 生产代码通过 @Lazy 自注入代理拆分事务；单元测试无 Spring 代理，直接指向自身
         org.springframework.test.util.ReflectionTestUtils.setField(resultAssembler, "self", resultAssembler);
     }
@@ -92,6 +95,11 @@ class ScheduleResultAssemblerTest {
         task.setStatus("RUNNING");
         task.setProgress(10);
         return task;
+    }
+
+    private void stubRunningTask(ScheduleTask task) {
+        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(task));
     }
 
     private Map<String, Object> snapshotMap() {
@@ -143,10 +151,14 @@ class ScheduleResultAssemblerTest {
     @Test
     void handleSolveResult_feasible_createsDraftPlan() throws Exception {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        stubRunningTask(task);
         stubSnapshotForValidate();
         when(algorithmClient.validate(any())).thenReturn(JSON.readTree("{\"passed\": true}"));
         when(codeGenerator.next("PV")).thenReturn("PV-001");
+        com.fjsp.business.entity.OrderOperation source = new com.fjsp.business.entity.OrderOperation();
+        source.setId("OP-1");
+        source.setOrderId("ORDER-NOT-IN-OP-ID");
+        when(orderOperationRepository.findAllById(List.of("OP-1"))).thenReturn(List.of(source));
 
         resultAssembler.handleSolveResult("t1", feasibleResponse("SUCCESS"));
 
@@ -163,6 +175,8 @@ class ScheduleResultAssemblerTest {
         verify(scheduleOperationRepository).saveAll(opCaptor.capture());
         ScheduleOperation op = opCaptor.getValue().get(0);
         assertEquals("OP-1", op.getOperationId());
+        assertEquals("ORDER-NOT-IN-OP-ID", op.getOrderId());
+        verify(orderOperationRepository).findAllById(List.of("OP-1"));
         assertEquals("M1", op.getMachineId());
         assertEquals(plan.getId(), op.getPlanVersionId());
 
@@ -178,7 +192,7 @@ class ScheduleResultAssemblerTest {
     @Test
     void handleSolveResult_timeLimitButFeasible_stillCreatesPlan() throws Exception {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        stubRunningTask(task);
         stubSnapshotForValidate();
         when(algorithmClient.validate(any())).thenReturn(JSON.readTree("{\"passed\": true}"));
         when(codeGenerator.next("PV")).thenReturn("PV-001");
@@ -194,7 +208,7 @@ class ScheduleResultAssemblerTest {
     @Test
     void handleSolveResult_infeasible_noPlanCreated() throws Exception {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        stubRunningTask(task);
         JsonNode resp = JSON.readTree("""
                 {
                   "status": "SUCCESS",
@@ -219,7 +233,7 @@ class ScheduleResultAssemblerTest {
     @Test
     void handleSolveResult_feasibleButValidationFails_noPlanCreated() throws Exception {
         ScheduleTask task = runningTask();
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        stubRunningTask(task);
         stubSnapshotForValidate();
         when(algorithmClient.validate(any()))
                 .thenReturn(JSON.readTree("{\"passed\": false, \"conflicts\": [{\"type\": \"PRECEDENCE_VIOLATION\"}]}"));
@@ -238,7 +252,7 @@ class ScheduleResultAssemblerTest {
         ScheduleTask task = runningTask();
         task.setCancelRequested(true);
         task.setFingerprint("fp-1");
-        when(taskRepository.findById("t1")).thenReturn(Optional.of(task));
+        stubRunningTask(task);
 
         resultAssembler.handleSolveResult("t1", feasibleResponse("SUCCESS"));
 
@@ -250,5 +264,18 @@ class ScheduleResultAssemblerTest {
         verify(scheduleOperationRepository, never()).save(any());
         verify(algorithmClient, never()).validate(any());
         verify(auditService).record(eq("TASK_CANCELLED"), eq("schedule_task"), eq("t1"), any());
+    }
+
+    @Test
+    void persistSolveResult_cancelledDuringValidation_doesNotCreatePlan() throws Exception {
+        ScheduleTask cancelled = runningTask();
+        cancelled.setStatus("CANCELLED");
+        when(taskRepository.findByIdForUpdate("t1")).thenReturn(Optional.of(cancelled));
+
+        resultAssembler.persistSolveResult("t1", feasibleResponse("SUCCESS"), JSON.readTree("{\"passed\":true}"));
+
+        assertEquals("CANCELLED", cancelled.getStatus());
+        verify(planVersionRepository, never()).save(any());
+        verify(taskRepository, never()).save(any());
     }
 }

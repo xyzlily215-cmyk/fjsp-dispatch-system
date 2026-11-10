@@ -4,7 +4,7 @@
       <aside class="login-brand">
         <div class="login-eyebrow">FJSP OPS / 智能制造</div>
         <div class="brand-title">
-          <span class="login-mark">▣</span>
+          <span class="login-mark" aria-hidden="true"><img src="/brand-mark.svg" alt="" width="26" height="26"></span>
           <span>动态柔性车间生产调度与仿真决策系统</span>
         </div>
         <p class="brand-sub">FJSP · 基线排程 · 动态重调度 · 方案对比 · 审核发布 · 执行反馈</p>

@@ -21,6 +21,10 @@ public class ScheduleOperation {
     @Column(nullable = false)
     private String operationId;
 
+    /** 冗余订单归属列：看板按订单归组，无需依赖 operationId 命名约定字符串截取。 */
+    @Column(name = "order_id")
+    private String orderId;
+
     @Column(nullable = false)
     private String machineId;
 
@@ -67,6 +71,14 @@ public class ScheduleOperation {
 
     public void setOperationId(String operationId) {
         this.operationId = operationId;
+    }
+
+    public String getOrderId() {
+        return orderId;
+    }
+
+    public void setOrderId(String orderId) {
+        this.orderId = orderId;
     }
 
     public String getMachineId() {

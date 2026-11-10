@@ -8,59 +8,81 @@
     </div></section>
   </div>
   <div v-else class="board-page">
-    <section class="board-welcome">
-      <div class="board-welcome-copy">
-        <span class="board-eyebrow">PRODUCTION OVERVIEW</span>
-        <h2>每一次调度，都有序可循。</h2>
-        <p>从生产计划到执行反馈，让车间运行一目了然。</p>
-        <div class="board-plan"><span class="live-dot"></span>{{ filters.planVersionId ? '所选计划' : '当前发布计划' }} <strong>{{ plan?.versionCode || '暂无发布计划' }}</strong><StatusTag v-if="plan" :status="plan.status" /></div>
-      </div>
-      <img src="/images/factory-control.webp" alt="" width="1536" height="1024" class="board-factory">
-    </section>
     <div class="page-header">
-      <div><h1>调度看板</h1><p>生产运行概览（时间窗口：{{ windowLabel }}<template v-if="win.from"> {{ fmtTime(win.from) }} ~ {{ fmtTime(win.to) }}</template>）</p></div>
-      <div class="buttons">
-        <select class="field" style="width:auto" title="计划版本" :value="filters.planVersionId || ''" @change="onVersionChange">
-          <option value="">当前发布计划（自动）</option>
-          <option v-for="o in versionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-        </select>
-        <select class="field" style="width:auto" title="时间窗口" v-model="windowSel" @change="onWindowChange">
-          <option value="SHIFT">当前班次</option>
-          <option value="LAST_24H">最近 24 小时</option>
-          <option value="CUSTOM">自定义</option>
-        </select>
-        <span v-show="windowSel === 'CUSTOM'" style="display:inline-flex;gap:6px;align-items:center">
-          <input type="datetime-local" class="field" style="width:auto" v-model="customFrom">
-          <span class="muted">至</span>
-          <input type="datetime-local" class="field" style="width:auto" v-model="customTo">
-          <button class="btn small" @click="applyRange">应用</button>
-        </span>
-        <button class="btn" @click="refresh">&#8635; 刷新</button>
-        <button class="btn" v-role="['ADMIN']" @click="resetDemo">重置演示数据</button>
-        <button class="btn primary" @click="router.push({ name: 'baseline' })">+ 创建基线排程</button>
+      <div><h1>调度看板</h1><p>{{ plan ? `生产运行概览 · ${windowLabel}` : '当前发布计划的生产运行概览' }}<template v-if="plan && win.from"> · {{ fmtDateTime(win.from) }} ~ {{ fmtDateTime(win.to) }}</template></p></div>
+      <div class="board-header-actions">
+        <button class="btn" @click="refresh">刷新</button>
+        <button v-if="plan" class="btn primary" @click="router.push({ name: 'baseline' })">创建基线排程</button>
+        <details v-role="['ADMIN']" class="board-more">
+          <summary class="btn">更多操作</summary>
+          <div class="board-more-menu"><button type="button" @click="resetDemo">重置演示数据</button></div>
+        </details>
       </div>
     </div>
+    <div v-if="plan || versionOptions.length" class="board-controls" role="group" aria-label="看板筛选">
+      <div class="board-filter-row">
+        <label class="board-filter">计划版本
+          <select class="field" :value="filters.planVersionId || ''" @change="onVersionChange">
+            <option value="">当前发布计划（自动）</option>
+            <option v-for="o in versionOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+          </select>
+        </label>
+        <label v-if="plan" class="board-filter">时间窗口
+          <select v-model="windowSel" class="field" @change="onWindowChange">
+            <option value="SHIFT">当前班次</option>
+            <option value="LAST_24H">最近 24 小时</option>
+            <option value="CUSTOM">自定义</option>
+          </select>
+        </label>
+      </div>
+      <div v-if="plan && windowSel === 'CUSTOM'" class="board-custom-range">
+        <label class="board-filter">起始时间 <input v-model="customFrom" type="datetime-local" class="field"></label>
+        <label class="board-filter">结束时间 <input v-model="customTo" type="datetime-local" class="field"></label>
+        <button class="btn primary" @click="applyRange">应用时间窗口</button>
+      </div>
+    </div>
+    <section v-if="plan" class="board-summary" aria-label="计划状态">
+      <span class="board-summary-label">{{ filters.planVersionId ? '所选计划' : '当前发布计划' }}</span>
+      <strong>{{ plan.versionCode }}</strong>
+      <StatusTag :status="plan.status" />
+      <span class="board-summary-detail" :class="{ 'has-exceptions': exItems.length }">{{ exItems.length ? `${exItems.length} 项异常记录` : '当前窗口无异常记录' }}</span>
+    </section>
 
     <div v-if="loadError" class="error-box" style="margin-bottom:14px">
       <b>看板数据刷新失败，以下为最近一次成功数据</b>{{ errMsg(loadError) }}
       <div style="margin-top:8px"><button class="btn small" @click="load">重试</button></div>
     </div>
 
-    <section v-if="!plan" class="card">
-      <EmptyScreen title="暂无当前发布计划" text="还没有已发布的计划版本。请先创建基线排程，求解成功后提交审核并发布。">
-        <button class="btn primary" @click="router.push({ name: 'baseline' })">去创建基线排程</button>
-      </EmptyScreen>
+    <section v-if="!plan" class="board-empty">
+      <div>
+        <h2>{{ pendingReview ? `${pendingReview} 个方案待审核` : '暂无当前发布计划' }}</h2>
+        <p>{{ pendingReview ? '审核并发布方案后，即可在此查看生产运行情况。' : '创建基线排程，完成求解与审核发布后，即可在此查看生产运行情况。' }}</p>
+      </div>
+      <button class="btn primary" @click="router.push({ name: pendingReview ? 'review' : 'baseline' })">{{ pendingReview ? '查看待审核方案' : '创建基线排程' }}</button>
     </section>
-    <div v-else class="kpis">
-      <article v-for="c in kpiCards" :key="c.jump" class="card kpi" role="button" tabindex="0" :aria-label="c.label + '，' + c.value + (c.unit || '') + '，查看详情'" title="点击查看详情" @click="kpiJump(c.jump)" @keydown.enter.space.prevent="kpiJump(c.jump)">
+    <section v-if="plan && exItems.length" class="card warning-card board-attention">
+      <div class="card-title">异常记录 <span class="board-attention-count">{{ exItems.length }} 项</span></div>
+      <div class="warning-list">
+        <button v-for="(it, idx) in exItems" :key="idx" type="button" class="alert clickable" @click="openException(it)">
+          <span class="severity">!</span>
+          <div>
+            <div class="alert-name"><span class="tag" :class="severityOf(it)[1]">{{ severityOf(it)[0] }} · {{ exTypeText(it.type) }}</span></div>
+            <div class="alert-desc">{{ exceptionDesc(it) }} · {{ fmtDateTime(it.at) }}</div>
+          </div>
+          <span class="tag blue">查看</span>
+        </button>
+      </div>
+    </section>
+    <div v-if="plan" class="board-metrics-title">运行指标</div>
+    <div v-if="plan" class="kpis">
+      <article v-for="c in kpiCards" :key="c.jump" class="kpi" :class="c.active ? `needs-${c.tone}` : ''" role="button" tabindex="0" :aria-label="c.label + '，' + c.value + (c.unit || '') + '，查看详情'" title="点击查看详情" @click="kpiJump(c.jump)" @keydown.enter.space.prevent="kpiJump(c.jump)">
         <div class="kpi-label">{{ c.label }}</div>
         <div class="kpi-value">{{ c.value }}<span class="kpi-unit">{{ c.unit || '' }}</span></div>
-        <div class="trend" style="color:#909399">{{ c.sub || '' }}</div>
-        <i class="kpi-bar" :class="c.bar"></i>
+        <div class="trend">{{ c.sub || '' }}</div>
       </article>
     </div>
 
-    <div class="dash-grid">
+    <div v-if="plan" class="dash-grid">
       <section class="card">
         <div class="card-title">最近事件<a @click="router.push({ name: 'insert' })">登记事件</a></div>
         <div class="card-body" style="max-height:430px;overflow:auto">
@@ -85,7 +107,7 @@
               <div style="min-width:0"><b>{{ t.taskCode }}</b> <span class="muted">{{ t.mode || '' }}</span>
                 <div class="task-meta">{{ fmtDateTime(t.createdAt) }} · 耗时 {{ fmtElapsedMs(t.elapsedMs) }}</div>
                 <div v-if="isActiveTask(t)" style="margin-top:4px;height:4px;border-radius:2px;background:#ebeef5">
-                  <div style="height:4px;border-radius:2px;background:#409eff" :style="{ width: Math.min(100, taskProgress(t)) + '%' }"></div>
+                  <div style="height:4px;border-radius:2px;background:var(--blue)" :style="{ width: Math.min(100, taskProgress(t)) + '%' }"></div>
                 </div>
               </div>
               <StatusTag :status="t.status" />
@@ -97,22 +119,6 @@
       </section>
     </div>
 
-    <section class="card warning-card">
-      <div class="card-title">异常列表（按严重级别）</div>
-      <div class="warning-list" style="max-height:430px;overflow:auto">
-        <template v-if="exItems.length">
-          <div v-for="(it, idx) in exItems" :key="idx" class="alert clickable" style="cursor:pointer" @click="openException(it)">
-            <span class="severity">!</span>
-            <div>
-              <div class="alert-name"><span class="tag" :class="severityOf(it)[1]">{{ severityOf(it)[0] }} · {{ exTypeText(it.type) }}</span></div>
-              <div class="alert-desc">{{ exceptionDesc(it) }} · {{ fmtDateTime(it.at) }}</div>
-            </div>
-            <span class="tag blue">去处理</span>
-          </div>
-        </template>
-        <div v-else class="empty-screen" style="padding:30px">时间窗口内无异常</div>
-      </div>
-    </section>
   </div>
 </template>
 
@@ -128,7 +134,6 @@ import {
 import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
-import EmptyScreen from '../components/EmptyScreen.vue';
 
 const BOARD_FILTERS_KEY = 'fjsp.board.filters';
 
@@ -239,12 +244,12 @@ const kpiCards = computed(() => {
   const k = kpi.value;
   const d = dash.value;
   return [
-    { jump: 'cmax', label: '总完工时间 C_max', value: fmtMinutes(k.cMaxMinutes), unit: '', bar: 'b-blue', sub: `计划版本 ${plan.value.versionCode}` },
-    { jump: 'tardiness', label: '加权拖期', value: fmtMinutes(k.weightedTardinessMinutes), unit: '', bar: 'b-orange', sub: `延期订单 ${k.nTardy ?? '-'} 单` },
-    { jump: 'delayed', label: '延期订单数', value: k.nTardy ?? '-', unit: '单', bar: 'b-red', sub: `共 ${d.orderStats.total} 单` },
-    { jump: 'utilization', label: '平均设备利用率', value: avgUtil.value === null ? '-' : fmtPct(avgUtil.value), unit: '', bar: 'b-green', sub: `负荷不均衡度 ${k.loadImbalance ?? '-'}` },
-    { jump: 'review', label: '待审核方案', value: pendingReview.value, unit: '个', bar: 'b-purple', sub: '等待审核发布' },
-    { jump: 'machinesDown', label: '故障/异常设备', value: downMachines.value || breakdowns.value.length, unit: '台', bar: 'b-gray', sub: `${breakdowns.value.length} 起未消化故障` },
+    { jump: 'machinesDown', label: '故障/异常设备', value: downMachines.value, unit: '台', sub: `${breakdowns.value.length} 起窗口内故障事件`, tone: 'danger', active: downMachines.value > 0 },
+    { jump: 'delayed', label: '延期订单数', value: k.nTardy ?? '-', unit: '单', sub: `共 ${d.orderStats.total} 单`, tone: 'danger', active: k.nTardy > 0 },
+    { jump: 'review', label: '待审核方案', value: pendingReview.value, unit: '个', sub: '等待审核发布', tone: 'warning', active: pendingReview.value > 0 },
+    { jump: 'cmax', label: '总完工时间 C_max', value: fmtMinutes(k.cMaxMinutes), unit: '', sub: `计划版本 ${plan.value.versionCode}` },
+    { jump: 'tardiness', label: '加权拖期', value: fmtMinutes(k.weightedTardinessMinutes), unit: '', sub: `延期订单 ${k.nTardy ?? '-'} 单` },
+    { jump: 'utilization', label: '平均设备利用率', value: avgUtil.value === null ? '-' : fmtPct(avgUtil.value), unit: '', sub: `负荷不均衡度 ${k.loadImbalance ?? '-'}` },
   ];
 });
 

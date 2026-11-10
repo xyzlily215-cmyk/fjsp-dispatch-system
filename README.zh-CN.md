@@ -104,7 +104,7 @@
 
 - **AGH 工具插件**（`agh-integration/fjsp-tools`）：无依赖单文件 ESM，经 `agnes.plugins` 声明；18 个 `fjsp_*` 工具均通过业务 REST API 操作，自动生成幂等键，业务错误码原样透传给 Agent；每个请求带审计头 `X-Source: agh` 与 `X-AGH-Session-Id`。
 - **三级审批**：只读工具不审批；普通写工具每次审批（幂等重放）；高风险（`fjsp_approve_review`、`fjsp_publish`）与破坏性（`fjsp_reset_demo`）每次审批且禁止重放——评审与发布是两个独立人工决策点，Agent 不会自动审批。
-- **MCP server**（`agh-integration/agent-bff/mcp-server.mts`）：同一套工具实现经 Model Context Protocol（stdio/NDJSON，协议 2025-06-18）暴露给任意 MCP 客户端；写/高风险工具必须在参数中显式携带 `"_confirm": true`，与 AGH 人工审批等价。
+- **MCP server**（`agh-integration/agent-bff/mcp-server.mts`）：同一套工具实现经 Model Context Protocol（stdio/NDJSON，协议 2025-06-18）暴露给 MCP 客户端。只读工具可直连；需要审批的写/高风险/破坏性工具在 MCP 直连通道一律返回 `APPROVAL_CHANNEL_REQUIRED`，`"_confirm": true` 不构成人工批准。此类操作须通过 Web 副驾（agent-bff）或 AGH 会话的人工审批通道执行。
 - **agent-bff**（`agh-integration/agent-bff/server.mts`）：把 AGH daemon 桥接为前端同源 HTTP/SSE（`/agent-api/chat`、`/stream`、`/permission`、`/twin/*`、`/rag/experience-query`）；仅绑定 127.0.0.1 并校验 loopback Origin。
 - **MHS 设备**（`agh-integration/mhs-devices`）：虚拟机床与 AGV 经 WebSocket 向 AgnesHub 注册状态、指标、panel 画面与车间地图；设备告警自动唤醒 Agent，仍走标准 `fjsp_*` 审批链处置。集成细节见 [`agh-integration/README.md`](agh-integration/README.md)。
 
@@ -252,7 +252,7 @@ AGH 的审核发布流程要求显式审批：计划必须先提交审核，审�
 ## 数据库 schema 管理（Flyway + ddl-auto 分环境）
 
 - 迁移脚本位于 `business-service/src/main/resources/db/migration/`，基线为 `V1__baseline_schema.sql`（17 张业务表）；schema 变更一律新增 `V<n>__*.sql`，不要改动已应用的脚本（唯一例外：`V3__auth.sql` 在未上线前做过一次性修正——种子账号插入移至 `UserSeedRunner`，表结构不变；已应用旧版 V3 的存量库需 `flyway repair` 或重建，local profile 不跑 Flyway、不受影响）。
-- **本地开发（local profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=local` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构；启动时还会复用 V5/V6/V13 的迁移 SQL 创建 Hibernate 无法管理的部分唯一索引（重复运行安全）。如存量库已有多个生效计划或同一工序的重复未结束反馈，索引创建会拒绝启动；请先备份并核查冲突数据，不会自动删除业务记录。
+- **本地开发（local profile）**：`scripts/start-demo.sh` 默认以 `SPRING_PROFILES_ACTIVE=local` 启动业务服务，此时 Flyway 关闭、`ddl-auto=update`，由 Hibernate 自动同步表结构；启动时还会复用 V5/V6/V13 的迁移 SQL 创建 Hibernate 无法管理的部分唯一索引，并执行 V14 按工序实际归属回填历史排程的 `order_id`（重复运行安全）。如存量库已有多个生效计划或同一工序的重复未结束反馈，索引创建会拒绝启动；请先备份并核查冲突数据，不会自动删除业务记录。
 - **默认 profile（生产姿态）**：Flyway 启用并执行迁移，`ddl-auto=validate` 仅校验实体与库表一致，不再自动改表。存量库首次启动会自动 baseline 到版本 1（`baseline-on-migrate`），全新空库则执行 V1 建表。
 - 手动启动时通过环境变量选择：`SPRING_PROFILES_ACTIVE=local java -jar ...` 为本地开发模式；不设该变量即为生产姿态。`prod` profile 下所有连接与密钥强制来自环境变量（无默认值，缺失即启动失败）；`test` profile 预留给 Testcontainers 集成测试。
 - 业务服务配置矩阵（配置项/类型/默认值/各 profile 差异/环境变量）见 [`business-service/README.md`](business-service/README.md) 的「配置项」一节。

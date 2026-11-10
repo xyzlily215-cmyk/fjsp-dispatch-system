@@ -11,10 +11,10 @@
     </section>
     </template>
     <div class="page-header">
-      <div><h1>调度任务</h1><p>算法求解任务的进度与结果，进行中的任务经 SSE 实时推送，断线自动回退 3 秒轮询</p></div>
+      <div><h1>调度任务</h1><p>查看求解进度与排程结果</p></div>
       <div class="buttons">
-        <button class="btn" @click="load">&#8635; 刷新</button>
-        <button class="btn primary" @click="goBaseline">+ 基线排程</button>
+        <button class="btn" @click="load">刷新</button>
+        <button class="btn primary" @click="goBaseline">创建基线排程</button>
       </div>
     </div>
     <div class="task-center">
@@ -23,9 +23,9 @@
         <div class="task-queue-list">
           <template v-if="tasks.length">
             <button v-for="t in tasks" :key="t.taskId" class="task-queue-item" :class="{ active: t.taskId === selectedId }"
-              @click="selectTask(t)">
-              <b>{{ t.taskCode }}</b><StatusTag :status="t.status" />
-              <span>{{ t.mode }} · {{ fmtDateTime(t.createdAt) }}</span>
+              :aria-current="t.taskId === selectedId ? 'true' : undefined" @click="selectTask(t)">
+              <span class="task-queue-item-top"><b>{{ t.taskCode }}</b><StatusTag :status="t.status" /></span>
+              <span class="task-queue-meta">{{ statusTagInfo(t.mode)[1] }} · {{ fmtDateTime(t.createdAt) }}</span>
             </button>
           </template>
           <div v-else class="empty-screen" style="padding:30px">本页暂无任务</div>
@@ -43,27 +43,26 @@
           </div>
           <div class="task-progress-box">
             <div class="task-progress-main"><b>{{ task.progress ?? 0 }}%</b>
-              <span>求解进度{{ isTerminal(task) ? '（已结束）' : '（SSE 实时推送）' }}</span>
+              <span>求解进度</span>
               <div class="progress"><b :style="{ width: (task.progress ?? 0) + '%' }"></b></div>
             </div>
-            <div class="task-progress-metric"><span>结果状态</span><b>{{ task.resultStatus || '-' }}</b></div>
+            <div class="task-progress-metric"><span>结果状态</span><b>{{ task.resultStatus === 'FEASIBLE' ? '可行解' : statusTagInfo(task.resultStatus)[1] }}</b></div>
             <div class="task-progress-metric"><span>算法版本</span><b>{{ task.algorithmVersion || '-' }}</b></div>
             <div class="task-progress-metric"><span>耗时</span><b>{{ elapsedText }}</b></div>
           </div>
           <div class="section-pad">
-            <dl class="detail-list">
-              <dt>任务 ID</dt><dd>{{ task.taskId }}</dd>
-              <dt>随机种子</dt><dd>{{ task.randomSeed ?? '-' }}</dd>
-              <dt>输入快照</dt><dd>{{ (task.snapshotHash || '-').slice(0, 24) }}…</dd>
-              <template v-if="task.oldPlanVersionId"><dt>基于版本</dt><dd>{{ task.oldPlanVersionId }}</dd></template>
-              <template v-if="task.eventId"><dt>关联事件</dt><dd>{{ task.eventId }}</dd></template>
-              <dt>开始时间</dt><dd>{{ fmtDateTime(task.startedAt) }}</dd>
-              <dt>结束时间</dt><dd>{{ fmtDateTime(task.finishedAt) }}</dd>
-              <template v-if="task.planVersionId"><dt>产出计划版本</dt><dd>{{ task.planVersionId }}</dd></template>
-            </dl>
             <div v-if="task.errorMessage" class="error-box"><b>错误信息</b>{{ task.errorMessage }}</div>
+            <div v-if="task.status === 'SUCCESS' || TASK_ACTIVE.includes(task.status) || ['FAILED','CANCELLED'].includes(task.status)" class="buttons task-actions">
+              <template v-if="task.status === 'SUCCESS' && task.planVersionId">
+                <button class="btn primary" @click="goGantt">查看甘特</button>
+                <button class="btn" v-role="['DISPATCHER','ADMIN']" @click="submitReview">提交审核</button>
+              </template>
+              <button v-if="task.status === 'SUCCESS' && task.oldPlanVersionId && task.planVersionId" class="btn" @click="goCompare">与旧版对比</button>
+              <button v-if="TASK_ACTIVE.includes(task.status)" class="btn" v-role="['DISPATCHER','ADMIN']" @click="cancelTask">取消任务</button>
+              <button v-if="['FAILED','CANCELLED'].includes(task.status)" class="btn" v-role="['DISPATCHER','ADMIN']" @click="retryTask">重试任务</button>
+            </div>
             <template v-if="task.kpi">
-              <h3 style="margin:18px 0 10px;font-size:15px">结果 KPI</h3>
+              <h3 class="task-section-title">求解结果</h3>
               <div class="task-overview-grid">
                 <div class="task-overview-block"><span>总完工时间 C_max</span><b>{{ fmtMinutes(task.kpi.cMaxMinutes) }}</b></div>
                 <div class="task-overview-block"><span>加权拖期</span><b>{{ fmtMinutes(task.kpi.weightedTardinessMinutes) }}</b></div>
@@ -73,8 +72,8 @@
                 <div class="task-overview-block"><span>可行解</span><b>{{ task.feasibleSolution ? '是' : '否' }}</b></div>
               </div>
             </template>
-            <h3 style="margin:18px 0 10px;font-size:15px">冲突明细</h3>
-            <div v-if="conflicts.length" class="table-wrap">
+            <h3 v-if="isTerminal(task)" class="task-section-title">冲突明细</h3>
+            <div v-if="isTerminal(task) && conflicts.length" class="table-wrap">
               <table class="data-table">
                 <thead><tr><th>类型</th><th>说明</th></tr></thead>
                 <tbody>
@@ -85,16 +84,20 @@
                 </tbody>
               </table>
             </div>
-            <p v-else class="muted">无冲突</p>
-            <div class="buttons" style="margin-top:18px">
-              <template v-if="task.status === 'SUCCESS' && task.planVersionId">
-                <button class="btn primary" @click="goGantt">查看甘特</button>
-                <button class="btn" v-role="['DISPATCHER','ADMIN']" @click="submitReview">提交审核</button>
-              </template>
-              <button v-if="task.status === 'SUCCESS' && task.oldPlanVersionId && task.planVersionId" class="btn" @click="goCompare">与旧版对比</button>
-              <button v-if="TASK_ACTIVE.includes(task.status)" class="btn" v-role="['DISPATCHER','ADMIN']" @click="cancelTask">取消任务</button>
-              <button v-if="['FAILED','CANCELLED'].includes(task.status)" class="btn" v-role="['DISPATCHER','ADMIN']" @click="retryTask">重试任务</button>
-            </div>
+            <p v-else-if="isTerminal(task)" class="muted">无冲突</p>
+            <details class="task-metadata">
+              <summary>任务信息</summary>
+              <dl class="detail-list">
+                <dt>任务 ID</dt><dd>{{ task.taskId }}</dd>
+                <dt>随机种子</dt><dd>{{ task.randomSeed ?? '-' }}</dd>
+                <dt>输入快照</dt><dd>{{ task.snapshotHash ? task.snapshotHash.slice(0, 24) + '…' : '-' }}</dd>
+                <template v-if="task.oldPlanVersionId"><dt>基于版本</dt><dd>{{ task.oldPlanVersionId }}</dd></template>
+                <template v-if="task.eventId"><dt>关联事件</dt><dd>{{ task.eventId }}</dd></template>
+                <dt>开始时间</dt><dd>{{ fmtDateTime(task.startedAt) }}</dd>
+                <dt>结束时间</dt><dd>{{ fmtDateTime(task.finishedAt) }}</dd>
+                <template v-if="task.planVersionId"><dt>产出计划版本</dt><dd>{{ task.planVersionId }}</dd></template>
+              </dl>
+            </details>
           </div>
         </template>
       </section>
@@ -324,3 +327,19 @@ onBeforeUnmount(() => {
   stopWatch();
 });
 </script>
+
+<style scoped>
+.task-queue-item { cursor:pointer; }
+.task-queue-item:hover:not(.active) { background:#f7faff; }
+.task-queue-item:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
+.task-queue-item .task-queue-item-top { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0; color:inherit; }
+.task-queue-item-top b { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.task-queue-item-top :deep(.tag) { float:none; flex:none; margin:0; }
+.task-queue-item .task-queue-meta { margin-top:5px; }
+.task-actions { flex-wrap:wrap; padding-bottom:16px; border-bottom:1px solid var(--line); }
+.task-section-title { margin:18px 0 10px; font-size:15px; font-weight:650; }
+.task-metadata { margin-top:20px; border-top:1px solid var(--line); color:var(--ink); }
+.task-metadata summary { padding:13px 0; cursor:pointer; font-size:13px; font-weight:600; }
+.task-metadata summary:focus-visible { outline:2px solid var(--blue); outline-offset:-2px; }
+.task-metadata .detail-list { padding-bottom:10px; }
+</style>

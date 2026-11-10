@@ -174,6 +174,7 @@ public class PlanRollbackService {
             so.setId(UUID.randomUUID().toString());
             so.setPlanVersionId(draft.getId());
             so.setOperationId(src.getOperationId());
+            so.setOrderId(src.getOrderId());
             HardLock lock = locks.get(src.getOperationId());
             if (lock != null) {
                 // 硬锁定工序以当前实际为准：叠加当前生效版本的安排，实际开工时间作为事实锚点

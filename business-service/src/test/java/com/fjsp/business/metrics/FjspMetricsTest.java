@@ -1,6 +1,8 @@
 package com.fjsp.business.metrics;
 
 import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import com.fjsp.business.config.FjspProperties;
@@ -15,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.junit.jupiter.api.AfterEach;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -30,12 +34,23 @@ class FjspMetricsTest {
     private MeterRegistry registry;
     private TaskEventService taskEventService;
     private FjspMetrics metrics;
+    private ThreadPoolTaskExecutor executor;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
         taskEventService = new TaskEventService(taskRepository, new FjspProperties());
-        metrics = new FjspMetrics(registry, taskRepository, taskEventService);
+        executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setQueueCapacity(2);
+        executor.initialize();
+        metrics = new FjspMetrics(registry, taskRepository, taskEventService, executor);
+    }
+
+    @AfterEach
+    void tearDown() {
+        executor.shutdown();
+        registry.close();
     }
 
     @Test
@@ -45,6 +60,11 @@ class FjspMetricsTest {
                     "缺少 status=" + status.name() + " 的 fjsp.tasks.total Gauge");
         }
         assertNotNull(registry.get(FjspMetrics.TASKS_QUEUE).gauge());
+        assertNotNull(registry.get(FjspMetrics.TASKS_OLDEST_READY_SECONDS).gauge());
+        assertNotNull(registry.get(FjspMetrics.EXECUTOR_ACTIVE).gauge());
+        assertNotNull(registry.get(FjspMetrics.EXECUTOR_POOL_SIZE).gauge());
+        assertNotNull(registry.get(FjspMetrics.EXECUTOR_QUEUE_SIZE).gauge());
+        assertNotNull(registry.get(FjspMetrics.EXECUTOR_QUEUE_REMAINING).gauge());
         assertNotNull(registry.get(FjspMetrics.SSE_CONNECTIONS).gauge());
     }
 
@@ -93,5 +113,47 @@ class FjspMetricsTest {
         assertEquals(1, baseline.count());
         assertEquals(0.12, baseline.totalTime(TimeUnit.SECONDS), 0.001);
         assertEquals(1, registry.get(FjspMetrics.SOLVE_DURATION).tag("mode", "LOCAL_RESCHEDULE").timer().count());
+    }
+
+    @Test
+    void queueWaitAndRejectionAreRecorded() {
+        metrics.recordQueueWait("BASELINE", Duration.ofSeconds(3));
+        metrics.recordQueueWait("BASELINE", Duration.ofSeconds(-1));
+        metrics.recordDispatchRejected();
+
+        var wait = registry.get(FjspMetrics.TASKS_QUEUE_WAIT).tag("mode", "BASELINE").timer();
+        assertEquals(2, wait.count());
+        assertEquals(3.0, wait.totalTime(TimeUnit.SECONDS), 0.001);
+        assertEquals(1.0, registry.get(FjspMetrics.TASKS_DISPATCH_REJECTED).counter().count());
+    }
+
+    @Test
+    void oldestReadyGaugeExcludesFutureRetryAndResetsWhenEmpty() {
+        when(taskRepository.oldestPendingCreatedAt()).thenReturn(Optional.empty(),
+                Optional.of(OffsetDateTime.now().minusSeconds(12)));
+        when(taskRepository.oldestDueRetryAt(any())).thenReturn(Optional.empty(), Optional.empty());
+        var gauge = registry.get(FjspMetrics.TASKS_OLDEST_READY_SECONDS).gauge();
+
+        assertEquals(0.0, gauge.value());
+        org.junit.jupiter.api.Assertions.assertTrue(gauge.value() >= 11.0);
+    }
+
+    @Test
+    void oldestReadyGaugeUsesEarlierDueRetry() {
+        when(taskRepository.oldestPendingCreatedAt())
+                .thenReturn(Optional.of(OffsetDateTime.now().minusSeconds(5)));
+        when(taskRepository.oldestDueRetryAt(any()))
+                .thenReturn(Optional.of(OffsetDateTime.now().minusSeconds(20)));
+
+        double seconds = registry.get(FjspMetrics.TASKS_OLDEST_READY_SECONDS).gauge().value();
+
+        org.junit.jupiter.api.Assertions.assertTrue(seconds >= 19 && seconds < 30);
+    }
+
+    @Test
+    void executorGaugeReadsLiveQueueCapacity() {
+        assertEquals(0.0, registry.get(FjspMetrics.EXECUTOR_ACTIVE).gauge().value());
+        assertEquals(0.0, registry.get(FjspMetrics.EXECUTOR_QUEUE_SIZE).gauge().value());
+        assertEquals(2.0, registry.get(FjspMetrics.EXECUTOR_QUEUE_REMAINING).gauge().value());
     }
 }

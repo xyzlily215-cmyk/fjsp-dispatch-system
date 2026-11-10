@@ -7,15 +7,24 @@ import java.util.Optional;
 
 import com.fjsp.business.entity.ScheduleTask;
 import com.fjsp.business.entity.TaskStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ScheduleTaskRepository extends JpaRepository<ScheduleTask, String> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from ScheduleTask t where t.id = :id")
+    Optional<ScheduleTask> findByIdForUpdate(@Param("id") String id);
+
     Optional<ScheduleTask> findByTaskCode(String taskCode);
+
+    @Query("select t.id from ScheduleTask t where t.taskCode = :taskCode")
+    Optional<String> findIdByTaskCode(@Param("taskCode") String taskCode);
 
     Optional<ScheduleTask> findByFingerprint(String fingerprint);
 
@@ -26,6 +35,13 @@ public interface ScheduleTaskRepository extends JpaRepository<ScheduleTask, Stri
     long countByStatus(String status);
 
     long countByStatusIn(Collection<String> statuses);
+
+    @Query("select min(t.createdAt) from ScheduleTask t where t.status = 'PENDING'")
+    Optional<OffsetDateTime> oldestPendingCreatedAt();
+
+    @Query("select min(t.nextRetryAt) from ScheduleTask t"
+            + " where t.status = 'RETRY_WAIT' and t.nextRetryAt <= :now")
+    Optional<OffsetDateTime> oldestDueRetryAt(@Param("now") OffsetDateTime now);
 
     List<ScheduleTask> findByStatusAndTimeoutAtBefore(String status, OffsetDateTime now);
 

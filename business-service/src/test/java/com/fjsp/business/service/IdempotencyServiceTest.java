@@ -10,17 +10,16 @@ import com.fjsp.business.common.HashUtil;
 import com.fjsp.business.config.FjspProperties;
 import com.fjsp.business.entity.IdempotencyRecord;
 import com.fjsp.business.repository.IdempotencyRecordRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,6 +34,10 @@ class IdempotencyServiceTest {
 
     @Mock
     private IdempotencyRecordRepository repository;
+    @Mock
+    private EntityManager entityManager;
+    @Mock
+    private Query lockQuery;
 
     private IdempotencyService idempotencyService;
 
@@ -43,9 +46,7 @@ class IdempotencyServiceTest {
         FjspProperties properties = new FjspProperties();
         properties.setIdempotencyTtl(java.time.Duration.ofHours(24));
         idempotencyService = new IdempotencyService(repository, properties, new ObjectMapper());
-        // 生产代码通过 @Lazy 自注入代理在 afterCommit 中新开事务；单元测试无代理，直接指向自身
-        org.springframework.test.util.ReflectionTestUtils
-                .setField(idempotencyService, "self", idempotencyService);
+        ReflectionTestUtils.setField(idempotencyService, "entityManager", entityManager);
     }
 
     private Map<String, Object> requestBody() {
@@ -112,6 +113,7 @@ class IdempotencyServiceTest {
 
     @Test
     void store_persistsRecord() {
+        mockLock();
         idempotencyService.store("key-1", requestBody(), Map.of("taskId", "t1"));
 
         ArgumentCaptor<IdempotencyRecord> captor = ArgumentCaptor.forClass(IdempotencyRecord.class);
@@ -124,36 +126,28 @@ class IdempotencyServiceTest {
     }
 
     @Test
-    void store_concurrentDuplicateKey_swallowed() {
-        // 并发同键写入：先写者赢，后写者静默放弃而不是报错
-        when(repository.saveAndFlush(any(IdempotencyRecord.class)))
-                .thenThrow(new DataIntegrityViolationException("duplicate key"));
-
-        assertDoesNotThrow(() -> idempotencyService.store("key-1", requestBody(), Map.of()));
+    void store_duplicateValidKey_rejectedWithoutOverwrite() {
+        mockLock();
+        when(repository.findByIdempotencyKey("key-1"))
+                .thenReturn(Optional.of(storedRecord(requestBody(), OffsetDateTime.now().plusHours(1))));
+        assertEquals("E_DUPLICATE", assertThrows(BizException.class,
+                () -> idempotencyService.store("key-1", requestBody(), Map.of())).getCode());
+        verify(repository, never()).saveAndFlush(any());
     }
 
     @Test
-    void store_insideTransaction_defersPersistUntilAfterCommit() {
-        // 幽灵记录修复：业务事务未提交前不得落库；afterCommit 才写入，
-        // 业务回滚时不会留下指向不存在任务的幂等记录
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            idempotencyService.store("key-1", requestBody(), Map.of("taskId", "t1"));
-            verify(repository, never()).saveAndFlush(any());
-
-            for (TransactionSynchronization sync : TransactionSynchronizationManager.getSynchronizations()) {
-                sync.afterCommit();
-            }
-            verify(repository).saveAndFlush(any(IdempotencyRecord.class));
-        } finally {
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.clearSynchronization();
-            }
-        }
+    void store_expiredKey_reusesExistingRow() {
+        mockLock();
+        IdempotencyRecord expired = storedRecord(requestBody(), OffsetDateTime.now().minusHours(1));
+        when(repository.findByIdempotencyKey("key-1")).thenReturn(Optional.of(expired));
+        idempotencyService.store("key-1", Map.of("mode", "FULL_RESCHEDULE"), Map.of("taskId", "t2"));
+        verify(repository).saveAndFlush(expired);
+        assertTrue(expired.getResponseJson().contains("t2"));
     }
 
     @Test
     void execute_replayPresent_skipsActionAndReturnsStored() {
+        mockLock();
         when(repository.findByIdempotencyKey("key-1"))
                 .thenReturn(Optional.of(storedRecord(requestBody(),
                         OffsetDateTime.now().plusHours(1))));
@@ -169,6 +163,7 @@ class IdempotencyServiceTest {
 
     @Test
     void execute_noReplay_runsActionAndStores() {
+        mockLock();
         when(repository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
 
         Map<String, Object> result = idempotencyService.execute("key-1", requestBody(),
@@ -176,5 +171,23 @@ class IdempotencyServiceTest {
 
         assertEquals("t-new", result.get("taskId"));
         verify(repository).saveAndFlush(any(IdempotencyRecord.class));
+    }
+
+    @Test
+    void executeTyped_replaySkipsActionAndReturnsDto() {
+        mockLock();
+        when(repository.findByIdempotencyKey("key-1"))
+                .thenReturn(Optional.of(storedRecord(requestBody(), OffsetDateTime.now().plusHours(1))));
+
+        Map<?, ?> replay = idempotencyService.execute("key-1", requestBody(),
+                () -> { throw new IllegalStateException("action should not run"); }, Map.class);
+
+        assertEquals("t1", replay.get("taskId"));
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    private void mockLock() {
+        when(entityManager.createNativeQuery(any(String.class))).thenReturn(lockQuery);
+        when(lockQuery.setParameter("key", "key-1")).thenReturn(lockQuery);
     }
 }

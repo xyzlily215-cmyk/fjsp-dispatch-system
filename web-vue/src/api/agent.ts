@@ -1,4 +1,4 @@
-/* agent-bff 访问层：AI 调度副驾与 AGH daemon 之间的 HTTP/SSE 桥（agent-bff/server.mts）。
+/* agent-bff 访问层：AI 调度助手与 AGH daemon 之间的 HTTP/SSE 桥（agent-bff/server.mts）。
  * 本机（loopback）页面默认直连 127.0.0.1:4178（agent-bff 对 loopback 源开放 CORS），
  * 不依赖同源 /agent-api 反代——start-demo.sh 的 python http.server 没有代理能力；
  * 非本机部署回退同源 /agent-api（由前置反代转发）。
@@ -23,7 +23,7 @@ export type AgentEventHandlers = {
 } & {
   onOpen?: () => void;
   onError?: () => void;
-  /* 未登录/登录失效（换票 401 或本地无 token）时回调，给副驾一个明确提示而非静默断开 */
+  /* 未登录/登录失效（换票 401 或本地无 token）时回调，给助手一个明确提示而非静默断开 */
   onAuthError?: (message: string) => void;
 };
 
@@ -53,7 +53,7 @@ export class AgentApiError extends Error {
 
 /* token 直接读 localStorage（与 api/index.js、stores/auth.js 同一 key），避免模块循环依赖 */
 const TOKEN_KEY = 'fjsp.token';
-const AUTH_MESSAGE = '未登录或登录已过期，请重新登录后再使用智能体副驾';
+const AUTH_MESSAGE = '未登录或登录已过期，请重新登录后再使用 AI 调度助手';
 function currentToken(): string | null { return localStorage.getItem(TOKEN_KEY); }
 export function agentAuthHeaders(): Record<string, string> {
   const t = currentToken();
@@ -132,18 +132,21 @@ export function openAgentStream(conversationId: string, handlers: AgentEventHand
   let source: EventSource | null = null;
   let closed = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  /* sinceId 只随首次接入的 URL 下发（快照-订阅衔接，任务 4.1）；EventSource 自动重连
-   * 复用同一 URL 并携带 Last-Event-ID 头，BFF 以更新的头部位置为准，不会重复回放 */
+  let lastSeenEventId = opts.sinceId || 0;
+  /* EventSource 自身重连沿用 Last-Event-ID 头；关闭后重新换票会创建新连接，
+   * 必须把最新事件 ID 显式放入 sinceId，接续首次快照的游标。 */
 
   const attach = (es: EventSource) => {
     for (const type of STREAM_EVENTS) {
       const handler = handlers[type] as ((data: unknown, eventId: number) => void) | undefined;
-      if (!handler) continue;
       es.addEventListener(type, (ev) => {
         const evt = ev as MessageEvent & { lastEventId: string };
+        const eventId = Number(evt.lastEventId) || 0;
+        if (eventId > lastSeenEventId) lastSeenEventId = eventId;
+        if (!handler) return;
         let data: unknown = null;
         try { data = JSON.parse(evt.data); } catch { /* 心跳等非 JSON 帧忽略 */ }
-        handler(data, Number(evt.lastEventId) || 0);
+        handler(data, eventId);
       });
     }
     if (handlers.onOpen) es.onopen = handlers.onOpen;
@@ -167,7 +170,7 @@ export function openAgentStream(conversationId: string, handlers: AgentEventHand
       if (closed) return;
       const es = new EventSource(
         `${AGENT_API_BASE}/stream?conversationId=${encodeURIComponent(conversationId)}&ticket=${encodeURIComponent(ticket)}`
-        + (opts.sinceId ? `&sinceId=${opts.sinceId}` : ''),
+        + (lastSeenEventId ? `&sinceId=${lastSeenEventId}` : ''),
       );
       source = es;
       attach(es);

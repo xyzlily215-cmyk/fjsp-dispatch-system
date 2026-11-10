@@ -81,12 +81,12 @@ def test_reschedule_missing_old_plan_infeasible():
 
 
 def test_in_progress_lock_anchors_to_actual_start():
-    """in_progress 锁定带 actualStartAtMinutes：窗口锚定实际开工，结束按剩余工时顺延。"""
+    """迟开工不是加工进度：锚定实际开工后仍需完整计划时长。"""
     base = _baseline()
     old_plan = _old_plan(base)
     locked = old_plan[0]
     planned_proc = locked["endAtMinutes"] - locked["startAtMinutes"]
-    # 实际开工晚于计划完工：elapsed 超过计划加工时长 -> 至少保留 1 分钟
+    # 即便实际开工晚于原计划完工，也不能把迟到时间当作已经加工。
     actual_start = locked["endAtMinutes"] + 15
     req = tiny_request(
         mode="FULL_RESCHEDULE",
@@ -106,7 +106,31 @@ def test_in_progress_lock_anchors_to_actual_start():
     new = _by_id(resp)[locked["operationId"]]
     assert new["machineId"] == locked["machineId"]
     assert new["startAtMinutes"] == actual_start
-    assert new["endAtMinutes"] == actual_start + 1
+    assert new["endAtMinutes"] == actual_start + planned_proc
+
+
+def test_delayed_start_does_not_release_machine_or_successor_early():
+    req = tiny_request(
+        mode="FULL_RESCHEDULE",
+        machines=[{"machineId": "M1", "availableIntervals": [[0, 600]]}],
+        orders=[{"orderId": "O1", "productFamily": "F1", "quantity": 1,
+                 "arrivalMinutes": 0, "dueMinutes": 500, "priority": 1,
+                 "operations": [
+                     {"operationId": "running", "seqNo": 1, "candidates": [
+                         {"machineId": "M1", "setupMinutes": 0, "processMinutes": 60}]},
+                     {"operationId": "next", "seqNo": 2, "candidates": [
+                         {"machineId": "M1", "setupMinutes": 0, "processMinutes": 30}]}]}],
+        oldPlan=[{"operationId": "running", "machineId": "M1",
+                  "startAtMinutes": 60, "endAtMinutes": 120}],
+        lockings=[{"operationId": "running", "lockType": "in_progress",
+                   "machineId": "M1", "startAtMinutes": 60, "endAtMinutes": 120,
+                   "actualStartAtMinutes": 120}],
+    )
+    result = solve(SolveRequest(**req))
+    assert result["feasibleSolution"], result["constraintCheck"]
+    operations = _by_id(result)
+    assert operations["running"]["endAtMinutes"] == 180
+    assert operations["next"]["startAtMinutes"] >= 180
 
 
 def test_in_progress_lock_on_time_keeps_duration():
