@@ -57,7 +57,7 @@ const { tools, __contract } = await import('./index.mjs')
 const toolMap = new Map(tools.map((t) => [t.name, t]))
 const { validateParams, classifyError, ERROR_CLASSES } = __contract
 
-assert(tools.length === 20, `工具数量=20（实际 ${tools.length}）`)
+assert(tools.length === 21, `工具数量=21（实际 ${tools.length}）`)
 
 // ---- 1. 每个工具：非法参数挡在执行前（fetch 0 次调用），envelope 形态正确 ----
 resetFetch()

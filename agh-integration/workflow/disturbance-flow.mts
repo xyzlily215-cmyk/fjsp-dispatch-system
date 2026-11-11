@@ -1,7 +1,7 @@
 // workflow/disturbance-flow.mts — 扰动处置流程定义（任务 3.2-partB）。
 //
 // 节点序列 = docs/Agent化架构优化方案.md 3.2 结构图的代码化：
-//   接收事件 → 登记事件（写）→ 检索经验（只读）→ Agent 建议模式/权重 → 校验建议
+//   接收事件 → 登记事件（写）→ 加载真实上下文（只读）→ 检索经验（只读）→ Agent 建议模式/权重 → 校验建议
 //   → 创建重调度任务（写）→ 轮询任务结果 →［full-retry：INFEASIBLE/FAILED 异常分支］
 //   → 对比方案（只读）→ Agent 生成评审材料 → 提交评审（写）→ 挂起待人工决策。
 // 异常分支（在相关节点内判定，返回对应 action）：
@@ -31,6 +31,7 @@ import {
   defaultExplainConflicts,
   validateStrategySuggestion,
   type DisturbanceAgent,
+  type DisturbanceContext,
   type RescheduleMode,
   type ReviewMaterialInput,
   type StrategyInput,
@@ -112,6 +113,31 @@ async function registerEvent(ctx: NodeContext): Promise<NodeAction | ErrorEnvelo
   return { action: 'advance', result: { eventId: ev.eventId, event }, refs: { eventId: ev.eventId ?? null } }
 }
 
+// 登记后加载真实决策上下文，固定原计划版本，不隐式切换到新的发布计划。
+async function loadContext(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> {
+  const { oldPlanVersionId } = stepResult(ctx, 'receive-event')! as { oldPlanVersionId: string }
+  const eventId = ctx.checkpoint.refs.eventId
+  if (!eventId) return envError('FJSP_BAD_RESPONSE', '事件登记未返回 eventId，不执行后续重调度')
+  const out = await toolsOf(ctx).call('fjsp_get_disturbance_context', { eventId, planVersionId: oldPlanVersionId })
+  if (isErr(out)) return out as ErrorEnvelope
+  const context = out.context as DisturbanceContext | undefined
+  if (!context || context.schemaVersion !== 1 || context.event?.eventId !== eventId
+      || context.event.eventType !== (stepResult(ctx, 'receive-event')!.event as DisturbanceEventInput).eventType
+      || context.baselinePlan?.id !== oldPlanVersionId
+      || !Number.isInteger(context.constraints?.freezeWindowMinutes)
+      || context.constraints.freezeWindowMinutes < 0 || context.constraints.freezeWindowMinutes > 1440
+      || !Array.isArray(context.affectedOrders) || !context.deadlinePressure
+      || !['hardLockedCount', 'softLockedCount', 'impactedOperationCount', 'impactedOrderCount'].every((key) => {
+        const count = context.constraints[key as keyof DisturbanceContext['constraints']]
+        return typeof count === 'number' && Number.isInteger(count) && count >= 0
+      })
+      || !context.constraints.modeEstimates || !context.constraints.impactSummary
+      || !context.provenance || !Array.isArray(context.limitations)) {
+    return envError('FJSP_BAD_RESPONSE', '扰动上下文缺失或事件/原计划/冻结窗口不匹配')
+  }
+  return { action: 'advance', result: { context } }
+}
+
 // 节点 3：检索经验（RAG query，只读）
 async function queryExperience(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> {
   const { event } = stepResult(ctx, 'receive-event')! as { event: DisturbanceEventInput }
@@ -127,13 +153,19 @@ async function queryExperience(ctx: NodeContext): Promise<NodeAction | ErrorEnve
 // 节点 4：Agent 建议模式/权重（决策节点；未注入 Agent 时 rawSuggestion=null，由下一节点落 fallback）
 async function suggestStrategy(ctx: NodeContext): Promise<NodeAction> {
   const agent = agentOf(ctx)
-  const { event } = stepResult(ctx, 'receive-event')! as { event: DisturbanceEventInput }
+  const { context } = stepResult(ctx, 'load-context')! as { context: DisturbanceContext }
   const { experience } = stepResult(ctx, 'query-experience')! as { experience: unknown }
   if (!agent) {
     ctx.log('未注入 Agent，策略建议落默认策略')
     return { action: 'advance', result: { rawSuggestion: null } }
   }
-  const input: StrategyInput = { event: event as StrategyInput['event'], experience }
+  const input: StrategyInput = {
+    readAt: context.readAt,
+    event: context.event, experience, constraints: context.constraints,
+    baselinePlan: context.baselinePlan, affectedOrders: context.affectedOrders,
+    deadlinePressure: context.deadlinePressure, provenance: context.provenance,
+    limitations: context.limitations,
+  }
   const raw = await agent.suggestStrategy(input)
   return { action: 'advance', result: { rawSuggestion: raw ?? null } }
 }
@@ -157,6 +189,7 @@ async function createReschedule(ctx: NodeContext): Promise<NodeAction | ErrorEnv
     eventId,
     oldPlanVersionId,
     weights: strategy.weights,
+    freezeWindowMinutes: (stepResult(ctx, 'load-context')!.context as DisturbanceContext).constraints.freezeWindowMinutes,
     idempotencyKey: ctx.checkpoint.current!.idempotencyKey,
   })
   if (isErr(out)) return out as ErrorEnvelope
@@ -217,6 +250,7 @@ async function fullRetry(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> 
     eventId,
     oldPlanVersionId,
     weights: strategy.weights,
+    freezeWindowMinutes: (stepResult(ctx, 'load-context')!.context as DisturbanceContext).constraints.freezeWindowMinutes,
     idempotencyKey: ctx.checkpoint.current!.idempotencyKey,
   })
   if (isErr(retried)) return retried as ErrorEnvelope
@@ -265,7 +299,9 @@ async function comparePlans(ctx: NodeContext): Promise<NodeAction | ErrorEnvelop
 // 节点 10：Agent 生成评审材料（生成节点；输入只读 KPI/对比数据，无写操作）。
 // Agent 未注入或输出非法（非非空字符串）时落确定性兜底 buildReviewMaterial。
 async function reviewMaterial(ctx: NodeContext): Promise<NodeAction> {
-  const { event, baselineKpi } = stepResult(ctx, 'receive-event')! as { event: DisturbanceEventInput; baselineKpi: Record<string, unknown> | null }
+  const { context } = stepResult(ctx, 'load-context')! as { context: DisturbanceContext }
+  const event = context.event
+  const baselineKpi = context.baselinePlan.kpi
   const { strategy } = stepResult(ctx, 'validate-strategy')! as { strategy: StrategySuggestion }
   const retry = stepResult(ctx, 'full-retry') as { kpi?: Record<string, unknown>; explanation?: string } | null
   const poll = stepResult(ctx, 'poll-task')! as { kpi?: Record<string, unknown>; outcome: string }
@@ -317,6 +353,7 @@ export function buildDisturbanceFlow(): WorkflowNode[] {
   return [
     { name: 'receive-event', run: receiveEvent },
     { name: 'register-event', run: registerEvent },
+    { name: 'load-context', run: loadContext },
     { name: 'query-experience', run: queryExperience },
     { name: 'suggest-strategy', run: suggestStrategy },
     { name: 'validate-strategy', run: validateStrategy },

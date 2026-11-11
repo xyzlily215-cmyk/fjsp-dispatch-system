@@ -1,4 +1,4 @@
-// mcp-server: expose the 20 fjsp_* tools over the Model Context Protocol (stdio, NDJSON).
+// mcp-server: expose the fjsp_* tools over the Model Context Protocol (stdio, NDJSON).
 // Same implementations as the AGH plugin — this file imports the tools array from
 // fjsp-tools/index.mjs, so AGH 插件与 MCP 是同一套代码的两种暴露形态。
 //
@@ -46,7 +46,7 @@ async function handle(msg: Json) {
       capabilities: { tools: { listChanged: false } },
       serverInfo: SERVER_INFO,
       instructions:
-        'FJSP 动态柔性车间调度系统的 20 个工具。只读工具直接调用；写/高风险/破坏性工具（fjsp_create_baseline、fjsp_report_breakdown、fjsp_insert_order、fjsp_reschedule、fjsp_submit_review、fjsp_revise_plan、fjsp_experience_record、fjsp_experience_feedback、fjsp_approve_review、fjsp_publish、fjsp_reset_demo）在 MCP 直连通道一律拒绝执行（APPROVAL_CHANNEL_REQUIRED）——"_confirm" 参数不再作为人工批准证据；请通过 Web 副驾（agent-bff）或 AGH 会话的人工审批执行这些操作。',
+        `FJSP 动态柔性车间调度系统的 ${tools.length} 个工具。只读工具直接调用；写/高风险/破坏性工具（fjsp_create_baseline、fjsp_report_breakdown、fjsp_insert_order、fjsp_reschedule、fjsp_submit_review、fjsp_revise_plan、fjsp_experience_record、fjsp_experience_feedback、fjsp_approve_review、fjsp_publish、fjsp_reset_demo）在 MCP 直连通道一律拒绝执行（APPROVAL_CHANNEL_REQUIRED）——"_confirm" 参数不再作为人工批准证据；请通过 Web 副驾（agent-bff）或 AGH 会话的人工审批执行这些操作。`,
     })
   }
   if (method === 'ping') return resultFor(id, {})

@@ -16,7 +16,7 @@
 // 各自独立留痕，互不合并。
 import type { NodeContext, NodeAction, WorkflowNode, ErrorEnvelope } from './runner.mts'
 import { envError, isErr, judgeTask, pickDefined, stepResult, toolsOf } from './flow-common.mts'
-import { WEIGHT_KEYS, MAX_WEIGHT_KEYS } from './agent-nodes.mts'
+import { BASELINE_WEIGHT_KEYS as WEIGHT_KEYS, MAX_WEIGHT_KEYS } from './agent-nodes.mts'
 
 // 触发输入：checkpoint.trigger.detail 的契约形状。全部可选：缺省对全部在制订单全量排程。
 export interface BaselineFlowInput {

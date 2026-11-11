@@ -41,6 +41,7 @@ function setup() {
   return { store, workflowId: checkpoint.workflowId }
 }
 
+import { contextFixture } from './context-fixture.mts'
 // 最小 mock 业务服务（happy path 到 submit-review 挂起）
 function makeMockTools() {
   const calls: { name: string; args: Record<string, unknown> }[] = []
@@ -52,6 +53,8 @@ function makeMockTools() {
           return { ok: true, currentPlan: { id: 'pv-old', kpi: {} }, recentEvents: [] }
         case 'fjsp_report_breakdown':
           return { ok: true, event: { eventId: 'ev-1', eventType: 'BREAKDOWN', status: 'OPEN' } }
+        case 'fjsp_get_disturbance_context':
+          return { ok: true, context: contextFixture() }
         case 'fjsp_experience_query':
           return { ok: true, records: [], recommendation: null }
         case 'fjsp_reschedule':

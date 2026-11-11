@@ -11,14 +11,12 @@
 export const RESCHEDULE_MODES = ['LOCAL_RESCHEDULE', 'FULL_RESCHEDULE'] as const
 export type RescheduleMode = (typeof RESCHEDULE_MODES)[number]
 
-// weights 规则：可执行契约以 fjsp-tools 的 WEIGHTS 参数 schema 为准（fjsp_reschedule 客户端
-// 校验，超出直接 FJSP_INVALID_PARAMS、不发请求）——当前只放行 makespan / weightedTardiness /
-// loadImbalance 三键。algorithm-service ga.py 的重调度模式另认 deltaPlan / machineChange
-// （SeedService 重调度默认权重亦含之），但 fjsp-tools schema 尚不透传，属已登记的工具面缺口；
-// 在该缺口修复前，Agent 建议含这两键一律按非法落 fallback，避免到写节点才被拒。
-// 数值约束：algorithm-service app/models.py SolveRequest.objectiveWeights —— 键数上限 16、
-// 值必须是非负有限数（负权重会让 GA 朝更差方向优化，服务端直接拒绝）。
-export const WEIGHT_KEYS = ['makespan', 'weightedTardiness', 'loadImbalance'] as const
+import {
+  BASELINE_WEIGHT_KEYS, RESCHEDULE_WEIGHT_KEYS, RESCHEDULE_WEIGHT_DEFAULTS,
+} from '../fjsp-tools/objective-weights.mjs'
+export { BASELINE_WEIGHT_KEYS, RESCHEDULE_WEIGHT_KEYS }
+// 重调度不使用 loadImbalance；缺失的有效键由算法按默认值补齐，不做归一化。
+export const WEIGHT_KEYS = RESCHEDULE_WEIGHT_KEYS
 export const MAX_WEIGHT_KEYS = 16
 
 // 策略节点输出契约
@@ -28,23 +26,54 @@ export interface StrategySuggestion {
   rationale: string
 }
 
-// 默认策略（fallback）：LOCAL 优先、扰动小；权重对齐 SeedService 重调度默认（deltaPlan/
-// machineChange 由算法侧默认 0.2/0.1 补齐，经 fjsp-tools 可执行的键只有这两个）。
+// 默认策略：LOCAL 优先，四个目标与算法重调度默认值一致。
 export const DEFAULT_STRATEGY: StrategySuggestion = {
   mode: 'LOCAL_RESCHEDULE',
-  weights: { weightedTardiness: 0.4, makespan: 0.3 },
-  rationale: '默认策略：局部重调度优先（扰动小），权重取系统默认值（deltaPlan/machineChange 由算法侧默认补齐）',
+  weights: { ...RESCHEDULE_WEIGHT_DEFAULTS },
+  rationale: '默认策略：局部重调度优先（扰动小），权重取系统四目标默认值',
 }
 
 // INFEASIBLE / 任务 FAILED 的处置策略常量：仅允许把 LOCAL_RESCHEDULE 升级为
 // FULL_RESCHEDULE 重试一次；再失败一律 suspend(needs-human)，不做第二次自动重排。
 export const ALLOW_FULL_RESCHEDULE_ONCE = true
 
-// 决策节点输入（只读）：事件 + 经验检索结果 + 当前约束
+export interface DisturbanceContext {
+  schemaVersion: 1
+  readAt: string
+  event: { eventId: string; eventType: string; occurredAt: string; [k: string]: unknown }
+  baselinePlan: { id: string; versionCode?: string; status?: string; kpi: Record<string, unknown> }
+  constraints: {
+    freezeWindowMinutes: number
+    freezeStartsAt: string
+    hardLockedCount: number
+    softLockedCount: number
+    impactedOperationCount: number
+    impactedOrderCount: number
+    impactedOrders: string[]
+    impactSummary: { total: number; byType: Record<string, number> }
+    modeEstimates: Record<RescheduleMode, { estimatedOperationCount: number }>
+    registeredImpacts: unknown[]
+  }
+  affectedOrders: { orderId: string; dueAt: string; priority: number; minutesToDueAtEvent: number; [k: string]: unknown }[]
+  deadlinePressure: {
+    referenceAt: string; definition: string; pastDueOrderCount: number
+    dueWithin24HoursCount: number; highPriorityOrderCount: number; minMinutesToDueAtEvent: number | null
+  }
+  provenance: Record<string, string>
+  limitations: string[]
+}
+
+// 只读事实由 load-context 节点从业务接口取得，而不是从用户输入或经验中推测。
 export interface StrategyInput {
+  readAt: string
   event: { eventType: string; [k: string]: unknown }
-  experience: unknown // fjsp_experience_query 的 records / recommendation
-  constraints?: Record<string, unknown> // 当前约束（冻结窗、在制工序等，预留）
+  experience: unknown
+  constraints: DisturbanceContext['constraints']
+  baselinePlan: DisturbanceContext['baselinePlan']
+  affectedOrders: DisturbanceContext['affectedOrders']
+  deadlinePressure: DisturbanceContext['deadlinePressure']
+  provenance: DisturbanceContext['provenance']
+  limitations: string[]
 }
 
 // 冲突解释输入（只读）：任务终态 + conflicts 明细
@@ -132,7 +161,7 @@ export function validateStrategySuggestion(raw: unknown): StrategyValidation {
     }
   }
 
-  if (reasons.length === 0 && mode && weights && rationale) return { ok: true, strategy: { mode, weights, rationale } }
+  if (reasons.length === 0 && mode && weights && rationale) return { ok: true, strategy: { mode, weights: { ...RESCHEDULE_WEIGHT_DEFAULTS, ...weights }, rationale } }
   return { ok: false, strategy: { ...DEFAULT_STRATEGY, weights: { ...DEFAULT_STRATEGY.weights } }, rejectedReasons: reasons }
 }
 

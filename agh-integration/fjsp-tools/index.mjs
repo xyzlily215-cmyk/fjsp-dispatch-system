@@ -3,6 +3,8 @@
 // Self-contained ESM, no external dependencies; tool schemas are hand-tagged
 // TypeBox schemas like examples/packages/hot-tool-plugin.
 import { appendFileSync, readFileSync } from 'node:fs'
+import { readDisturbanceContext } from './disturbance-context.mjs'
+import { BASELINE_WEIGHT_DEFAULTS, RESCHEDULE_WEIGHT_DEFAULTS } from './objective-weights.mjs'
 
 const Kind = Symbol.for('TypeBox.Kind')
 
@@ -108,11 +110,13 @@ function validateParams(schema, args) {
   return issues
 }
 
-const WEIGHTS = Obj({
-  makespan: N({ description: '最大完工时间权重' }),
-  weightedTardiness: N({ description: '加权拖期权重' }),
-  loadImbalance: N({ description: '负载不均衡权重' }),
-})
+const OBJECTIVE_LABELS = { makespan: '最大完工时间', weightedTardiness: '加权拖期', loadImbalance: '负载不均衡', deltaPlan: '计划扰动', machineChange: '换机数量' }
+const weightSchema = (defaults) => Obj(Object.fromEntries(Object.entries(defaults).map(([key, value]) => [
+  key, N({ description: `${OBJECTIVE_LABELS[key]}权重，默认 ${value}；缺失补默认，不归一化`, minimum: 0 }),
+])))
+const BASELINE_WEIGHTS = weightSchema(BASELINE_WEIGHT_DEFAULTS)
+const RESCHEDULE_WEIGHTS = weightSchema(RESCHEDULE_WEIGHT_DEFAULTS)
+const FREEZE_WINDOW = I({ description: '冻结窗口（分钟，0-1440）；预览与实际求解必须一致', minimum: 0, maximum: 1440 })
 
 const KPI_DIFF = Obj({
   weightedTardinessMinutes: N({ description: '加权拖期差值（新-旧，越小越好，可为负）' }),
@@ -500,7 +504,7 @@ const tools = [
       '创建基线排程任务（mode=BASELINE）。可选指定订单子集、目标权重与随机种子。返回调度任务，需用 fjsp_task_status 轮询直到 SUCCESS/FAILED。',
     parameters: Obj({
       orderIds: StrArr(),
-      weights: WEIGHTS,
+      weights: BASELINE_WEIGHTS,
       seed: I({ description: '随机种子 randomSeed' }),
       idempotencyKey: IDEMPOTENCY_KEY,
     }),
@@ -604,6 +608,19 @@ const tools = [
     },
   },
   {
+    name: 'fjsp_get_disturbance_context',
+    description: '读取已登记扰动的决策上下文：固定原计划 KPI、影响预览/锁定计数、受影响订单及相对事件时间的交期压力。只读，不创建任务；modeEstimates 只是估算，不能替代求解验证。',
+    parameters: Obj({
+      eventId: S({ minLength: 1, description: '已登记事件 ID 或编号' }),
+      planVersionId: S({ minLength: 1, description: '固定的原计划 ID 或编号，不隐式切换到最新版本' }),
+      freezeWindowMinutes: FREEZE_WINDOW,
+    }, ['eventId', 'planVersionId']),
+    meta: READ,
+    async execute(args) {
+      return result(await readDisturbanceContext(api, args))
+    },
+  },
+  {
     name: 'fjsp_reschedule',
     description:
       '创建重调度任务。mode=LOCAL_RESCHEDULE（局部，优先，扰动小）或 FULL_RESCHEDULE（完全重排，局部不可行时再用）。需传触发事件 eventId 与被调整的 oldPlanVersionId（通常为当前发布计划）。返回任务后用 fjsp_task_status 轮询。',
@@ -612,14 +629,15 @@ const tools = [
         mode: S({ description: 'LOCAL_RESCHEDULE 或 FULL_RESCHEDULE' }),
         eventId: S({ description: '触发事件 ID' }),
         oldPlanVersionId: S({ description: '被调整的计划版本 ID' }),
-        weights: WEIGHTS,
+        weights: RESCHEDULE_WEIGHTS,
+        freezeWindowMinutes: FREEZE_WINDOW,
         idempotencyKey: IDEMPOTENCY_KEY,
       },
       ['mode', 'eventId', 'oldPlanVersionId'],
     ),
     meta: WRITE,
     terminalQuery: '若已拿到 taskId 用 fjsp_task_status(taskId) 查终态；否则用 fjsp_get_dashboard 的 recentTasks 找到本次重调度任务拿 taskId 再查',
-    async execute({ mode, eventId, oldPlanVersionId, weights, idempotencyKey }) {
+    async execute({ mode, eventId, oldPlanVersionId, weights, freezeWindowMinutes, idempotencyKey }) {
       if (mode !== 'LOCAL_RESCHEDULE' && mode !== 'FULL_RESCHEDULE') {
         return result({
           ok: false,
@@ -628,6 +646,7 @@ const tools = [
       }
       const body = { mode, eventId, oldPlanVersionId }
       if (weights) body.objectiveWeights = weights
+      if (freezeWindowMinutes !== undefined) body.freezeWindowMinutes = freezeWindowMinutes
       const r = await api('POST', '/schedule-tasks', body, idempotencyKey)
       if (!r.ok) return result(r)
       return result({ ok: true, task: trimTask(r.data || {}) })
@@ -1005,7 +1024,7 @@ const tools = [
         eventType: S({ description: 'BREAKDOWN 或 NEW_ORDER' }),
         machineId: S({ description: '故障设备号（BREAKDOWN 时填）' }),
         mode: S({ description: 'LOCAL_RESCHEDULE 或 FULL_RESCHEDULE' }),
-        weights: WEIGHTS,
+        weights: RESCHEDULE_WEIGHTS,
         resultStatus: S({ description: 'FEASIBLE / INFEASIBLE' }),
         kpiDiff: KPI_DIFF,
         published: S({ description: '"true" 已发布 / "false" 未发布（含零扰动无需发布）' }),

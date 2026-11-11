@@ -8,6 +8,7 @@ import { CheckpointStore } from './checkpoint.mts'
 import { runWorkflow } from './runner.mts'
 import { recover } from './recovery.mts'
 import { buildDisturbanceFlow, type FlowTools, type DisturbanceEventInput } from './disturbance-flow.mts'
+import { contextFixture } from './context-fixture.mts'
 import { validateStrategySuggestion, DEFAULT_STRATEGY, type DisturbanceAgent } from './agent-nodes.mts'
 
 let seq = 0
@@ -71,6 +72,8 @@ function makeMockTools(opts: MockOpts = {}) {
           state.recentEvents.push({ eventId })
           return { ok: true, event: { eventId, eventCode: 'EV-001', eventType: 'BREAKDOWN', machineId: args.machineId, occurredAt: args.occurredAt, status: 'OPEN' } }
         }
+        case 'fjsp_get_disturbance_context':
+          return { ok: true, context: contextFixture(args.eventId as string, args.planVersionId as string) }
         case 'fjsp_experience_query':
           return { ok: true, records: [], recommendation: null }
         case 'fjsp_reschedule': {
@@ -146,10 +149,15 @@ function makeMockAgent(suggestion: unknown = null) {
     suggestStrategy(input) {
       agentCalls.push('suggestStrategy')
       assert.ok(input.event && 'experience' in input, '策略节点输入必须含事件与经验检索结果')
+      assert.deepEqual(input.constraints, contextFixture().constraints)
+      assert.equal(input.baselinePlan.id, 'pv-old')
+      assert.equal(input.affectedOrders[0].orderId, 'real-order-id')
+      assert.equal(input.deadlinePressure.referenceAt, contextFixture().event.occurredAt)
+      assert.ok(input.provenance.constraints && input.limitations.length)
       return (
         suggestion ?? {
           mode: 'LOCAL_RESCHEDULE',
-          weights: { weightedTardiness: 0.5, makespan: 0.3, loadImbalance: 0.2 },
+          weights: { weightedTardiness: 0.5, makespan: 0.3, deltaPlan: 0.1, machineChange: 0.1 },
           rationale: '历史同类故障 LOCAL 处置拖期最优',
         }
       )
@@ -170,6 +178,7 @@ function makeMockAgent(suggestion: unknown = null) {
 const FLOW_ORDER = [
   'receive-event',
   'register-event',
+  'load-context',
   'query-experience',
   'suggest-strategy',
   'validate-strategy',
@@ -289,14 +298,17 @@ async function testVersionStaleRereadAndRetry() {
 
 function testValidateStrategySuggestion() {
   // 合法输入原样通过
-  const good = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, loadImbalance: 0.5 }, rationale: '扰动面大' })
+  const good = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, deltaPlan: 0.4, machineChange: 0.1 }, rationale: '扰动面大' })
   assert.ok(good.ok)
   assert.equal(good.strategy.mode, 'FULL_RESCHEDULE')
+  const partial = validateStrategySuggestion({ mode: 'LOCAL_RESCHEDULE', weights: { makespan: 0 }, rationale: '明确禁用完工时间目标' })
+  assert.ok(partial.ok)
+  assert.deepEqual(partial.strategy.weights, { makespan: 0, weightedTardiness: 0.4, deltaPlan: 0.2, machineChange: 0.1 })
 
-  // fjsp-tools WEIGHTS schema 不透传的键（deltaPlan/machineChange，任务 3.5 登记的工具面缺口）→ fallback
-  const toolGap = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, deltaPlan: 0.5 }, rationale: 'x' })
+  // 重调度不使用 loadImbalance，不允许建议无效目标。
+  const toolGap = validateStrategySuggestion({ mode: 'FULL_RESCHEDULE', weights: { makespan: 0.5, loadImbalance: 0.5 }, rationale: 'x' })
   assert.ok(!toolGap.ok)
-  assert.ok(toolGap.rejectedReasons.some((r) => r.includes('deltaPlan')))
+  assert.ok(toolGap.rejectedReasons.some((r) => r.includes('loadImbalance')))
 
   // 错 mode / 越界 weights / 空 rationale → fallback（默认策略 + 拒绝原因）
   const bad = validateStrategySuggestion({ mode: 'GLOBAL', weights: { makespan: -1, unknownKey: 0.5 }, rationale: '  ' })
@@ -425,7 +437,40 @@ async function testTimeLimitNonFeasibleIsNotFeasible() {
   console.log('ok TIME_LIMIT+非 FEASIBLE → 不当可行，走 INFEASIBLE 异常分支')
 }
 
+async function testContextFailuresStopBeforeStrategyAndRescheduling() {
+  for (const bad of [
+    { ok: false, error: { code: 'E_FORBIDDEN', message: '上下文不可读' } },
+    { ok: true, context: { ...contextFixture(), baselinePlan: { id: 'wrong-plan' } } },
+    { ok: true, context: null },
+  ]) {
+    const { store, workflowId } = setup()
+    const { tools: inner, calls } = makeMockTools()
+    const tools: FlowTools = { call: (name, args) => name === 'fjsp_get_disturbance_context' ? Promise.resolve(bad) : inner.call(name, args) }
+    const { agent, agentCalls } = makeMockAgent()
+    const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent })
+    assert.notEqual(cp.status, 'COMPLETED')
+    assert.equal(cp.current?.node, 'load-context')
+    assert.equal(calls.filter((c) => c.name === 'fjsp_reschedule').length, 0)
+    assert.equal(agentCalls.length, 0, '事实不完整时不向 Agent 提交猜测输入')
+  }
+  console.log('ok 上下文失败/版本不匹配 → 不建议、不创建重调度任务')
+}
+
+async function testFreezeWindowFollowsPreviewThroughFullRetry() {
+  const { store, workflowId } = setup()
+  const { tools, calls } = makeMockTools({ localInfeasible: true })
+  const { agent } = makeMockAgent()
+  await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent })
+  const requests = calls.filter((c) => c.name === 'fjsp_reschedule')
+  assert.equal(requests.length, 2)
+  assert.ok(requests.every((c) => c.args.freezeWindowMinutes === 45))
+  assert.ok(requests.every((c) => c.args.oldPlanVersionId === 'pv-old'))
+  console.log('ok 影响预览的冻结窗口与原计划固定到 LOCAL/FULL 两次求解')
+}
+
 const tests = [
+  testContextFailuresStopBeforeStrategyAndRescheduling,
+  testFreezeWindowFollowsPreviewThroughFullRetry,
   testHappyPath,
   testInfeasibleFullRetryOnce,
   testFullRetryStillInfeasibleSuspends,

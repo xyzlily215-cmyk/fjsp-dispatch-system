@@ -27,8 +27,8 @@ description: 动态柔性车间（FJSP）调度扰动处置方法论。当用户
    - 插单 → `fjsp_insert_order(orderCode, productFamily, quantity, arrivalAt, dueAt, priority, occurredAt, subType?)`
    - 若返回 `E_EVENT_IN_PROCESS`（category=needs-input，可重试）：说明事件发生时间与该机台正在执行的工序冲突，向用户说明原因并核实真实发生时间，改用不冲突的时间（如工序结束后）重试；**严禁自动移动真实事件时间**，不要静默改其他参数。
    - 其他错误码：失败返回统一为 `{ok:false, error:{code,message,category,retryable,recovery}}`——按 error.category 处置：`retryable` 可按 recovery 说明的条件重试；`needs-input` 修正输入/流程后重试；`needs-human`/`terminal` 停下转人工，不要重试相同参数。
-3. 查询处置经验：`fjsp_experience_query(eventType)`（BREAKDOWN / NEW_ORDER）。recommendation 非空时，按其推荐的模式执行并向用户说明历史依据（"过去 N 次同类事件用 X 模式平均拖期差值最优"）；recommendation 为空（经验库还没有同类记录）时按默认策略：先取 LOCAL_RESCHEDULE（局部修复、扰动小）。
-4. `fjsp_reschedule` 触发重调度：eventId 用第 2 步返回的事件 ID，oldPlanVersionId 用当前发布计划 ID，模式取第 3 步的决策；用户指定权重时透传。
+3. 先调 `fjsp_get_disturbance_context(eventId, planVersionId=第1步固定的原计划ID)` 读取真实影响范围、锁定统计、受影响订单与交期压力，再查询处置经验 `fjsp_experience_query(eventType)`（BREAKDOWN / NEW_ORDER）。策略建议必须结合当前约束与经验，不能仅按历史平均 KPI 决定模式；无可靠经验时默认先取 LOCAL_RESCHEDULE。上下文失败时停止并核实数据，不把缺失计数当零。`modeEstimates` 是估算；`minutesToDueAtEvent` 是交期减事件发生时间，不是预计拖期。
+4. `fjsp_reschedule` 触发重调度：eventId 用第 2 步返回的事件 ID，oldPlanVersionId 固定为第 1 步原计划 ID，freezeWindowMinutes 必须与上下文返回值一致（包括 0）；权重仅允许 makespan、weightedTardiness、deltaPlan、machineChange，缺失分别按 0.3/0.4/0.2/0.1 补齐，不归一化。loadImbalance 仅用于基线排程，重调度不接收它。
 5. `fjsp_task_status` 轮询至 SUCCESS/FAILED（内置等待，RUNNING 就再调一次，不要用 shell/sleep）。
 6. 校验：resultStatus=FEASIBLE 且 conflicts 为空才继续；INFEASIBLE 时先读 conflicts 明细解释瓶颈（哪台设备、哪个订单、什么约束），再改 FULL_RESCHEDULE 重试一次；仍不可行则停止并给出人工建议。
 7. `fjsp_compare_plans(planVersionId=新方案, baselineVersionId=原发布计划)` 评估扰动：换机数、换序数、时间平移数、Delta_plan、加权拖期差值。
