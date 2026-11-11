@@ -157,7 +157,7 @@ async function suggestStrategy(ctx: NodeContext): Promise<NodeAction> {
   const { experience } = stepResult(ctx, 'query-experience')! as { experience: unknown }
   if (!agent) {
     ctx.log('未注入 Agent，策略建议落默认策略')
-    return { action: 'advance', result: { rawSuggestion: null } }
+    return { action: 'advance', result: { rawSuggestion: null, invocation: { source: 'rule-fallback', reason: 'NO_AGENT' } } }
   }
   const input: StrategyInput = {
     readAt: context.readAt,
@@ -167,7 +167,7 @@ async function suggestStrategy(ctx: NodeContext): Promise<NodeAction> {
     limitations: context.limitations,
   }
   const raw = await agent.suggestStrategy(input)
-  return { action: 'advance', result: { rawSuggestion: raw ?? null } }
+  return { action: 'advance', result: { rawSuggestion: raw ?? null, invocation: agent.lastInvocation?.() ?? { source: 'injected-agent' } } }
 }
 
 // 节点 5：校验建议 —— validateStrategySuggestion 把关；非法输出落 fallback 并记录拒绝原因，流程继续。
@@ -236,6 +236,8 @@ async function fullRetry(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> 
   const explanation = agent
     ? await agent.explainConflicts({ outcome: poll.outcome, mode: strategy.mode, conflicts: poll.conflicts, errorMessage: poll.errorMessage, event: event as StrategyInput['event'] })
     : defaultExplainConflicts({ outcome: poll.outcome, mode: strategy.mode, conflicts: poll.conflicts, errorMessage: poll.errorMessage, event: event as StrategyInput['event'] })
+  const explanationInvocation = agent?.lastInvocation?.() ?? { source: agent ? 'injected-agent' : 'rule-fallback' }
+  ctx.log(`冲突解释来源：${JSON.stringify(explanationInvocation)}`)
   ctx.log(`重调度${poll.outcome === 'failed' ? '任务失败' : '结果不可行'}，冲突解释：\n${explanation}`)
 
   if (!ALLOW_FULL_RESCHEDULE_ONCE || strategy.mode === 'FULL_RESCHEDULE') {
@@ -278,6 +280,7 @@ async function fullRetry(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> 
       retriedFrom: poll.outcome,
       mode: 'FULL_RESCHEDULE',
       explanation,
+      explanationInvocation,
       taskId: task2.taskId,
       planVersionId,
       kpi: j2.task.kpi ?? null,
@@ -324,7 +327,7 @@ async function reviewMaterial(ctx: NodeContext): Promise<NodeAction> {
     if (agent) ctx.log('Agent 评审材料输出非法（非非空字符串），落确定性兜底生成')
     material = buildReviewMaterial(input)
   }
-  return { action: 'advance', result: { material } }
+  return { action: 'advance', result: { material, invocation: agent?.lastInvocation?.() ?? { source: agent ? 'injected-agent' : 'rule-fallback' } } }
 }
 
 // 节点 11：提交评审（写）。节点体共享自 flow-common.runSubmitReview：

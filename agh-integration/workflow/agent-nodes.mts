@@ -101,6 +101,10 @@ export interface DisturbanceAgent {
   suggestStrategy(input: StrategyInput): unknown | Promise<unknown>
   explainConflicts(input: ConflictExplainInput): string | Promise<string>
   buildReviewMaterial(input: ReviewMaterialInput): string | Promise<string>
+  lastInvocation?(): {
+    source: 'model' | 'rule-fallback'; operation: string; reason?: string
+    sessionId?: string; elapsedMs: number
+  } | null
 }
 
 export type StrategyValidation =
@@ -173,7 +177,9 @@ export function defaultExplainConflicts(input: ConflictExplainInput): string {
   const items = (input.conflicts ?? []).slice(0, 10).map((c) => {
     if (c && typeof c === 'object') {
       const r = c as Record<string, unknown>
-      return `- ${[r.type ?? r.code, r.machineId ?? r.orderId ?? '', r.message ?? r.detail ?? ''].filter(Boolean).join('：')}`
+      return `- ${[r.rule ?? r.type ?? r.code,
+        Array.isArray(r.objects) ? r.objects.join('、') : r.machineId ?? r.orderId ?? '',
+        r.suggestion ?? r.message ?? r.detail ?? ''].filter(Boolean).join('：')}`
     }
     return `- ${String(c)}`
   })

@@ -1,0 +1,11 @@
+{
+  "name": "@fjsp/analysis-guard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": "./index.mjs",
+  "agnes": {
+    "plugins": [{ "export": "analysisGuard", "id": "ext:fjsp/analysis-guard", "inject": ["extension"] }]
+  }
+}

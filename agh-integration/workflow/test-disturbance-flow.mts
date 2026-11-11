@@ -9,6 +9,7 @@ import { runWorkflow } from './runner.mts'
 import { recover } from './recovery.mts'
 import { buildDisturbanceFlow, type FlowTools, type DisturbanceEventInput } from './disturbance-flow.mts'
 import { contextFixture } from './context-fixture.mts'
+import { createModelAgent } from './model-agent.mts'
 import { validateStrategySuggestion, DEFAULT_STRATEGY, type DisturbanceAgent } from './agent-nodes.mts'
 
 let seq = 0
@@ -468,7 +469,22 @@ async function testFreezeWindowFollowsPreviewThroughFullRetry() {
   console.log('ok 影响预览的冻结窗口与原计划固定到 LOCAL/FULL 两次求解')
 }
 
+async function testModelFallbackEvidenceIsPersisted() {
+  const { store, workflowId } = setup()
+  const { tools } = makeMockTools()
+  const agent = createModelAgent({ async complete() { throw new Error('provider offline') } })
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent })
+  assert.equal(cp.current?.node, 'await-decision')
+  for (const name of ['suggest-strategy', 'review-material']) {
+    const invocation = cp.completedSteps.find((s) => s.node === name)?.result?.invocation as { source: string; reason: string }
+    assert.equal(invocation.source, 'rule-fallback')
+    assert.equal(invocation.reason, 'MODEL_UNAVAILABLE')
+  }
+  console.log('ok 模型不可用：规则兜底来源持久化，不冒充模型成功')
+}
+
 const tests = [
+  testModelFallbackEvidenceIsPersisted,
   testContextFailuresStopBeforeStrategyAndRescheduling,
   testFreezeWindowFollowsPreviewThroughFullRetry,
   testHappyPath,
