@@ -32,9 +32,8 @@
 
     <div ref="scrollEl" class="chat-body" @scroll="onScroll">
       <div v-if="!agent.messages.length" class="chat-empty">
-        <span class="empty-mark" aria-hidden="true">AI</span>
-        <p class="empty-title">从{{ pageContext.title || '当前页面' }}开始</p>
-        <p class="empty-sub">可询问排程、订单风险或方案差异；涉及调度操作时，处理过程与待审批步骤会显示在这里。</p>
+        <p class="empty-title">需要什么帮助？</p>
+        <p class="empty-sub">可询问{{ pageContext.title || '当前页面' }}的排程、订单风险或方案差异，处理过程与待审批步骤会显示在这里。</p>
         <p class="empty-label">试试这些问题</p>
         <div class="empty-hints">
           <button v-for="hint in hints" :key="hint" type="button" class="hint-chip" @click="fillHint(hint)">{{ hint }}</button>
@@ -299,7 +298,7 @@ onMounted(() => {
 
 <style scoped>
 .chat { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; background:#fff; }
-.chat-head { min-height:72px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px 12px 18px; border-bottom:1px solid var(--line, #e5eaf1); background:#fff; user-select:none; }
+.chat-head { min-height:64px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px 10px 16px; border-bottom:1px solid var(--line); background:var(--surface); user-select:none; }
 .chat-identity { display:flex; align-items:center; gap:11px; min-width:0; }
 .chat-heading { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .chat-heading strong { color:var(--ink, #152334); font-size:15px; line-height:1.3; white-space:nowrap; }
@@ -316,20 +315,19 @@ onMounted(() => {
 .chat-banner { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 14px; background:#fef0f0; color:#f56c6c; font-size:12px; border-bottom:1px solid #fde2e2; }
 .chat-link-btn { border:0; background:transparent; color:var(--blue, #409eff); font-size:12px; cursor:pointer; text-decoration:underline; }
 
-.chat-context { flex:none; display:flex; align-items:center; gap:7px; padding:10px 18px; font-size:11px; color:#66758a; border-bottom:1px solid var(--line, #e5eaf1); background:#f7f9fc; min-width:0; }
-.ctx-label { flex:none; color:#66758a; }
-.ctx-page { color:#1d4ed8; font-weight:600; flex:none; }
+.chat-context { flex:none; display:flex; align-items:center; gap:7px; min-height:36px; padding:8px 16px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line); background:var(--surface-soft); min-width:0; }
+.ctx-label { flex:none; color:var(--muted); }
+.ctx-page { color:var(--blue-deep); font-weight:600; flex:none; }
 .ctx-query { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ctx-note { margin-left:auto; white-space:nowrap; }
+.ctx-note { display:none; }
 
-.chat-body { flex:1; overflow-y:auto; padding:18px 18px 12px; display:flex; flex-direction:column; gap:14px; min-height:0; }
-.chat-empty { width:100%; margin:auto 0; padding:24px 0; color:#66758a; }
-.empty-mark { display:grid; place-items:center; width:40px; height:40px; margin-bottom:16px; border-radius:7px; background:#eaf1ff; color:var(--blue-deep, #1d4ed8); font-size:12px; font-weight:750; }
-.empty-title { font-size:18px; font-weight:650; color:var(--ink, #152334); margin:0 0 8px; line-height:1.4; }
-.empty-sub { font-size:12px; margin:0 0 24px; line-height:1.7; max-width:38ch; }
-.empty-label { margin:0 0 9px; font-size:11px; font-weight:600; color:#66758a; }
-.empty-hints { display:flex; flex-direction:column; gap:7px; }
-.hint-chip { width:100%; border:1px solid #e5eaf1; background:#fff; color:#334155; border-radius:5px; padding:10px 12px; font-size:12px; line-height:1.5; text-align:left; cursor:pointer; }
+.chat-body { flex:1; overflow-y:auto; padding:16px 16px 12px; display:flex; flex-direction:column; gap:14px; min-height:0; }
+.chat-empty { width:100%; margin:0; padding:0; color:var(--muted); }
+.empty-title { font-size:15px; font-weight:650; color:var(--ink); margin:0 0 6px; line-height:1.4; }
+.empty-sub { font-size:12px; margin:0 0 16px; line-height:1.65; max-width:40ch; }
+.empty-label { margin:0 0 8px; font-size:11px; font-weight:600; color:var(--muted); }
+.empty-hints { display:flex; flex-direction:column; gap:8px; }
+.hint-chip { width:100%; border:1px solid var(--line); background:var(--surface); color:#33485c; border-radius:6px; padding:10px 12px; font-size:12px; line-height:1.5; text-align:left; cursor:pointer; }
 .hint-chip:hover, .hint-chip:focus-visible { border-color:#a7c3fc; background:#f3f7ff; color:var(--blue-deep, #1d4ed8); }
 
 .msg-row { display:flex; min-width:0; }
@@ -354,7 +352,7 @@ onMounted(() => {
 .md :deep(code) { background:#eef2f7; border-radius:3px; padding:0 4px; font-size:12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
 .md :deep(pre) { background:#f4f6fa; border-radius:6px; padding:8px; overflow-x:auto; }
 .md :deep(pre code) { background:transparent; padding:0; }
-.md :deep(blockquote) { border-left:3px solid #c4dbf7; margin:6px 0; padding:2px 10px; color:#606266; }
+.md :deep(blockquote) { border-left:1px solid var(--line); margin:6px 0; padding:2px 10px; color:var(--muted); }
 .md :deep(a) { color:var(--blue, #409eff); }
 .md > :deep(*:first-child) { margin-top:0; }
 .cursor { color:var(--blue, #409eff); animation:blink 1s steps(1) infinite; }
@@ -388,7 +386,7 @@ onMounted(() => {
 .ap-btn.reject:hover:not(:disabled) { color:#f56c6c; border-color:#fbc4c4; }
 .ap-btn:disabled { opacity:.55; cursor:default; }
 
-.chat-input { flex:none; display:flex; align-items:flex-end; gap:8px; padding:12px 18px 16px; border-top:1px solid var(--line, #e5eaf1); background:#fff; }
+.chat-input { flex:none; display:flex; align-items:flex-end; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--line); background:var(--surface); }
 .input-box { flex:1; min-width:0; resize:none; border:1px solid #d9e1eb; border-radius:6px; padding:9px 11px; font-size:12px; line-height:1.5; font-family:inherit; outline:none; }
 .input-box:focus { border-color:var(--blue, #2563eb); box-shadow:0 0 0 2px #eaf1ff; }
 .input-box::placeholder { color:#718093; }

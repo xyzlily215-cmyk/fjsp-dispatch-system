@@ -11,15 +11,15 @@
     <div class="page-header">
       <div><h1>调度看板</h1><p>{{ plan ? `生产运行概览 · ${windowLabel}` : '当前发布计划的生产运行概览' }}<template v-if="plan && win.from"> · {{ fmtDateTime(win.from) }} ~ {{ fmtDateTime(win.to) }}</template></p></div>
       <div class="board-header-actions">
-        <button class="btn" @click="refresh">刷新</button>
-        <button v-if="plan" class="btn primary" @click="router.push({ name: 'baseline' })">创建基线排程</button>
+        <button class="btn" @click="refresh"><AppIcon name="refresh" />刷新</button>
+        <button v-if="plan" class="btn primary" @click="router.push({ name: 'baseline' })"><AppIcon name="plus" />创建基线排程</button>
         <details v-role="['ADMIN']" class="board-more">
           <summary class="btn">更多操作</summary>
           <div class="board-more-menu"><button type="button" @click="resetDemo">重置演示数据</button></div>
         </details>
       </div>
     </div>
-    <div v-if="plan || versionOptions.length" class="board-controls" role="group" aria-label="看板筛选">
+    <section v-if="plan || versionOptions.length" class="card board-controls" aria-label="看板筛选">
       <div class="board-filter-row">
         <label class="board-filter">计划版本
           <select class="field" :value="filters.planVersionId || ''" @change="onVersionChange">
@@ -40,7 +40,7 @@
         <label class="board-filter">结束时间 <input v-model="customTo" type="datetime-local" class="field"></label>
         <button class="btn primary" @click="applyRange">应用时间窗口</button>
       </div>
-    </div>
+    </section>
     <section v-if="plan" class="board-summary" aria-label="计划状态">
       <span class="board-summary-label">{{ filters.planVersionId ? '所选计划' : '当前发布计划' }}</span>
       <strong>{{ plan.versionCode }}</strong>
@@ -53,12 +53,12 @@
       <div style="margin-top:8px"><button class="btn small" @click="load">重试</button></div>
     </div>
 
-    <section v-if="!plan" class="board-empty">
+    <section v-if="!plan" class="card board-empty">
       <div>
         <h2>{{ pendingReview ? `${pendingReview} 个方案待审核` : '暂无当前发布计划' }}</h2>
         <p>{{ pendingReview ? '审核并发布方案后，即可在此查看生产运行情况。' : '创建基线排程，完成求解与审核发布后，即可在此查看生产运行情况。' }}</p>
       </div>
-      <button class="btn primary" @click="router.push({ name: pendingReview ? 'review' : 'baseline' })">{{ pendingReview ? '查看待审核方案' : '创建基线排程' }}</button>
+      <button class="btn primary" @click="router.push({ name: pendingReview ? 'review' : 'baseline' })"><AppIcon v-if="!pendingReview" name="plus" />{{ pendingReview ? '查看待审核方案' : '创建基线排程' }}</button>
     </section>
     <section v-if="plan && exItems.length" class="card warning-card board-attention">
       <div class="card-title">异常记录 <span class="board-attention-count">{{ exItems.length }} 项</span></div>
@@ -134,6 +134,7 @@ import {
 import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import AppIcon from '../components/AppIcon.vue';
 
 const BOARD_FILTERS_KEY = 'fjsp.board.filters';
 

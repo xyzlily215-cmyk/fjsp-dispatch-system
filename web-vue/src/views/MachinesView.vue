@@ -3,14 +3,18 @@
     <div class="page-header">
       <div><h1>设备管理</h1><p>车间设备清单与能力（新增 / 编辑 / 启停，停用后不进入新任务候选集）</p></div>
       <div class="buttons">
-        <button class="btn" @click="load">&#8635; 刷新</button>
-        <button class="btn primary" v-role="['ADMIN']" @click="openEdit(null)">+ 新增设备</button>
+        <button class="btn" @click="load"><AppIcon name="refresh" />刷新</button>
+        <button class="btn primary" v-role="['ADMIN']" @click="openEdit(null)"><AppIcon name="plus" />新增设备</button>
       </div>
     </div>
     <section class="card table-card">
+      <div class="table-card-header">
+        <div><h2>设备清单</h2><p>共 {{ machines.length }} 台设备</p></div>
+        <span>能力与日历决定排程候选范围</span>
+      </div>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>设备号</th><th>名称</th><th>工作中心</th><th>日历</th><th>可加工产品族</th><th>备注</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>设备号</th><th>名称</th><th>工作中心</th><th>日历</th><th>可加工产品族</th><th>备注</th><th>状态</th><th v-role="['ADMIN']">操作</th></tr></thead>
           <tbody>
             <tr v-for="m in machines" :key="m.machineId">
               <td class="machine-name">{{ m.machineId }}</td>
@@ -20,10 +24,10 @@
               <td><span v-for="f in m.productFamilies || []" :key="f" class="ability">{{ f }}</span></td>
               <td><span class="muted">{{ m.remark || '-' }}</span></td>
               <td><StatusTag :status="m.status" /></td>
-              <td class="table-actions">
-                <a @click="openEdit(m)">编辑</a>
-                <a v-if="m.status === 'ACTIVE'" style="color:#e6a23c" @click="toggleStatus(m, true)">停用</a>
-                <a v-else style="color:#67c23a" @click="toggleStatus(m, false)">启用</a>
+              <td v-role="['ADMIN']" class="table-actions">
+                <button v-role="['ADMIN']" type="button" class="table-action" :aria-label="`编辑设备 ${m.machineId}`" @click="openEdit(m)">编辑</button>
+                <button v-if="m.status === 'ACTIVE'" v-role="['ADMIN']" type="button" class="table-action warning" :aria-label="`停用设备 ${m.machineId}`" @click="toggleStatus(m, true)">停用</button>
+                <button v-else v-role="['ADMIN']" type="button" class="table-action success" :aria-label="`启用设备 ${m.machineId}`" @click="toggleStatus(m, false)">启用</button>
               </td>
             </tr>
           </tbody>
@@ -70,6 +74,7 @@ import { toast, toastErr } from '../utils/ui';
 import { errMsg } from '../utils/format';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import AppIcon from '../components/AppIcon.vue';
 
 const machines = ref([]);
 const templates = ref([]);
@@ -165,3 +170,17 @@ async function toggleStatus(m, toInactive) {
 
 onMounted(load);
 </script>
+
+<style scoped>
+.table-card-header { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:64px; padding:14px 20px; border-bottom:1px solid var(--line); }
+.table-card-header h2 { margin:0; color:var(--ink); font-size:15px; font-weight:600; }
+.table-card-header p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+.table-card-header > span { color:var(--muted); font-size:12px; }
+.ability { margin:2px 6px 2px 0; border:0; background:#edf3fc; color:var(--blue-deep); }
+.table-action { margin-right:12px; padding:4px 0; border:0; background:transparent; color:var(--blue-deep); font-size:13px; }
+.table-action.warning { color:var(--warning); }
+.table-action.success { color:var(--success); }
+.table-action:hover { text-decoration:underline; text-underline-offset:3px; }
+.table-action:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+@media (max-width:760px) { .table-card-header > span { display:none; } }
+</style>

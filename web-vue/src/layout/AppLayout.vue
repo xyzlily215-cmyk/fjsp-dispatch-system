@@ -1,10 +1,10 @@
 <template>
-  <div class="app" :class="{ 'nav-open': mobileNavOpen }">
+  <div class="app" :class="{ 'nav-open': mobileNavOpen, 'ai-docked': agentDocked }" :style="agentLayoutStyle">
     <button v-if="mobileNavOpen" class="nav-backdrop" type="button" aria-label="关闭导航" @click="mobileNavOpen = false"></button>
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt="" width="26" height="26"></span>
-        <span class="brand-copy"><strong>FJSP OPS</strong><small>柔性车间控制台</small></span>
+        <span class="brand-copy"><strong>FJSP OPS</strong><small>柔性作业车间调度平台</small></span>
       </div>
       <div class="brand-context"><span class="live-dot"></span><span>计划调度 · 仿真决策</span></div>
       <nav class="menu" id="navMenu">
@@ -12,7 +12,7 @@
           <div v-if="entry.section" v-show="!entry.roles || auth.hasAnyRole(...entry.roles)" class="menu-section">{{ entry.section }}</div>
           <div v-else-if="entry.group" class="menu-group">
             <div class="menu-parent" :class="{ 'has-active': entry.children.some(item => route.name === item.id) }" role="button" tabindex="0" :aria-expanded="!collapsed.has(entry.group)" @click="toggleGroup(entry.group)" @keydown.enter.space.prevent="toggleGroup(entry.group)">
-              <span class="menu-label"><span class="menu-icon" v-html="entry.icon"></span>{{ entry.group }}</span>
+              <span class="menu-label"><span class="menu-icon"><AppIcon :name="entry.icon" /></span>{{ entry.group }}</span>
               <span class="chev" :class="{ collapsed: collapsed.has(entry.group) }">▾</span>
             </div>
             <div class="submenu" v-show="!collapsed.has(entry.group)">
@@ -26,9 +26,8 @@
                class="menu-item" :class="{ active: route.name === entry.id }"
                role="button" tabindex="0" :aria-current="route.name === entry.id ? 'page' : undefined"
                @click="goTo(entry.id)" @keydown.enter.space.prevent="goTo(entry.id)">
-            <span class="menu-icon" v-html="entry.icon"></span>{{ entry.title }}<span
-              v-if="entry.id === '__agent-panel' && agent.unread"
-              style="margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#f56c6c;color:#fff;font-size:11px;line-height:18px;text-align:center"
+            <span class="menu-icon"><AppIcon :name="entry.icon" /></span>{{ entry.title }}<span
+              v-if="entry.id === '__agent-panel' && agent.unread" class="agent-unread"
             >{{ agent.unread > 99 ? '99+' : agent.unread }}</span></div>
         </template>
       </nav>
@@ -36,8 +35,8 @@
     <main class="main">
       <header class="topbar">
         <div class="topbar-left">
-          <button type="button" class="nav-toggle" aria-label="打开导航" @click="mobileNavOpen = true">☰</button>
-          <button type="button" class="btn back-btn" v-show="route.name !== 'board'" @click="goBack">← 返回</button>
+          <button type="button" class="nav-toggle" aria-label="打开导航" @click="mobileNavOpen = true"><AppIcon name="menu" :size="18" /></button>
+          <button type="button" class="btn back-btn" v-show="route.name !== 'board'" @click="goBack"><AppIcon name="back" />返回</button>
           <div class="crumb"><span class="crumb-section">{{ route.meta.section }}</span><span>/</span><b>{{ route.meta.title }}</b></div>
         </div>
         <div class="top-actions">
@@ -58,14 +57,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore, roleText } from '../stores/auth';
 import { useSharedStore } from '../stores/shared';
 import { useAgentStore } from '../stores/agent';
 import { esc, statusTagInfo } from '../utils/format';
 import AgentSidebar from '../components/AgentSidebar.vue';
-import { toggleAgentPanel } from '../stores/agentPanel';
+import AppIcon from '../components/AppIcon.vue';
+import { agentDocked, agentPanelWidth, syncAgentViewport, toggleAgentPanel } from '../stores/agentPanel';
 
 const route = useRoute();
 const router = useRouter();
@@ -73,13 +73,19 @@ const auth = useAuthStore();
 const shared = useSharedStore();
 const agent = useAgentStore();
 const mobileNavOpen = ref(false);
+const agentLayoutStyle = computed(() => ({ '--agent-panel-w': `${agentPanelWidth.value}px` }));
+
+function onViewportResize() {
+  syncAgentViewport(window.innerWidth);
+}
 
 const menu = [
   { section: '工作台' },
-  { id: 'board', title: '调度看板', icon: '▧' },
-  { id: 'twin', title: '数字孪生', icon: '▣' },
+  { id: 'board', title: '调度看板', icon: 'board' },
+  { id: 'twin', title: '加工中心', icon: 'twin' },
+  { id: '__screen', title: '数据大屏', icon: 'screen' },
   {
-    group: '基础数据', icon: '⚙', children: [
+    group: '基础数据', icon: 'database', children: [
       { id: 'machines', title: '设备管理' },
       { id: 'calendar', title: '设备日历' },
       { id: 'templates', title: '工艺模板' },
@@ -88,7 +94,7 @@ const menu = [
     ],
   },
   {
-    group: '计划调度', icon: '◆', children: [
+    group: '计划调度', icon: 'schedule', children: [
       { id: 'baseline', title: '基线排程' },
       { id: 'reschedule', title: '重调度向导' },
       { id: 'tasks', title: '调度任务' },
@@ -97,29 +103,29 @@ const menu = [
   },
   { section: '运行与分析' },
   {
-    group: '事件管理', icon: '⚠', children: [
+    group: '事件管理', icon: 'warning', children: [
       { id: 'insert', title: '订单插单' },
       { id: 'breakdown', title: '设备故障' },
     ],
   },
   {
-    group: '结果分析', icon: '◈', children: [
+    group: '结果分析', icon: 'analysis', children: [
       { id: 'resource-gantt', title: '甘特图' },
       { id: 'compare', title: '方案对比' },
     ],
   },
   {
-    group: '审核发布', icon: '✓', children: [
+    group: '审核发布', icon: 'review', children: [
       { id: 'review', title: '待审核方案' },
     ],
   },
-  { id: 'execution', title: '实际执行', icon: '▶' },
+  { id: 'execution', title: '实际执行', icon: 'execution' },
   { section: '系统管理', roles: ['ADMIN'] },
-  { id: 'admin-users', title: '用户管理', icon: '☺', roles: ['ADMIN'] },
-  { id: 'admin-configs', title: '字典维护', icon: '☷', roles: ['ADMIN'] },
+  { id: 'admin-users', title: '用户管理', icon: 'users', roles: ['ADMIN'] },
+  { id: 'admin-configs', title: '字典维护', icon: 'dictionary', roles: ['ADMIN'] },
   { section: '智能体' },
-  { id: 'agent-trace', title: '处置时间线', icon: '⌚', roles: ['ADMIN'] },
-  { id: '__agent-panel', title: 'AI 调度助手', icon: '<span style="font-size:11px">AI</span>' },
+  { id: 'agent-trace', title: '处置时间线', icon: 'timeline', roles: ['ADMIN'] },
+  { id: '__agent-panel', title: 'AI 调度助手', icon: 'agent' },
 ];
 
 const collapsed = reactive(new Set());
@@ -130,6 +136,7 @@ function toggleGroup(g) {
 function goTo(name) {
   mobileNavOpen.value = false;
   if (name === '__agent-panel') { toggleAgentPanel(); return; }
+  if (name === '__screen') { window.open(router.resolve({ name: 'screen' }).href, '_blank'); return; }
   if (route.name !== name) router.push({ name });
 }
 
@@ -156,7 +163,14 @@ function logout() {
   router.push({ name: 'login' });
 }
 
-onMounted(() => { shared.refreshDashboard(); agent.connect(); agent.refreshHealth(); });
+onMounted(() => {
+  shared.refreshDashboard();
+  agent.connect();
+  agent.refreshHealth();
+  syncAgentViewport(window.innerWidth);
+  window.addEventListener('resize', onViewportResize);
+});
+onBeforeUnmount(() => window.removeEventListener('resize', onViewportResize));
 watch(() => route.name, (name) => {
   mobileNavOpen.value = false;
   for (const entry of menu) {
@@ -169,4 +183,7 @@ watch(() => route.name, (name) => {
 
 <style scoped>
 .content.baseline-content { max-width:none; width:100%; }
+.app.ai-docked .main { margin-right:var(--agent-panel-w); }
+.menu-icon .app-icon { display:block; }
+.agent-unread { margin-left:auto; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--danger); color:#fff; font-size:11px; line-height:18px; text-align:center; }
 </style>

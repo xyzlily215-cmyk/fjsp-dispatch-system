@@ -3,7 +3,7 @@
        ElMessageBox 等命令式弹窗按钮文案为中文（原全量注册时的 locale 配置） -->
   <el-config-provider :locale="zhCn">
     <router-view />
-    <AgentBubble v-if="route.name && !route.meta.public" />
+    <AgentBubble v-if="route.name && !route.meta.public && !agentPanel.open" />
   </el-config-provider>
 </template>
 
@@ -13,6 +13,7 @@ import { useRoute, useRouter } from 'vue-router';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import { setUnauthorizedHandler } from './api';
 import AgentBubble from './components/AgentBubble.vue';
+import { agentPanel } from './stores/agentPanel';
 import { useAuthStore } from './stores/auth';
 
 const router = useRouter();
