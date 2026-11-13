@@ -1,12 +1,12 @@
-/* 大屏专用园区级数字孪生场景（白昼写实风）：与 components/twinScene.js（加工中心页在用）相互独立。
+/* 园区级数字孪生场景（白昼写实风）：加工中心页（TwinView）与数据大屏（ScreenView）共用。
  * 场景构成：灰绿草地 + 环形道路/油罐车 + 行道树/路灯 + 办公楼/仓库/白色储罐 +
  * 剖切式主厂房（实体后墙 + 金属屋面 + 钢架，进入加工区时隐藏建筑外壳）。
- * 数据悬浮卡片在 twin-stage.vue（CSS2D）。 */
+ * 数据悬浮卡片与设备名牌在 TwinStage.vue（CSS2D）。 */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { createPanelTexture } from '../../components/twinTextures.js';
-import concreteUrl from '../../assets/screen/concrete-diffuse.jpg';
-import grassUrl from '../../assets/screen/grass-diffuse.jpg';
+import { createPanelTexture } from './twinTextures.js';
+import concreteUrl from '../assets/screen/concrete-diffuse.jpg';
+import grassUrl from '../assets/screen/grass-diffuse.jpg';
 
 const TONE = {
   body: '#e8ecef',
@@ -713,7 +713,7 @@ export function createDarkWorkshop() {
   return { root, devices: new Map(), effects };
 }
 
-export function updateDarkDevices(workshop, devices) {
+export function updateDarkDevices(workshop, devices, selectedId = null) {
   const active = new Set();
   for (const device of devices) {
     if (!['machine', 'agv'].includes(device.kind) || !Number.isFinite(device.position?.x) || !Number.isFinite(device.position?.y)) continue;
@@ -743,10 +743,13 @@ export function updateDarkDevices(workshop, devices) {
     model.position.set(device.position.x, 0, -device.position.y);
     model.rotation.y = (device.position.yaw || 0) * Math.PI / 180;
     const color = statusColor(device);
+    const selected = device.id === selectedId;
     model.userData.beacon.material.color.set(color);
     model.userData.beacon.material.emissive.set(color);
     model.userData.halo.material.color.set(color);
-    model.userData.ring.material.color.set(color);
+    // 选中设备：光环换青色并放大一圈（呼吸动画每帧重写 opacity，选中态只靠颜色与尺寸表达）
+    model.userData.ring.material.color.set(selected ? TONE.cyan : color);
+    model.userData.ring.scale.setScalar((device.kind === 'agv' ? 0.62 : 1) * (selected ? 1.25 : 1));
   }
   for (const [id, model] of workshop.devices) {
     if (!active.has(id)) {

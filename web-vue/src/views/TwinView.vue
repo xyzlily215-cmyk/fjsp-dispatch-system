@@ -42,7 +42,24 @@
           <div><h2>一号车间 · 三维实时视图</h2><p>设备状态与现场位置同步，选择机床查看运行详情</p></div>
           <span class="scene-live"><span class="hub-dot" :class="hubClass"></span>{{ hubText }}</span>
         </div>
-        <WorkshopScene :devices="snap.devices" :selected-id="selected?.id" :zones="snap.world?.places || []" @select="select" />
+        <div class="scene-stage-wrap">
+          <TwinStage
+            ref="stageRef"
+            :devices="snap.devices"
+            :selected-id="selected?.id"
+            :zones="snap.world?.places || []"
+            :callouts="false"
+            labels
+            @select="select"
+          />
+          <div class="scene-controls" role="group" aria-label="车间视角">
+            <button type="button" class="t-btn small" @click="stageRef?.focusDevice()">设备近景</button>
+            <button type="button" class="t-btn small" @click="stageRef?.focusScene('overview')">立体视角</button>
+            <button type="button" class="t-btn small" @click="stageRef?.focusScene('top')">俯视车间</button>
+          </div>
+          <div v-if="!snap.devices.length" class="scene-empty">等待设备上线 · 模型将按实时坐标显示</div>
+        </div>
+        <div class="scene-hint">拖动旋转 · 滚轮缩放 · 点击设备查看详情</div>
         <div class="scene-legend"><span><i class="run"></i>运行 {{ machines.filter(m => m.online && m.status === 'running').length }}</span><span><i class="idle"></i>空闲 {{ machines.filter(m => m.online && m.status === 'idle').length }}</span><span><i class="down"></i>告警 {{ alarms.length }}</span><span><i class="off"></i>离线 {{ machines.filter(m => !m.online).length }}</span><span class="legend-agv">AGV {{ agvs.length }} 台</span></div>
       </section>
       <div class="equipment-heading"><h2>设备运行监测</h2><span>点击卡片与三维模型联动</span></div>
@@ -97,7 +114,7 @@
 
 <script setup>
 /* 数字孪生车间：MHS 虚拟设备实时状态 + 设备控制，AI 助手由全局工作栏提供。
- * 数据：/twin/stream SSE 1Hz 快照；画面：/twin/device/:id/panel 轮询刷新；
+ * 数据：/twin/stream SSE 1Hz 快照；画面：与数据大屏共用的园区级三维场景（TwinStage）+ 设备面板图轮询；
  * 控制：虚拟车间启停、M-03 故障注入/恢复（agent-bff 直控仿真进程，免脚本）；
  * 告警联动：一键请求 AI 处理（附设备快照上下文，衔接 SKILL 的 MHS 告警处置流程）。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -105,13 +122,14 @@ import {
   openTwinStream, twinInjectFault, twinPanelUrl, twinRecover, twinSimStart, twinSimStop,
 } from '../api/twin';
 import { useAgentStore } from '../stores/agent';
-import WorkshopScene from '../components/WorkshopScene.vue';
+import TwinStage from '../components/TwinStage.vue';
 
 const agent = useAgentStore();
 const snap = ref({ hub: 'connecting', devices: [], world: null, sim: null });
 const selected = ref(null);
 const faultSent = ref(false);
 const panelTs = ref(Date.now());
+const stageRef = ref(null);
 
 let closeStream = null;
 let panelTimer = null;
@@ -286,6 +304,11 @@ onBeforeUnmount(() => {
 .alarm-reason { color:#909399; font-size:12px; }
 
 .map-card { background:var(--el-color-white); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.scene-stage-wrap { position:relative; height:clamp(420px, 46vw, 600px); }
+.scene-controls { position:absolute; top:14px; right:14px; z-index:5; display:flex; gap:6px; }
+.scene-controls .t-btn { background:rgba(255,255,255,.88); border:1px solid var(--line); backdrop-filter:blur(4px); }
+.scene-empty { position:absolute; left:0; right:0; bottom:60px; text-align:center; color:var(--ink); font-size:12px; pointer-events:none; text-shadow:0 1px 3px rgba(255,255,255,.8); }
+.scene-hint { padding:10px 20px; border-top:1px solid var(--line); color:var(--ink); opacity:.7; font-size:11px; }
 .scene-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px; }
 .scene-heading h2,.equipment-heading h2 { margin:0; color:var(--ink); font-size:16px; font-weight:600; }
 .scene-heading p { margin:4px 0 0; color:var(--ink); opacity:.7; font-size:12px; }

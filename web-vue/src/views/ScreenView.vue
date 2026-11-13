@@ -135,7 +135,7 @@ import MetricCard from './screen/metric-card.vue';
 import EchartPanel from './screen/echart-panel.vue';
 import EventTicker from './screen/event-ticker.vue';
 import GanttStream from './screen/gantt-stream.vue';
-import TwinStage from './screen/twin-stage.vue';
+import TwinStage from '../components/TwinStage.vue';
 import { buildTrendOption, buildLoadOption, buildStatusOption } from './screen/chart-options';
 import {
   getScreenMetrics,

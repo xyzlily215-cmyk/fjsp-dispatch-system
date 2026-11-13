@@ -1,5 +1,5 @@
 <template>
-  <div ref="host" class="twin-stage">
+  <div ref="host" class="twin-stage" @pointerdown="rememberPointer" @pointerup="pick">
     <div v-if="error" class="twin-stage__message" role="alert">
       <b>三维车间暂不可用</b>
       <p>{{ error }}</p>
@@ -23,11 +23,26 @@ import { createDarkWorkshop, updateDarkDevices, animateDarkWorkshop, disposeDark
 const props = defineProps({
   devices: { type: Array, default: () => [] },
   metrics: { type: Object, default: () => ({}) },
+  selectedId: { type: String, default: null },
+  zones: { type: Array, default: () => [] },
+  /* 悬浮数据卡片（加工区统计/缓存区/空压站/故障/AGV 状态）：大屏开启；
+   * 加工中心页只要厂房画面，整组关闭（设备识别靠 labels 名牌） */
+  callouts: { type: Boolean, default: true },
+  /* 设备名牌与区域标签：加工中心页需要与设备卡片联动点名，大屏用悬浮卡片已足够 */
+  labels: { type: Boolean, default: false },
 });
+const emit = defineEmits(['select']);
 const host = ref(null);
 const error = ref('');
 let renderer, labels, scene, camera, controls, composer, workshop, observer;
 let callouts = [];
+const labelMap = new Map();
+let downPos = null;
+
+/* 数据大屏 mock 用 'run'，MHS 真实设备用 'running'，两处数据源共用同一场景 */
+function isRun(d) {
+  return d.status === 'run' || d.status === 'running';
+}
 
 /* 相机视角预设：页签切换时平滑飞过去 */
 const SCENE_PRESETS = {
@@ -35,8 +50,16 @@ const SCENE_PRESETS = {
   zoneA: { pos: [8, 9, 14], target: [8, 1.1, -2.7], rotate: false },
   zoneB: { pos: [8, 9, -24], target: [8, 1.1, -7.3], rotate: false },
   aisle: { pos: [23, 9, 6], target: [5.5, 0.5, -5], rotate: false },
+  top: { pos: [10, 30, -4.99], target: [10, 0, -5], rotate: false },
 };
 let flight = null;
+
+function setShellVisible(visible) {
+  const shell = workshop?.root.getObjectByName('hall-shell');
+  if (shell) shell.visible = visible;
+  const surroundings = workshop?.root.getObjectByName('campus-context');
+  if (surroundings) surroundings.visible = visible;
+}
 
 function focusScene(key) {
   const preset = SCENE_PRESETS[key];
@@ -47,13 +70,46 @@ function focusScene(key) {
     rotate: preset.rotate,
   };
   controls.autoRotate = false;
-  const shell = workshop?.root.getObjectByName('hall-shell');
-  if (shell) shell.visible = key === 'overview';
-  const surroundings = workshop?.root.getObjectByName('campus-context');
-  if (surroundings) surroundings.visible = key === 'overview';
+  setShellVisible(key === 'overview');
 }
 
-defineExpose({ focusScene });
+/* 设备近景：优先选中设备，否则第一台在线机床（加工中心页「设备近景」按钮） */
+function focusDevice(id) {
+  if (!camera || !controls) return;
+  const device = props.devices.find(d => d.id === (id ?? props.selectedId) && d.position)
+    || props.devices.find(d => d.kind === 'machine' && d.online && d.position)
+    || props.devices.find(d => d.kind === 'machine' && d.position);
+  if (!device) return;
+  const { x, y } = device.position;
+  flight = {
+    pos: new THREE.Vector3(x + 3.3, 2.9, -y + 4.3),
+    target: new THREE.Vector3(x, 1.35, -y),
+    rotate: false,
+  };
+  controls.autoRotate = false;
+  setShellVisible(false);
+}
+
+defineExpose({ focusScene, focusDevice });
+
+/* 点击拾取：加工中心页点选机床联动详情卡片；大屏未监听 select，行为不变 */
+function rememberPointer(event) {
+  downPos = [event.clientX, event.clientY];
+}
+function pick(event) {
+  if (!renderer || !workshop || !downPos || Math.hypot(event.clientX - downPos[0], event.clientY - downPos[1]) > 5) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  ), camera);
+  const hits = ray.intersectObjects([...workshop.devices.values()], true);
+  let object = hits[0]?.object;
+  while (object && !object.userData.deviceId) object = object.parent;
+  const device = props.devices.find(d => d.id === object?.userData.deviceId);
+  if (device?.kind === 'machine') emit('select', device);
+}
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -78,8 +134,9 @@ function clearCallouts() {
 function syncCallouts() {
   if (!workshop) return;
   clearCallouts();
+  if (!props.callouts) return;
   const machines = props.devices.filter(d => d.kind === 'machine');
-  const running = machines.filter(d => d.online && d.status === 'run').length;
+  const running = machines.filter(d => d.online && isRun(d)).length;
   const list = [
     {
       title: '主厂房 · 加工区',
@@ -97,7 +154,8 @@ function syncCallouts() {
       pos: [-4.6, 2.0, -8.0],
     },
   ];
-  for (const d of machines.filter(m => m.status === 'down' || !m.online).slice(0, 2)) {
+  // 故障卡片由设备状态驱动（无坐标的设备无法锚定，跳过）
+  for (const d of machines.filter(m => (m.status === 'down' || !m.online) && m.position).slice(0, 2)) {
     list.push({
       title: `${d.name || d.id} · 故障`,
       rows: [['主轴温度报警', ''], ['已自动触发重调度', '']],
@@ -115,17 +173,52 @@ function syncCallouts() {
   const agv = props.devices.find(d => d.kind === 'agv');
   const agvModel = agv && workshop.devices.get(agv.id);
   if (agvModel) {
-    const obj = makeCallout({ title: 'AGV-01', rows: [['状态', '物料配送中']] });
+    const agvStatus = !agv.online ? '离线'
+      : ({ run: '物料配送中', running: '物料配送中', idle: '待机', down: '故障' }[agv.status] || '—');
+    const obj = makeCallout({ title: (agv.name || agv.id).toUpperCase(), rows: [['状态', agvStatus]] });
     obj.position.set(0, 1.5, 0);
     agvModel.add(obj);
     callouts.push(obj);
   }
 }
 
+/* 设备名牌 + 区域标签（labels 开启时，加工中心页用）：名牌底色跟随设备状态 */
+function syncLabels() {
+  for (const label of labelMap.values()) { label.removeFromParent(); label.element.remove(); }
+  labelMap.clear();
+  if (!workshop || !props.labels) return;
+  for (const [id, model] of workshop.devices) {
+    const device = props.devices.find(d => d.id === id);
+    if (!device) continue;
+    const element = document.createElement('span');
+    element.className = 'twin-namelabel';
+    element.textContent = id.startsWith('cnc-m') ? 'M-' + id.slice(5).toUpperCase() : id.toUpperCase();
+    element.dataset.state = !device.online ? 'offline'
+      : device.health?.level === 'bad' || device.status === 'down' ? 'bad' : 'ok';
+    if (props.selectedId === id) element.dataset.selected = '1';
+    const label = new CSS2DObject(element);
+    label.position.set(0, device.kind === 'agv' ? 0.95 : 3.1, 0);
+    model.add(label);
+    labelMap.set(id, label);
+  }
+  for (const zone of props.zones) {
+    const points = zone.points || [];
+    if (!points.length) continue;
+    const element = document.createElement('span');
+    element.className = 'twin-zonelabel';
+    element.textContent = zone.name || zone.id;
+    const label = new CSS2DObject(element);
+    label.position.set(points.reduce((s, p) => s + p[0], 0) / points.length, 0.08, -0.7);
+    workshop.root.add(label);
+    labelMap.set('zone-' + zone.id, label);
+  }
+}
+
 function sync() {
   if (!workshop) return;
-  updateDarkDevices(workshop, props.devices);
+  updateDarkDevices(workshop, props.devices, props.selectedId);
   syncCallouts();
+  syncLabels();
 }
 
 function cleanup() {
@@ -133,6 +226,8 @@ function cleanup() {
   renderer?.setAnimationLoop(null);
   controls?.dispose();
   clearCallouts();
+  for (const label of labelMap.values()) { label.removeFromParent(); label.element.remove(); }
+  labelMap.clear();
   if (workshop) disposeDarkWorkshop(workshop);
   scene?.environment?.dispose();
   for (const pass of composer?.passes || []) pass.dispose?.();
@@ -246,14 +341,14 @@ function initialize() {
   }
 }
 
-watch(() => props.devices, () => {
+watch(() => [props.devices, props.selectedId, props.zones, props.labels], () => {
   try {
     sync();
   } catch (e) {
     error.value = `设备渲染异常：${(e && e.message) || e}`;
   }
 });
-watch(() => props.metrics, () => { if (workshop) syncCallouts(); });
+watch(() => [props.metrics, props.callouts], () => { if (workshop) syncCallouts(); });
 onMounted(initialize);
 onBeforeUnmount(cleanup);
 </script>
@@ -273,6 +368,28 @@ onBeforeUnmount(cleanup);
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* 设备名牌 / 区域标签（labels 模式，加工中心页） */
+.twin-stage :deep(.twin-namelabel) {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #172237;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.twin-stage :deep(.twin-namelabel[data-state=bad]) { background: #e5484d; }
+.twin-stage :deep(.twin-namelabel[data-state=offline]) { background: #5f7a99; }
+.twin-stage :deep(.twin-namelabel[data-selected]) { outline: 2px solid #00b8d9; }
+
+.twin-stage :deep(.twin-zonelabel) {
+  color: #172237;
+  font-size: 12px;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.7);
 }
 
 /* 悬浮数据卡片：卡片 + 引线 + 锚点光斑 */
