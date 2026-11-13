@@ -292,6 +292,27 @@ export const SNAPSHOT_MESSAGE: Schema = {
   },
 }
 
+/** GET /agent-api/conversations 200 响应：当前用户的会话列表（最近活动倒序）。 */
+export const CONVERSATION_LIST_RESPONSE: Schema = {
+  type: 'object',
+  required: ['ok', 'conversations'],
+  properties: {
+    ok: { type: 'boolean' },
+    conversations: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['id', 'title', 'createdAt', 'updatedAt', 'running', 'pendingApprovals'],
+        properties: {
+          id: { type: 'string' }, title: { type: 'string' },
+          createdAt: { type: 'number' }, updatedAt: { type: 'number' },
+          running: { type: 'boolean' }, pendingApprovals: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
+  },
+}
+
 /** GET /agent-api/conversations/{id}/snapshot 200 响应。
  *  lastEventId：快照时刻最新事件序号；replayFrom：回放缓冲覆盖的最小 sinceId
  *  （buffer[0].id - 1，缓冲空时 = lastEventId）。messagesComplete=false 表示消息未能从
@@ -376,6 +397,20 @@ export const HTTP_CONTRACT: EndpointContract[] = [
   {
     method: 'GET', path: '/agent-api/stream', summary: '会话 SSE 事件流（事件集见 contract/events.mts，支持 sinceId/Last-Event-ID 增量回放；sinceId 已出回放缓冲窗口时先下发 resync_required 后关闭）', auth: 'ticket',
     responses: { 200: 'sse', 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+  },
+  {
+    method: 'GET', path: '/agent-api/conversations', summary: '当前用户的会话列表（标题/时间/运行中/待审批数，多会话侧栏）', auth: 'bearer',
+    responses: { 200: CONVERSATION_LIST_RESPONSE, 401: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/conversations/{id}/rename', summary: '重命名属主会话（1–60 字符）', auth: 'bearer',
+    requestBody: { type: 'object', additionalProperties: false, required: ['title'], properties: { title: { type: 'string', minLength: 1, maxLength: 60 } } },
+    responses: { 200: { type: 'object', required: ['ok', 'conversationId', 'title'], properties: { ok: { type: 'boolean' }, conversationId: { type: 'string' }, title: { type: 'string' } } }, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/conversations/{id}/delete', summary: '从会话列表删除属主会话（进行中/有待审批 409；AGH 会话与审计保留）', auth: 'bearer',
+    requestBody: { type: 'object', additionalProperties: false, properties: {} },
+    responses: { 200: { type: 'object', required: ['ok', 'conversationId', 'deleted'], properties: { ok: { type: 'boolean' }, conversationId: { type: 'string' }, deleted: { type: 'boolean' } } }, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE },
   },
   {
     method: 'GET', path: '/agent-api/conversations/{id}/snapshot', summary: '会话快照（消息 + 运行状态 + lastEventId/replayFrom + 仍有效待审批，断线恢复用，任务 4.1）', auth: 'bearer',

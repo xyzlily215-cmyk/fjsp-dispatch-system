@@ -4,9 +4,10 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
-  agentCancel, agentChat, agentHealth, agentPermission, agentSnapshot, openAgentStream,
+  agentCancel, agentChat, agentConversations, agentDeleteConversation, agentHealth, agentPermission,
+  agentRenameConversation, agentSnapshot, openAgentStream,
   type AgentEventName, type AgentHealth, type AgentPageContext, type AgentStreamEvents,
-  type ApprovalInfo, type ConversationSnapshot,
+  type ApprovalInfo, type ConversationSnapshot, type ConversationSummary,
 } from '../api/agent';
 
 const CONVERSATION_KEY = 'fjsp.agentConversation';
@@ -59,6 +60,10 @@ export const useAgentStore = defineStore('agent', () => {
   const health = ref<AgentHealth | null>(null);
   const unread = ref(0);
   const sessionId = ref('');
+  /* 多会话：列表来自 BFF（标题/时间/运行中/待审批数）；当前会话未发言前不在服务端列表里 */
+  const conversations = ref<ConversationSummary[]>([]);
+  const conversationsLoading = ref(false);
+  let listTimer: ReturnType<typeof setTimeout> | null = null;
 
   let closeStream: (() => void) | null = null;
   let currentAssistant: AgentMessage | null = null;
@@ -110,6 +115,7 @@ export const useAgentStore = defineStore('agent', () => {
     turn_start() {
       busy.value = true;
       sealAssistant();
+      scheduleListRefresh();
     },
     assistant_delta(data) {
       const msg = ensureAssistant();
@@ -176,6 +182,7 @@ export const useAgentStore = defineStore('agent', () => {
       busy.value = false;
       if (currentAssistant) currentAssistant.streaming = false;
       sealAssistant();
+      scheduleListRefresh();
     },
     turn_error(data) {
       busy.value = false;
@@ -284,6 +291,8 @@ export const useAgentStore = defineStore('agent', () => {
           if (conversationId.value !== target) return; // 快照是旧会话的，丢弃（finally 里重入新会话连接）
           applySnapshot(snap);
           sinceId = snap.messagesComplete ? snap.lastEventId : snap.replayFrom;
+          // 旧会话打开时 BFF 会用首条消息补标题：刷新列表让侧栏同步显示
+          if (snap.messages.length) scheduleListRefresh();
         }
       } catch { /* 快照不可用：退化为既有全量回放 */ }
       if (conversationId.value !== target) return; // 快照失败期间也可能已切换会话
@@ -338,8 +347,24 @@ export const useAgentStore = defineStore('agent', () => {
     try { await agentCancel(conversationId.value); } catch { /* 已结束时会话可能不存在，忽略 */ }
   }
 
-  function newConversation() {
-    conversationId.value = newConversationId();
+  async function refreshConversations() {
+    conversationsLoading.value = true;
+    try {
+      conversations.value = await agentConversations();
+    } catch { /* BFF 不可用/未登录：保留旧列表，连接状态由 health/SSE 提示 */ } finally {
+      conversationsLoading.value = false;
+    }
+  }
+  /* 回合开始/结束等高频事件合并刷新，避免回放重建时一次性打出几十个请求 */
+  function scheduleListRefresh() {
+    if (listTimer) clearTimeout(listTimer);
+    listTimer = setTimeout(() => { listTimer = null; void refreshConversations(); }, 400);
+  }
+
+  /** 切换到指定会话（null = 新建）：清空本地状态，按 快照→订阅 重新连接 */
+  function openConversation(id: string | null) {
+    if (id && id === conversationId.value) return;
+    conversationId.value = id || newConversationId();
     localStorage.setItem(CONVERSATION_KEY, conversationId.value);
     sessionId.value = '';
     messages.value = [];
@@ -355,6 +380,23 @@ export const useAgentStore = defineStore('agent', () => {
     connect();
   }
 
+  function newConversation() {
+    openConversation(null);
+  }
+
+  async function renameConversation(id: string, title: string) {
+    const res = await agentRenameConversation(id, title);
+    const item = conversations.value.find((c) => c.id === id);
+    if (item) item.title = res.title;
+  }
+
+  /** 删除会话；删的是当前会话时切到列表里的下一个，没有就新建 */
+  async function deleteConversation(id: string) {
+    await agentDeleteConversation(id);
+    conversations.value = conversations.value.filter((c) => c.id !== id);
+    if (id === conversationId.value) openConversation(conversations.value[0]?.id ?? null);
+  }
+
   function clearUnread() {
     unread.value = 0;
   }
@@ -363,6 +405,8 @@ export const useAgentStore = defineStore('agent', () => {
 
   return {
     conversationId, sessionId, messages, approvals, busy, connected, health, unread,
+    conversations, conversationsLoading,
     hasApprovals, connect, refreshHealth, send, approve, stop, newConversation, clearUnread,
+    refreshConversations, openConversation, renameConversation, deleteConversation,
   };
 });

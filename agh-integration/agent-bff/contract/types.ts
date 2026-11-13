@@ -156,6 +156,16 @@ export interface ConversationSnapshotMessage {
  *  衔接约定：messagesComplete=true 时以 sinceId=lastEventId 订阅（快照时刻后的事件由
  *  回放补齐，不丢不重）；false 时以 sinceId=replayFrom 订阅（走回放缓冲重建界面）。
  *  pendingApprovals 只含仍有效（pending 且未过期）的审批，快照时刻已失效的不在列。 */
+/** GET /agent-api/conversations 列表项 */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  running: boolean;
+  pendingApprovals: number;
+}
+
 export interface ConversationSnapshot {
   ok: boolean;
   conversationId: string;

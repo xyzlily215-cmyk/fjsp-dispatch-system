@@ -76,7 +76,7 @@ import {
   buildOpenApi, validateRequestBody, findEndpoint,
   APPROVAL_STATUS_RESPONSE,
   AUDIT_TRAIL_RESPONSE,
-  CHAT_ACCEPTED, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
+  CHAT_ACCEPTED, CONVERSATION_LIST_RESPONSE, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
   IMPORT_CONVERT_RESULT, IMPORT_UPLOAD_RESULT, WORKFLOW_RESPONSE,
 } from './contract/http.mts'
@@ -173,11 +173,14 @@ type Conversation = {
   buffer: BufferedEvent[]
   subscribers: Set<ServerResponse>
   pendingPermissions: Map<string, PendingPermission>
+  title: string | null // 会话标题（首条用户消息截断，可重命名）；持久化供会话列表展示
+  createdAt: number
+  updatedAt: number
 }
 
 const conversations = new Map<string, Conversation>()
 
-type StoreEntry = { sessionId: string | null; owner: string | null }
+type StoreEntry = { sessionId: string | null; owner: string | null; title?: string | null; createdAt?: number; updatedAt?: number }
 
 function loadStore(): Record<string, StoreEntry> {
   try {
@@ -187,7 +190,13 @@ function loadStore(): Record<string, StoreEntry> {
       // 旧格式为 id → sessionId 字符串，无属主记录，按 legacy 处理
       out[id] = typeof v === 'string'
         ? { sessionId: v, owner: null }
-        : { sessionId: (v as StoreEntry)?.sessionId ?? null, owner: (v as StoreEntry)?.owner ?? null }
+        : {
+            sessionId: (v as StoreEntry)?.sessionId ?? null,
+            owner: (v as StoreEntry)?.owner ?? null,
+            title: typeof (v as StoreEntry)?.title === 'string' ? (v as StoreEntry).title : null,
+            createdAt: Number((v as StoreEntry)?.createdAt) || 0,
+            updatedAt: Number((v as StoreEntry)?.updatedAt) || 0,
+          }
     }
     return out
   } catch {
@@ -195,9 +204,16 @@ function loadStore(): Record<string, StoreEntry> {
   }
 }
 
-function saveStore() {
-  const map: Record<string, StoreEntry> = {}
-  for (const [id, conv] of conversations) map[id] = { sessionId: conv.sessionId, owner: conv.owner }
+// 以磁盘为底、内存会话覆盖合并：内存里只有本进程访问过的会话，直接覆盖写会丢掉
+// 其余会话的标题/时间（会话列表依赖这些字段）。已删除的 id 经 dropped 排除。
+function saveStore(dropped?: string) {
+  const map: Record<string, StoreEntry> = loadStore()
+  for (const [id, conv] of conversations) {
+    // 从未发言的空会话（打开面板即建）不落盘，否则会刷进会话列表
+    if (!map[id] && !conv.title && !conv.sessionId) continue
+    map[id] = { sessionId: conv.sessionId, owner: conv.owner, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt }
+  }
+  if (dropped) delete map[dropped]
   writeFileSync(STORE_FILE, JSON.stringify(map, null, 2))
 }
 
@@ -219,6 +235,9 @@ function getConversation(id: string | undefined, owner: string): Conversation {
       buffer: [],
       subscribers: new Set(),
       pendingPermissions: new Map(),
+      title: stored?.title ?? null,
+      createdAt: stored?.createdAt || Date.now(),
+      updatedAt: stored?.updatedAt || stored?.createdAt || Date.now(),
     }
     conversations.set(convId, conv)
   }
@@ -957,6 +976,38 @@ function formatContext(context: unknown): string {
   return `[操作员上下文 — ${parts.join('；')}。回答中如需引用页面元素，请使用该上下文。]\n\n`
 }
 
+/** 会话标题：首条消息压成单行，按字符截断（中文按字计） */
+function conversationTitleFrom(message: string): string {
+  // AGH 里存的是拼接了 formatContext 前缀的完整提示词：补标题时剥掉前缀
+  const body = message.replace(/^\[操作员上下文 — [\s\S]*?\]\s*/, '')
+  const line = body.replace(/\s+/g, ' ').trim() || '未命名会话'
+  const chars = [...line]
+  return chars.length > 28 ? chars.slice(0, 28).join('') + '…' : line
+}
+
+/** 会话列表项：属主会话（磁盘 + 内存合并），按最近活动倒序 */
+function conversationSummaries(owner: string) {
+  const merged = new Map<string, { id: string; title: string | null; createdAt: number; updatedAt: number; running: boolean }>()
+  for (const [id, e] of Object.entries(loadStore())) {
+    if (e.owner !== owner) continue
+    if (!e.title && !e.sessionId) continue // 旧版本落盘的空会话（从未发言）不进列表
+    merged.set(id, { id, title: e.title ?? null, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0, running: false })
+  }
+  for (const conv of conversations.values()) {
+    if (conv.owner !== owner) continue
+    // 只在内存、从未发过消息的空会话不进列表（打开面板即建会话，不应刷出一堆空条目）
+    if (!merged.has(conv.id) && !conv.title && !conv.sessionId) continue
+    merged.set(conv.id, { id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt, running: conv.busy })
+  }
+  const pending = new Map<string, number>()
+  for (const rec of approvals.values()) {
+    if (rec.status === 'pending' && rec.expiresAt > Date.now()) pending.set(rec.conversationId, (pending.get(rec.conversationId) ?? 0) + 1)
+  }
+  return [...merged.values()]
+    .map((c) => ({ ...c, title: c.title || '未命名会话', pendingApprovals: pending.get(c.id) ?? 0 }))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 async function handleChat(conv: Conversation, body: { message?: unknown; context?: unknown }, res: ServerResponse) {
   const message = typeof body.message === 'string' ? body.message.trim() : ''
   if (!message) return sendJson(res, 400, { error: 'message_required' })
@@ -972,12 +1023,17 @@ async function handleChat(conv: Conversation, body: { message?: unknown; context
   // convention file is how the plugin correlates business audit logs to sessions.
   writeFileSync(SESSION_ID_FILE, session.id)
   conv.busy = true
+  if (!conv.title) conv.title = conversationTitleFrom(message)
+  conv.updatedAt = Date.now()
+  saveStore()
   broadcast(conv, 'user_message', { text: message, context: body.context ?? null })
   broadcast(conv, 'turn_start', {})
   const prompt = formatContext(body.context) + message
   session
     .prompt(prompt, { titleLocale: 'zh-CN' })
     .then((result) => {
+      conv.updatedAt = Date.now()
+      saveStore()
       broadcast(conv, 'turn_end', { reason: result.reason, stopReason: result.stopReason })
     })
     .catch((err) => {
@@ -1215,6 +1271,42 @@ const server = createServer(async (req, res) => {
       if (!authorizeConversation(conv, user, res)) return
       return handleStream(conv, req, res, url)
     }
+    if (req.method === 'GET' && path === '/agent-api/conversations') {
+      // 会话列表（多会话侧栏）：只列当前用户的会话；标题/时间来自持久化存储
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      return sendJsonChecked(res, 200, { ok: true, conversations: conversationSummaries(user.username) },
+        CONVERSATION_LIST_RESPONSE, 'conversations/list')
+    }
+    if (req.method === 'POST' && path.startsWith('/agent-api/conversations/')) {
+      // 重命名 / 删除：属主校验同快照；删除只移出会话列表与存储（AGH 会话与审计留痕保留），
+      // 进行中或有待审批的会话拒绝删除（409），避免审批悬空无属主可查
+      const m = path.match(/^\/agent-api\/conversations\/([\w-]{1,80})\/(rename|delete)$/)
+      if (!m) return sendJson(res, 404, { error: 'not_found' })
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      if (!conversations.has(m[1]) && !loadStore()[m[1]]) return sendJson(res, 404, { error: 'conversation_not_found' })
+      const conv = getConversation(m[1], user.username)
+      if (!authorizeConversation(conv, user, res)) return
+      const body = await readBody(req)
+      if (m[2] === 'rename') {
+        const title = typeof body.title === 'string' ? body.title.replace(/\s+/g, ' ').trim() : ''
+        if (!title || [...title].length > 60) {
+          return sendJson(res, 400, { error: 'invalid_request', detail: '标题需为 1–60 个字符', issues: [{ path: 'title', message: '1–60 个字符' }] })
+        }
+        conv.title = title
+        saveStore()
+        return sendJson(res, 200, { ok: true, conversationId: conv.id, title })
+      }
+      const hasPending = [...approvals.values()].some((r) => r.conversationId === conv.id && r.status === 'pending' && r.expiresAt > Date.now())
+      if (conv.busy || conv.pendingPermissions.size || hasPending || workflowRuntime.activeConversation(conv.id)) {
+        return sendJson(res, 409, { error: 'conversation_active', detail: '会话正在处理或有待审批，结束后再删除' })
+      }
+      for (const sub of conv.subscribers) sub.end()
+      conversations.delete(conv.id)
+      saveStore(conv.id)
+      return sendJson(res, 200, { ok: true, conversationId: conv.id, deleted: true })
+    }
     if (req.method === 'GET' && path.startsWith('/agent-api/conversations/')) {
       // 会话快照（任务 4.1）：requireAuth + 归属校验（跨用户 403，legacy 403）；
       // 会话既不在内存也不在持久化存储时 404。消息自 AGH 会话 UI 投影重建（daemon
@@ -1244,6 +1336,14 @@ const server = createServer(async (req, res) => {
           const r = await readSnapshotMessages(session)
           messages = r.messages
           messagesComplete = r.complete
+          // 旧会话（多会话上线前创建）无标题：打开时用首条用户消息补齐，列表从此可读
+          if (!conv.title) {
+            const first = messages.find((x) => x.role === 'user')
+            if (first) {
+              conv.title = conversationTitleFrom(first.text)
+              saveStore()
+            }
+          }
         } catch (err) {
           console.error('[agent-bff] 会话快照消息重建失败（daemon 不可用？）:', err)
           messagesComplete = false
@@ -1645,5 +1745,5 @@ server.listen(PORT, HOST, () => {
 // 供 test-approval.mts（tsx 直接 import 本模块）注入审批请求、检查审批记录：
 // 不新增任何 HTTP 测试端点，生产路径无 test-only 分支。
 // loadApprovalsFromFile 供测试验证重启恢复语义（pending → expired）。
-export { conversations, approvals, onPermissionRequest, loadApprovalsFromFile, resolveApprovalTtlMs }
+export { conversations, approvals, onPermissionRequest, loadApprovalsFromFile, resolveApprovalTtlMs, conversationTitleFrom }
 export type { Conversation, ApprovalRecord }

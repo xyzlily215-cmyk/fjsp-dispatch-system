@@ -11,12 +11,12 @@
  * 清单 STREAM_EVENTS 与契约注册表的一致性由 agent-bff/test-contract-api.mts 强制。 */
 import type {
   AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
-  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot,
+  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot, ConversationSummary,
 } from '../../../agh-integration/agent-bff/contract/types';
 
 export type {
   AgentHealth, AgentPageContext, ChatAccepted, ApprovalInfo,
-  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot,
+  AgentStreamEvents, AgentEventName, StreamTicket, ConversationSnapshot, ConversationSummary,
 };
 export type AgentEventHandlers = {
   [K in AgentEventName]?: (data: AgentStreamEvents[K], eventId: number) => void;
@@ -116,6 +116,20 @@ export function agentStreamTicket(): Promise<StreamTicket> {
 /** 会话快照（任务 4.1：页面加载/断线重连先取快照，再按 lastEventId/replayFrom 续订 SSE） */
 export function agentSnapshot(conversationId: string): Promise<ConversationSnapshot> {
   return get(`/conversations/${encodeURIComponent(conversationId)}/snapshot`);
+}
+
+/** 多会话：当前用户的会话列表（最近活动倒序） */
+export async function agentConversations(): Promise<ConversationSummary[]> {
+  return (await get<{ ok: boolean; conversations: ConversationSummary[] }>('/conversations')).conversations;
+}
+
+export function agentRenameConversation(conversationId: string, title: string) {
+  return post<{ ok: boolean; title: string }>(`/conversations/${encodeURIComponent(conversationId)}/rename`, { title });
+}
+
+/** 从列表删除会话（进行中/有待审批时 BFF 返回 409 conversation_active） */
+export function agentDeleteConversation(conversationId: string) {
+  return post<{ ok: boolean }>(`/conversations/${encodeURIComponent(conversationId)}/delete`, {});
 }
 
 /* SSE 订阅：EventSource 自动重连并带 Last-Event-ID，断线只补增量。

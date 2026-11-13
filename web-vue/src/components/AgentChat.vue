@@ -1,104 +1,153 @@
 <template>
-  <div class="chat" :class="{ embedded }">
-    <header class="chat-head">
-      <div class="chat-identity">
-        <span class="chat-badge" aria-hidden="true">AI</span>
-        <div class="chat-heading">
-          <strong>AI 调度助手</strong>
-          <span class="chat-connection" :class="connClass" :title="connTitle"><span class="conn-dot"></span>{{ connText }}</span>
-        </div>
+  <div class="chat" :class="{ expanded, embedded, 'threads-open': threadsOpen }">
+    <!-- 会话列表：展开模式常驻左栏，侧栏模式为浮层 -->
+    <aside class="threads" :inert="!expanded && !threadsOpen ? true : undefined" aria-label="会话列表">
+      <div class="threads-head">
+        <strong>会话</strong>
+        <button type="button" class="icon-btn" title="新会话" aria-label="新会话" @click="onNewConversation"><AppIcon name="plus" /></button>
+        <button v-if="!expanded" type="button" class="icon-btn" title="收起会话列表" aria-label="收起会话列表" @click="threadsOpen = false"><AppIcon name="close" /></button>
       </div>
-      <div class="chat-actions">
-        <button type="button" class="chat-icon-btn" :class="{ 'tts-on': ttsOn }"
-                :title="ttsOn ? '关闭语音播报' : '开启语音播报'" :aria-label="ttsOn ? '关闭语音播报' : '开启语音播报'" @click="toggleTts">
-          <span aria-hidden="true">朗读</span>
+      <label class="threads-search">
+        <AppIcon name="search" :size="14" />
+        <input v-model="keyword" type="search" placeholder="搜索会话" aria-label="搜索会话">
+      </label>
+      <div class="threads-list">
+        <button v-if="showDraftItem" type="button" class="thread-item active">
+          <span class="thread-title">新会话</span><span class="thread-meta">尚未发送消息</span>
         </button>
-        <button type="button" class="chat-icon-btn" title="新会话" aria-label="新会话" @click="onNewConversation">＋</button>
-        <button v-if="!embedded" type="button" class="chat-icon-btn" title="关闭" aria-label="关闭" @click="$emit('close')">×</button>
+        <template v-for="g in groupedThreads" :key="g.label">
+          <div class="threads-group">{{ g.label }}</div>
+          <div v-for="c in g.items" :key="c.id" class="thread-item" :class="{ active: c.id === agent.conversationId }"
+               role="button" tabindex="0" @click="onOpen(c.id)" @keydown.enter.prevent="onOpen(c.id)">
+            <template v-if="renamingId === c.id">
+              <input ref="renameInput" v-model="renameDraft" class="thread-rename" maxlength="60" aria-label="会话标题"
+                     @click.stop @keydown.enter.prevent="commitRename(c)" @keydown.esc.prevent="renamingId = ''" @blur="commitRename(c)">
+            </template>
+            <template v-else>
+              <span class="thread-title">
+                <span v-if="c.running || (c.id === agent.conversationId && agent.busy)" class="thread-spin" title="处理中"></span>
+                <span class="thread-title-text" :title="c.title">{{ c.title }}</span>
+              </span>
+              <span v-if="c.updatedAt || c.pendingApprovals" class="thread-meta">
+                {{ relTime(c.updatedAt) }}
+                <em v-if="c.pendingApprovals" class="thread-badge">{{ c.pendingApprovals }} 待审批</em>
+              </span>
+              <span class="thread-actions">
+                <button type="button" class="icon-btn sm" title="重命名" aria-label="重命名" @click.stop="startRename(c)"><AppIcon name="edit" :size="13" /></button>
+                <button type="button" class="icon-btn sm danger" title="删除" aria-label="删除" @click.stop="onDelete(c)"><AppIcon name="trash" :size="13" /></button>
+              </span>
+            </template>
+          </div>
+        </template>
+        <p v-if="!groupedThreads.length && !showDraftItem" class="threads-empty">{{ keyword ? '没有匹配的会话' : '还没有会话' }}</p>
       </div>
-    </header>
+      <div class="threads-foot">
+        <span class="conn" :class="connClass" :title="connTitle"><i></i>{{ connText }}</span>
+      </div>
+    </aside>
+    <button v-if="!expanded && threadsOpen" type="button" class="threads-scrim" aria-label="关闭会话列表" @click="threadsOpen = false"></button>
 
-    <div v-if="agent.health && !agent.health.ok" class="chat-banner">
-      <span>智能体未连接：{{ bannerHint }}</span>
-      <button type="button" class="chat-link-btn" @click="retryHealth">重试</button>
-    </div>
-
-    <div class="chat-context" :title="contextTooltip">
-      <span class="ctx-label">当前页面</span>
-      <span class="ctx-page">{{ pageContext.title || '调度工作台' }}</span>
-      <span v-if="pageContext.queryText" class="ctx-query">{{ pageContext.queryText }}</span>
-      <span class="ctx-note">提问时关联此页面</span>
-    </div>
-
-    <div ref="scrollEl" class="chat-body" @scroll="onScroll">
-      <div v-if="!agent.messages.length" class="chat-empty">
-        <p class="empty-title">需要什么帮助？</p>
-        <p class="empty-sub">可询问{{ pageContext.title || '当前页面' }}的排程、订单风险或方案差异，处理过程与待审批步骤会显示在这里。</p>
-        <p class="empty-label">试试这些问题</p>
-        <div class="empty-hints">
-          <button v-for="hint in hints" :key="hint" type="button" class="hint-chip" @click="fillHint(hint)">{{ hint }}</button>
+    <section class="thread">
+      <header class="thread-head">
+        <button v-if="!expanded" type="button" class="icon-btn" title="会话列表" aria-label="打开会话列表" @click="openThreads"><AppIcon name="sidebar" /></button>
+        <div class="thread-heading">
+          <strong :title="currentTitle">{{ currentTitle }}</strong>
+          <span>AI 调度助手 · {{ pageContext.title || '调度工作台' }}</span>
         </div>
+        <button v-if="!expanded" type="button" class="icon-btn" title="新会话" aria-label="新会话" @click="onNewConversation"><AppIcon name="plus" /></button>
+        <button v-if="!embedded" type="button" class="icon-btn" :title="expanded ? '收起为侧栏' : '展开工作台'" :aria-label="expanded ? '收起为侧栏' : '展开工作台'" @click="toggleAgentExpanded()"><AppIcon :name="expanded ? 'collapse' : 'expand'" /></button>
+        <button v-if="!embedded" type="button" class="icon-btn" title="关闭" aria-label="关闭" @click="$emit('close')"><AppIcon name="close" /></button>
+      </header>
+
+      <div v-if="agent.health && !agent.health.ok" class="banner">
+        <span>智能体未连接：{{ bannerHint }}</span>
+        <button type="button" class="link-btn" @click="retryHealth">重试</button>
       </div>
 
-      <template v-for="(msg, i) in agent.messages" :key="i">
-        <div v-if="msg.role === 'user'" class="msg-row user">
-          <div class="msg-bubble user">{{ msg.text }}</div>
-        </div>
-        <div v-else class="msg-row assistant">
-          <span class="msg-author">AI 调度助手</span>
-          <div class="msg-block" :class="{ error: msg.error }">
-            <div v-if="msg.steps.length" class="steps">
-              <details v-for="step in msg.steps" :key="step.toolUseId || step.seq" class="step">
+      <div ref="scrollEl" class="thread-body" @scroll="onScroll">
+        <div class="thread-inner">
+          <div v-if="!agent.messages.length" class="welcome">
+            <div class="welcome-mark" aria-hidden="true"><AppIcon name="agent" :size="22" /></div>
+            <h2>今天要处理什么调度任务？</h2>
+            <p>助手会读取{{ pageContext.title || '当前页面' }}的上下文，查询排程、订单与设备数据；涉及写操作时会先请你审批。</p>
+            <div class="suggestions">
+              <button v-for="hint in hints" :key="hint" type="button" class="suggestion" @click="fillHint(hint)">
+                <span>{{ hint }}</span><AppIcon name="chevron" :size="14" />
+              </button>
+            </div>
+          </div>
+
+          <template v-for="(msg, i) in agent.messages" :key="i">
+            <div v-if="msg.role === 'user'" class="turn user">
+              <div class="user-text" :class="{ pending: msg.pending }">{{ msg.text }}</div>
+            </div>
+            <div v-else class="turn assistant" :class="{ error: msg.error }">
+              <details v-if="msg.steps.length" class="work" :open="msg.streaming || msg.steps.some(s => s.status === 'running')">
                 <summary>
-                  <span class="step-icon" :class="step.status">{{ stepIcon(step.status) }}</span>
-                  <span class="step-name">{{ step.name }}</span>
-                  <span v-if="step.code && step.status !== 'running'" class="step-code">{{ step.code }}</span>
+                  <AppIcon name="tool" :size="13" />
+                  <span>{{ workSummary(msg) }}</span>
+                  <AppIcon class="work-chevron" name="chevron" :size="13" />
                 </summary>
-                <div class="step-detail">
-                  <pre v-if="stepArgsText(step)" class="step-pre">{{ stepArgsText(step) }}</pre>
-                  <pre v-if="step.resultPreview" class="step-pre result">{{ step.resultPreview }}</pre>
-                </div>
+                <ol class="work-steps">
+                  <li v-for="step in msg.steps" :key="step.toolUseId || step.seq" :class="step.status">
+                    <details>
+                      <summary>
+                        <span class="step-dot" :class="step.status"></span>
+                        <code>{{ step.name }}</code>
+                        <span v-if="step.code && step.status !== 'running'" class="step-code">{{ step.code }}</span>
+                      </summary>
+                      <pre v-if="stepArgsText(step)" class="step-pre">{{ stepArgsText(step) }}</pre>
+                      <pre v-if="step.resultPreview" class="step-pre result">{{ step.resultPreview }}</pre>
+                    </details>
+                  </li>
+                </ol>
               </details>
+              <div v-if="msg.text" class="assistant-text">
+                <span v-if="msg.streaming" class="plain">{{ msg.text }}<span class="cursor">▍</span></span>
+                <div v-else class="md" v-html="renderMarkdown(msg.text)"></div>
+              </div>
+              <div v-else-if="msg.streaming" class="thinking"><span class="shimmer">正在思考</span></div>
             </div>
-            <div v-if="msg.text" class="msg-text">
-              <span v-if="msg.streaming">{{ msg.text }}<span class="cursor">▍</span></span>
-              <div v-else class="md" v-html="renderMarkdown(msg.text)"></div>
-            </div>
-            <div v-else-if="msg.streaming" class="msg-text thinking">思考中<span class="cursor">▍</span></div>
+          </template>
+          <div v-if="agent.busy && lastIsUser" class="turn assistant"><div class="thinking"><span class="shimmer">正在思考</span></div></div>
+        </div>
+      </div>
+
+      <div v-if="agent.approvals.length" class="approvals">
+        <AgentApprovalCards />
+      </div>
+
+      <footer class="composer-wrap">
+        <div class="composer" :class="{ focused }">
+          <textarea ref="inputEl" v-model="draft" rows="1" class="composer-input"
+                    :placeholder="agent.busy ? '正在处理，可先停止再追加指令…' : '描述调度任务，Enter 发送，Shift+Enter 换行'"
+                    aria-label="向 AI 调度助手提问"
+                    @focus="focused = true" @blur="focused = false" @input="autoGrow"
+                    @keydown.enter.exact="onEnter"></textarea>
+          <div class="composer-bar">
+            <span class="ctx-chip" :title="contextTooltip"><AppIcon name="board" :size="12" />{{ pageContext.title || '调度工作台' }}<em v-if="pageContext.queryText">{{ pageContext.queryText }}</em></span>
+            <button v-if="agent.busy" type="button" class="send stop" title="停止当前处理" aria-label="停止当前处理" @click="agent.stop()"><AppIcon name="stop" :size="14" /></button>
+            <button v-else type="button" class="send" :disabled="!draft.trim()" title="发送" aria-label="发送" @click="onSend"><AppIcon name="send" :size="16" /></button>
           </div>
         </div>
-      </template>
-    </div>
-
-    <div v-if="agent.approvals.length" class="chat-approvals">
-      <AgentApprovalCards />
-    </div>
-
-    <footer class="chat-input">
-      <textarea ref="inputEl" v-model="draft" class="input-box" rows="2"
-                :placeholder="agent.busy ? '正在处理，可追加问题或停止当前任务…' : `询问${pageContext.title || '当前页面'}的调度问题…`"
-                aria-label="向 AI 调度助手提问"
-                @keydown.enter.exact.prevent="onSend"></textarea>
-      <button v-if="speechSupported" type="button" class="send-btn mic" :class="{ recording }"
-              :title="recording ? '停止语音输入' : '语音输入（中文）'" :aria-label="recording ? '停止语音输入' : '语音输入（中文）'" @click="toggleMic">
-        {{ recording ? '■' : '语音' }}
-      </button>
-      <button v-if="agent.busy" type="button" class="send-btn stop" title="停止当前处理" aria-label="停止当前处理" @click="agent.stop()">■</button>
-      <button v-else type="button" class="send-btn" :disabled="!draft.trim()" title="发送" aria-label="发送" @click="onSend">↑</button>
-    </footer>
+      </footer>
+    </section>
   </div>
 </template>
 
 <script setup>
-/* AI 调度助手对话本体：抽屉侧栏（AgentSidebar）与数字孪生页内嵌栏共用。
- * embedded=true 时隐藏关闭按钮、填充父容器而非抽屉。状态全部在 stores/agent.js。 */
+/* AI 调度助手：多会话工作台。
+ * 侧栏模式（docked/drawer）：顶栏 + 对话，会话列表为浮层；展开模式（expanded）：左会话列表常驻。
+ * 状态全部在 stores/agent.ts；布局模式在 stores/agentPanel.ts。 */
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgentStore } from '../stores/agent';
+import { agentExpanded, toggleAgentExpanded } from '../stores/agentPanel';
 import { renderMarkdown } from '../utils/markdown';
 import AgentApprovalCards from './AgentApprovalCards.vue';
+import AppIcon from './AppIcon.vue';
 
-defineProps({ embedded: { type: Boolean, default: false } });
+const props = defineProps({ embedded: { type: Boolean, default: false } });
 defineEmits(['close']);
 
 const route = useRoute();
@@ -107,7 +156,15 @@ const agent = useAgentStore();
 const scrollEl = ref(null);
 const inputEl = ref(null);
 const draft = ref('');
+const focused = ref(false);
 const stickBottom = ref(true);
+const threadsOpen = ref(false);
+const keyword = ref('');
+const renamingId = ref('');
+const renameDraft = ref('');
+const renameInput = ref(null);
+
+const expanded = computed(() => !props.embedded && agentExpanded.value);
 
 /* 路由感知的快捷问题，选择后填入输入框。 */
 const ROUTE_HINTS = {
@@ -157,118 +214,149 @@ const connTitle = computed(() => {
   if (agent.health && !agent.health.ok) return agent.health.hint || '智能体未连接';
   return '连接中…';
 });
-const connText = computed(() => agent.connected ? '已连接 · 可处理调度问题' : agent.health && !agent.health.ok ? '服务未连接' : '连接中');
+const connText = computed(() => agent.connected ? '已连接' : agent.health && !agent.health.ok ? '服务未连接' : '连接中');
 const bannerHint = computed(() => agent.health?.hint || 'agent-bff 未启动');
-
 const hints = computed(() => ROUTE_HINTS[route.name] ?? ROUTE_HINTS.default);
 
-function stepIcon(status) {
-  return status === 'done' ? '✓' : status === 'error' ? '✗' : '⏳';
+/* ---- 会话列表 ---- */
+const currentItem = computed(() => agent.conversations.find((c) => c.id === agent.conversationId));
+const currentTitle = computed(() => currentItem.value?.title
+  || (agent.messages.find((m) => m.role === 'user')?.text || '新会话').slice(0, 28));
+/* 当前会话还没发言时服务端列表里没有它：列表顶部补一个"新会话"占位 */
+const showDraftItem = computed(() => !currentItem.value && !keyword.value);
+const lastIsUser = computed(() => {
+  const last = agent.messages[agent.messages.length - 1];
+  return last && last.role === 'user';
+});
+
+const DAY = 86400000;
+function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+const groupedThreads = computed(() => {
+  const kw = keyword.value.trim().toLowerCase();
+  const items = agent.conversations.filter((c) => !kw || c.title.toLowerCase().includes(kw));
+  const today = startOfDay(Date.now());
+  const groups = [
+    { label: '今天', items: [], test: (t) => t >= today },
+    { label: '昨天', items: [], test: (t) => t >= today - DAY },
+    { label: '近 7 天', items: [], test: (t) => t >= today - 7 * DAY },
+    { label: '更早', items: [], test: () => true },
+  ];
+  for (const c of items) groups.find((g) => g.test(c.updatedAt)).items.push(c);
+  return groups.filter((g) => g.items.length);
+});
+
+function relTime(t) {
+  if (!t) return '';
+  const diff = Date.now() - t;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
+  if (diff < DAY) return `${Math.floor(diff / 3600000)} 小时前`;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
+
+function openThreads() {
+  threadsOpen.value = true;
+  agent.refreshConversations();
+}
+function onOpen(id) {
+  if (renamingId.value) return;
+  agent.openConversation(id);
+  threadsOpen.value = false;
+  stickBottom.value = true;
+  nextTick(() => inputEl.value?.focus());
+}
+function onNewConversation() {
+  agent.newConversation();
+  agent.refreshHealth();
+  threadsOpen.value = false;
+  draft.value = '';
+  nextTick(() => inputEl.value?.focus());
+}
+function startRename(c) {
+  renamingId.value = c.id;
+  renameDraft.value = c.title;
+  nextTick(() => {
+    const el = Array.isArray(renameInput.value) ? renameInput.value[0] : renameInput.value;
+    el?.focus(); el?.select();
+  });
+}
+async function commitRename(c) {
+  if (renamingId.value !== c.id) return;
+  const title = renameDraft.value.trim();
+  renamingId.value = '';
+  if (!title || title === c.title) return;
+  try { await agent.renameConversation(c.id, title); } catch (e) { ElMessage.error(e.message || '重命名失败'); }
+}
+async function onDelete(c) {
+  try {
+    await ElMessageBox.confirm(`删除会话「${c.title}」？删除后不再出现在列表中，审计记录会保留。`, '删除会话', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' });
+  } catch { return; }
+  try { await agent.deleteConversation(c.id); } catch (e) {
+    ElMessage.error(e.code === 'conversation_active' ? '会话正在处理或有待审批，结束后再删除' : (e.message || '删除失败'));
+  }
+}
+
+/* ---- 对话 ---- */
 function stepArgsText(step) {
   if (step.args === null || step.args === undefined) return '';
   const text = typeof step.args === 'string' ? step.args : JSON.stringify(step.args, null, 2);
   return text.length > 600 ? text.slice(0, 600) + ' …' : text;
 }
+function workSummary(msg) {
+  const n = msg.steps.length;
+  const running = msg.steps.filter((s) => s.status === 'running').length;
+  const failed = msg.steps.filter((s) => s.status === 'error').length;
+  if (running) return `正在调用工具 · 已完成 ${n - running}/${n}`;
+  return `已调用 ${n} 个工具${failed ? ` · ${failed} 个失败` : ''}`;
+}
 
 function fillHint(hint) {
   draft.value = hint;
-  inputEl.value?.focus();
+  nextTick(() => { autoGrow(); inputEl.value?.focus(); });
+}
+function autoGrow() {
+  const el = inputEl.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+function onEnter(e) {
+  if (e.isComposing) return; // 中文输入法选词时的回车不发送
+  e.preventDefault();
+  onSend();
 }
 
 async function onSend() {
   const text = draft.value.trim();
-  if (!text) return;
+  if (!text || agent.busy) return;
   draft.value = '';
+  nextTick(autoGrow);
+  stickBottom.value = true;
   const { section, title, route: routeName, query } = pageContext.value;
   try {
     await agent.send(text, { section, title, route: routeName, query });
+    agent.refreshConversations();
   } catch (e) {
     if (e.code === 'turn_in_progress') ElMessage.warning('上一轮处置还在进行中，请稍候或先停止');
     else if (e.code === 'daemon_unavailable') ElMessage.error('AGH daemon 未连接，请先启动智能体服务');
+    else if (e.code === 'conversation_workflow_active') ElMessage.warning('该会话有受控流程在运行，请新建会话');
     else ElMessage.error(e.message || '发送失败');
     draft.value = text;
+    nextTick(autoGrow);
   }
 }
 
 async function retryHealth() {
   await agent.refreshHealth();
-  if (agent.health.ok) agent.connect();
+  if (agent.health.ok) { agent.connect(); agent.refreshConversations(); }
 }
-
-function onNewConversation() {
-  agent.newConversation();
-  agent.refreshHealth();
-}
-
-/* ---- 语音输入（Web Speech API：浏览器端语音识别，无服务端依赖） ---- */
-const speechSupported = typeof window !== 'undefined'
-  && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-const recording = ref(false);
-let recognizer = null;
-let baseDraft = '';
-
-function toggleMic() {
-  if (!speechSupported) return;
-  if (recording.value) {
-    recognizer?.stop();
-    return;
-  }
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  recognizer = new SR();
-  recognizer.lang = 'zh-CN';
-  recognizer.interimResults = true;
-  recognizer.continuous = false;
-  recognizer.onresult = (e) => {
-    let finalText = '';
-    let interim = '';
-    for (const r of e.results) {
-      if (r.isFinal) finalText += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    draft.value = baseDraft + finalText + interim;
-  };
-  recognizer.onend = () => { recording.value = false; };
-  recognizer.onerror = () => {
-    recording.value = false;
-    ElMessage.warning('语音识别不可用或麦克风未授权');
-  };
-  baseDraft = draft.value ? draft.value + ' ' : '';
-  recording.value = true;
-  recognizer.start();
-}
-
-/* ---- TTS 语音播报：朗读最终答复（文本），工具步骤不读 ---- */
-const ttsOn = ref(localStorage.getItem('fjsp.agentTts') === '1');
-let lastSpokenText = '';
-
-function toggleTts() {
-  ttsOn.value = !ttsOn.value;
-  localStorage.setItem('fjsp.agentTts', ttsOn.value ? '1' : '0');
-  if (!ttsOn.value) window.speechSynthesis?.cancel();
-}
-
-watch(
-  () => {
-    const last = agent.messages[agent.messages.length - 1];
-    return last && last.role === 'assistant' && last.sealed ? last.text : '';
-  },
-  (text) => {
-    if (!ttsOn.value || !text || text === lastSpokenText || !window.speechSynthesis) return;
-    lastSpokenText = text;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text.slice(0, 300));
-    utter.lang = 'zh-CN';
-    window.speechSynthesis.speak(utter);
-  },
-);
 
 function onScroll() {
   const el = scrollEl.value;
   if (!el) return;
   stickBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
 }
-
 function scrollToBottom(force) {
   if (!force && !stickBottom.value) return;
   nextTick(() => {
@@ -285,11 +373,15 @@ watch(
   },
   () => scrollToBottom(false),
 );
-// 本组件可见期间（抽屉打开或页面内嵌），未读即时清零
+watch(() => agent.conversationId, () => { stickBottom.value = true; scrollToBottom(true); });
+// 展开工作台时会话列表常驻，进来就刷新一次
+watch(expanded, (v) => { if (v) agent.refreshConversations(); });
+// 本组件可见期间，未读即时清零
 watch(() => agent.unread, () => agent.clearUnread(), { immediate: true });
 
 onMounted(() => {
   agent.clearUnread();
+  agent.refreshConversations();
   stickBottom.value = true;
   scrollToBottom(true);
   nextTick(() => inputEl.value?.focus());
@@ -297,114 +389,144 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.chat { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; background:#fff; }
-.chat-head { min-height:64px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px 10px 16px; border-bottom:1px solid var(--line); background:var(--surface); user-select:none; }
-.chat-identity { display:flex; align-items:center; gap:11px; min-width:0; }
-.chat-heading { display:flex; flex-direction:column; gap:4px; min-width:0; }
-.chat-heading strong { color:var(--ink, #152334); font-size:15px; line-height:1.3; white-space:nowrap; }
-.chat-badge { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:7px; background:var(--blue, #2563eb); color:#fff; font-size:12px; font-weight:700; }
-.chat-connection { display:flex; align-items:center; gap:6px; color:#66758a; font-size:11px; white-space:nowrap; }
-.conn-dot { flex:none; width:7px; height:7px; border-radius:50%; background:#c98228; }
-.chat-connection.ok .conn-dot { background:#1e9b72; }
-.chat-connection.bad .conn-dot { background:#d85b5b; }
-.chat-actions { display:flex; align-items:center; gap:2px; flex:none; }
-.chat-icon-btn { min-width:30px; height:30px; padding:0 5px; border:0; border-radius:5px; background:transparent; color:#59677b; font-size:16px; display:grid; place-items:center; cursor:pointer; }
-.chat-icon-btn:first-child { font-size:11px; }
-.chat-icon-btn:hover, .chat-icon-btn:focus-visible { background:#eaf1ff; color:var(--blue-deep, #1d4ed8); }
+/* ===== 布局：侧栏模式单栏；展开模式左会话列表 + 右对话 ===== */
+.chat { --c-ink:#1d1d1f; --c-sub:#6e6e73; --c-line:#e8e8ec; --c-soft:#f6f6f8; --c-hover:#efeff2; --c-accent:#1677ff;
+  position:relative; display:flex; height:100%; min-height:0; min-width:0; overflow:hidden; background:#fff; color:var(--c-ink); }
+.thread { position:relative; display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
 
-.chat-banner { flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 14px; background:#fef0f0; color:#f56c6c; font-size:12px; border-bottom:1px solid #fde2e2; }
-.chat-link-btn { border:0; background:transparent; color:var(--blue, #409eff); font-size:12px; cursor:pointer; text-decoration:underline; }
+/* 会话列表 */
+.threads { display:flex; flex-direction:column; width:264px; flex:none; min-height:0; border-right:1px solid var(--c-line); background:var(--c-soft); }
+.chat:not(.expanded) .threads { position:absolute; z-index:6; top:0; bottom:0; left:0; width:min(280px, 86%); box-shadow:12px 0 32px rgba(0,0,0,.12);
+  transform:translateX(-102%); transition:transform .22s ease-out; }
+.chat:not(.expanded).threads-open .threads { transform:translateX(0); }
+.threads-scrim { position:absolute; z-index:5; inset:0; border:0; background:rgba(15,23,42,.18); cursor:default; }
+.threads-head { display:flex; align-items:center; gap:4px; height:52px; padding:0 10px 0 16px; flex:none; }
+.threads-head strong { flex:1; font-size:13px; font-weight:650; }
+.threads-search { display:flex; align-items:center; gap:6px; margin:0 12px 8px; padding:0 10px; height:32px; border:1px solid var(--c-line); border-radius:8px; background:#fff; color:var(--c-sub); }
+.threads-search input { flex:1; min-width:0; border:0; outline:none; background:transparent; font-size:12px; color:var(--c-ink); }
+.threads-search:focus-within { border-color:#b9d3ff; box-shadow:0 0 0 3px rgba(22,119,255,.10); }
+.threads-list { flex:1; min-height:0; overflow-y:auto; padding:0 8px 8px; }
+.threads-group { padding:12px 8px 4px; color:#8e8e93; font-size:11px; font-weight:600; }
+.thread-item { position:relative; display:flex; flex-direction:column; gap:2px; width:100%; padding:8px 10px; border:0; border-radius:8px; background:transparent; text-align:left; cursor:pointer; }
+.thread-item:hover { background:var(--c-hover); }
+.thread-item.active { background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.06), 0 0 0 1px var(--c-line); }
+.thread-item:focus-visible { outline:2px solid var(--c-accent); outline-offset:-2px; }
+.thread-title { display:flex; align-items:center; gap:6px; min-width:0; color:var(--c-ink); font-size:13px; }
+.thread-title-text { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.thread-item:hover .thread-title, .thread-item:focus-within .thread-title { padding-right:52px; }
+.thread-meta { display:flex; align-items:center; gap:6px; color:#8e8e93; font-size:11px; }
+.thread-badge { padding:0 6px; border-radius:9px; background:#fff4e5; color:#b25e00; font-style:normal; font-size:10.5px; line-height:16px; }
+.thread-actions { position:absolute; top:6px; right:6px; display:none; gap:2px; }
+.thread-item:hover .thread-actions, .thread-item:focus-within .thread-actions { display:flex; }
+.thread-rename { width:100%; height:26px; padding:0 6px; border:1px solid var(--c-accent); border-radius:6px; outline:none; font-size:13px; }
+.thread-spin { flex:none; width:10px; height:10px; border:2px solid #c9dcff; border-top-color:var(--c-accent); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.threads-empty { margin:24px 0; color:#8e8e93; font-size:12px; text-align:center; }
+.threads-foot { flex:none; padding:10px 16px; border-top:1px solid var(--c-line); }
+.conn { display:inline-flex; align-items:center; gap:6px; color:var(--c-sub); font-size:11px; }
+.conn i { width:7px; height:7px; border-radius:50%; background:#c98228; }
+.conn.ok i { background:#1e9b72; } .conn.bad i { background:#d85b5b; }
 
-.chat-context { flex:none; display:flex; align-items:center; gap:7px; min-height:36px; padding:8px 16px; font-size:11px; color:var(--muted); border-bottom:1px solid var(--line); background:var(--surface-soft); min-width:0; }
-.ctx-label { flex:none; color:var(--muted); }
-.ctx-page { color:var(--blue-deep); font-weight:600; flex:none; }
-.ctx-query { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ctx-note { display:none; }
+.icon-btn { display:grid; place-items:center; flex:none; width:30px; height:30px; padding:0; border:0; border-radius:7px; background:transparent; color:#5f6368; cursor:pointer; }
+.icon-btn:hover, .icon-btn:focus-visible { background:var(--c-hover); color:var(--c-ink); }
+.icon-btn.sm { width:24px; height:24px; border-radius:6px; background:#fff; box-shadow:0 0 0 1px var(--c-line); }
+.icon-btn.sm.danger:hover { color:#d03b3b; }
+/* 顶栏 */
+.thread-head { display:flex; align-items:center; gap:4px; height:52px; padding:0 8px 0 10px; flex:none; border-bottom:1px solid var(--c-line); }
+.thread-heading { display:flex; flex-direction:column; flex:1; min-width:0; padding:0 4px; }
+.thread-heading strong { overflow:hidden; font-size:13.5px; font-weight:650; white-space:nowrap; text-overflow:ellipsis; }
+.thread-heading span { overflow:hidden; color:#8e8e93; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+.expanded .thread-head { padding-left:20px; }
+.banner { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 14px; flex:none; background:#fef0f0; color:#c94f4f; font-size:12px; }
+.link-btn { border:0; background:transparent; color:var(--c-accent); font-size:12px; cursor:pointer; text-decoration:underline; }
 
-.chat-body { flex:1; overflow-y:auto; padding:16px 16px 12px; display:flex; flex-direction:column; gap:14px; min-height:0; }
-.chat-empty { width:100%; margin:0; padding:0; color:var(--muted); }
-.empty-title { font-size:15px; font-weight:650; color:var(--ink); margin:0 0 6px; line-height:1.4; }
-.empty-sub { font-size:12px; margin:0 0 16px; line-height:1.65; max-width:40ch; }
-.empty-label { margin:0 0 8px; font-size:11px; font-weight:600; color:var(--muted); }
-.empty-hints { display:flex; flex-direction:column; gap:8px; }
-.hint-chip { width:100%; border:1px solid var(--line); background:var(--surface); color:#33485c; border-radius:6px; padding:10px 12px; font-size:12px; line-height:1.5; text-align:left; cursor:pointer; }
-.hint-chip:hover, .hint-chip:focus-visible { border-color:#a7c3fc; background:#f3f7ff; color:var(--blue-deep, #1d4ed8); }
+/* 消息流：内容列居中限宽，展开时更易读 */
+.thread-body { flex:1; min-height:0; overflow-y:auto; }
+.thread-inner { display:flex; flex-direction:column; gap:18px; max-width:760px; margin:0 auto; padding:20px 18px 24px; }
+.expanded .thread-inner { padding:28px 32px 32px; }
+.welcome { padding:18px 2px 0; }
+.welcome-mark { display:grid; place-items:center; width:40px; height:40px; margin-bottom:14px; border-radius:12px; color:#fff; background:linear-gradient(135deg,#3b8cff,#1652d9); box-shadow:0 6px 16px rgba(22,82,217,.25); }
+.welcome h2 { margin:0 0 6px; font-size:18px; font-weight:650; letter-spacing:.01em; }
+.welcome p { margin:0 0 18px; color:var(--c-sub); font-size:12.5px; line-height:1.65; }
+.suggestions { display:flex; flex-direction:column; gap:6px; }
+.suggestion { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:10px 12px; border:1px solid var(--c-line); border-radius:10px; background:#fff; color:#3a3a3c; font-size:12.5px; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; }
+.suggestion:hover, .suggestion:focus-visible { border-color:#c8dafd; background:#f7faff; color:var(--c-ink); }
+.suggestion .app-icon { flex:none; color:#a1a1a6; }
 
-.msg-row { display:flex; min-width:0; }
-.msg-row.user { justify-content:flex-end; }
-.msg-row.assistant { flex-direction:column; align-items:flex-start; gap:5px; }
-.msg-author { color:#66758a; font-size:11px; font-weight:600; }
-.msg-bubble.user { max-width:86%; background:#eaf1ff; color:#1d3555; border-radius:7px; padding:9px 12px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
-.msg-block { max-width:100%; width:100%; background:#fff; border:1px solid #e5eaf1; border-radius:7px; padding:11px 12px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
-.msg-block.error { background:#fef0f0; border-color:#fde2e2; color:#f56c6c; }
-.msg-text { white-space:pre-wrap; word-break:break-word; color:var(--ink, #303133); }
-.msg-block.error .msg-text { color:#f56c6c; }
-.msg-text.thinking { color:#909399; }
-.md :deep(h1), .md :deep(h2), .md :deep(h3), .md :deep(h4) { margin:10px 0 6px; font-size:14px; }
-.md :deep(h1) { font-size:16px; }
-.md :deep(h2) { font-size:15px; }
-.md :deep(p) { margin:4px 0; }
-.md :deep(ul), .md :deep(ol) { margin:4px 0; padding-left:20px; }
-.md :deep(li) { margin:2px 0; }
-.md :deep(table) { border-collapse:collapse; margin:6px 0; font-size:12px; width:100%; }
-.md :deep(th), .md :deep(td) { border:1px solid #e2e8f2; padding:4px 8px; text-align:left; }
-.md :deep(th) { background:#f0f7ff; font-weight:600; }
-.md :deep(code) { background:#eef2f7; border-radius:3px; padding:0 4px; font-size:12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
-.md :deep(pre) { background:#f4f6fa; border-radius:6px; padding:8px; overflow-x:auto; }
-.md :deep(pre code) { background:transparent; padding:0; }
-.md :deep(blockquote) { border-left:1px solid var(--line); margin:6px 0; padding:2px 10px; color:var(--muted); }
-.md :deep(a) { color:var(--blue, #409eff); }
-.md > :deep(*:first-child) { margin-top:0; }
-.cursor { color:var(--blue, #409eff); animation:blink 1s steps(1) infinite; }
+.turn.user { display:flex; justify-content:flex-end; }
+.user-text { max-width:85%; padding:9px 13px; border-radius:14px 14px 4px 14px; background:#f0f0f3; font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+.user-text.pending { opacity:.6; }
+.turn.assistant { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.assistant-text { font-size:13.5px; line-height:1.7; overflow-wrap:anywhere; }
+.assistant-text .plain { white-space:pre-wrap; }
+.turn.assistant.error .assistant-text { padding:10px 12px; border-radius:10px; background:#fef3f2; color:#b42318; }
+.thinking { color:var(--c-sub); font-size:13px; }
+.shimmer { background:linear-gradient(90deg,#8e8e93 0%,#d1d1d6 50%,#8e8e93 100%); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation:shimmer 1.6s linear infinite; }
+@keyframes shimmer { to { background-position:-200% 0; } }
+.cursor { color:var(--c-accent); animation:blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity:0; } }
 
-.steps { display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
-.step { border:1px solid #e2e8f2; border-radius:6px; background:#fff; }
-.step > summary { display:flex; align-items:center; gap:6px; padding:4px 8px; font-size:12px; cursor:pointer; list-style:none; user-select:none; color:#606266; }
-.step > summary::-webkit-details-marker { display:none; }
-.step-icon { flex:none; font-size:11px; }
-.step-icon.done { color:#67c23a; }
-.step-icon.error { color:#f56c6c; }
-.step-icon.running { color:#e6a23c; }
-.step-name { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; }
-.step-code { margin-left:auto; font-size:11px; color:#909399; }
-.step-detail { border-top:1px dashed #e8ecf3; padding:6px 8px; }
-.step-pre { margin:0; font-size:11px; line-height:1.5; color:#606266; white-space:pre-wrap; word-break:break-all; max-height:160px; overflow-y:auto; }
-.step-pre.result { color:#909399; }
+/* 工具调用：折叠的"工作过程" */
+.work { border-radius:10px; }
+.work > summary { display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 6px; border-radius:7px; color:var(--c-sub); font-size:12px; cursor:pointer; list-style:none; user-select:none; }
+.work > summary::-webkit-details-marker { display:none; }
+.work > summary:hover { background:var(--c-soft); color:var(--c-ink); }
+.work-chevron { transition:transform .15s; }
+.work[open] .work-chevron { transform:rotate(90deg); }
+.work-steps { margin:4px 0 0 12px; padding:0 0 0 12px; border-left:1px solid var(--c-line); list-style:none; display:flex; flex-direction:column; gap:2px; }
+.work-steps details > summary { display:flex; align-items:center; gap:8px; padding:3px 6px; border-radius:6px; font-size:12px; cursor:pointer; list-style:none; }
+.work-steps details > summary::-webkit-details-marker { display:none; }
+.work-steps details > summary:hover { background:var(--c-soft); }
+.work-steps code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; color:#3a3a3c; }
+.step-dot { flex:none; width:7px; height:7px; border-radius:50%; background:#1e9b72; }
+.step-dot.running { background:#fab219; animation:pulse 1.2s ease-in-out infinite; }
+.step-dot.error { background:#d03b3b; }
+@keyframes pulse { 50% { opacity:.35; } }
+.step-code { margin-left:auto; color:#8e8e93; font-size:11px; }
+.step-pre { margin:4px 0 6px 21px; padding:8px 10px; max-height:160px; overflow:auto; border-radius:8px; background:var(--c-soft); color:#48484a; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-all; }
+.step-pre.result { color:#6e6e73; }
+/* Markdown */
+.md :deep(h1), .md :deep(h2), .md :deep(h3), .md :deep(h4) { margin:12px 0 6px; font-size:14px; font-weight:650; }
+.md :deep(h1) { font-size:16px; } .md :deep(h2) { font-size:15px; }
+.md :deep(p) { margin:6px 0; }
+.md :deep(ul), .md :deep(ol) { margin:6px 0; padding-left:20px; }
+.md :deep(li) { margin:3px 0; }
+.md :deep(table) { width:100%; margin:8px 0; border-collapse:collapse; font-size:12px; }
+.md :deep(th), .md :deep(td) { padding:6px 9px; border-bottom:1px solid var(--c-line); text-align:left; }
+.md :deep(th) { color:var(--c-sub); font-weight:600; background:var(--c-soft); }
+.md :deep(code) { padding:1px 5px; border-radius:4px; background:#f0f0f3; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+.md :deep(pre) { padding:10px 12px; overflow-x:auto; border-radius:8px; background:#f6f6f8; }
+.md :deep(pre code) { padding:0; background:transparent; }
+.md :deep(blockquote) { margin:8px 0; padding:2px 12px; border-left:3px solid var(--c-line); color:var(--c-sub); }
+.md :deep(a) { color:var(--c-accent); }
+.md > :deep(*:first-child) { margin-top:0; }
+.md > :deep(*:last-child) { margin-bottom:0; }
 
-.chat-approvals { flex:none; border-top:1px solid var(--line, #e4e7ed); background:#fffaf2; padding:8px 14px; max-height:40%; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
-.approval-card { border:1px solid #f5dab1; border-radius:8px; background:#fff; padding:8px 10px; }
-.approval-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-.approval-tag { flex:none; padding:1px 7px; border-radius:4px; background:#e6a23c; color:#fff; font-size:11px; font-weight:600; }
-.approval-tool { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; color:#606266; }
-.approval-args { margin:0 0 8px; font-size:11px; color:#909399; white-space:pre-wrap; word-break:break-all; max-height:100px; overflow-y:auto; }
-.approval-btns { display:flex; gap:8px; }
-.ap-btn { flex:1; border:0; border-radius:6px; padding:6px 0; font-size:12.5px; cursor:pointer; }
-.ap-btn.approve { background:var(--blue, #409eff); color:#fff; }
-.ap-btn.approve:hover:not(:disabled) { background:#66b1ff; }
-.ap-btn.reject { background:#f4f4f5; color:#606266; border:1px solid #dcdfe6; }
-.ap-btn.reject:hover:not(:disabled) { color:#f56c6c; border-color:#fbc4c4; }
-.ap-btn:disabled { opacity:.55; cursor:default; }
+/* 待审批 */
+.approvals { flex:none; max-height:40%; overflow-y:auto; padding:10px 18px; border-top:1px solid #f5e1c0; background:#fffaf2; }
+.expanded .approvals > * { max-width:760px; margin:0 auto; }
 
-.chat-input { flex:none; display:flex; align-items:flex-end; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--line); background:var(--surface); }
-.input-box { flex:1; min-width:0; resize:none; border:1px solid #d9e1eb; border-radius:6px; padding:9px 11px; font-size:12px; line-height:1.5; font-family:inherit; outline:none; }
-.input-box:focus { border-color:var(--blue, #2563eb); box-shadow:0 0 0 2px #eaf1ff; }
-.input-box::placeholder { color:#718093; }
-.send-btn { flex:none; min-width:36px; height:36px; padding:0 8px; border:0; border-radius:6px; background:var(--blue, #2563eb); color:#fff; font-size:17px; cursor:pointer; display:grid; place-items:center; }
-.send-btn:hover:not(:disabled) { background:#66b1ff; }
-.send-btn:disabled { background:#a0cfff; cursor:default; }
-.send-btn.stop { background:#f56c6c; }
-.send-btn.stop:hover { background:#f78989; }
-.send-btn.mic { background:#fff; color:#475569; border:1px solid #d9e1eb; font-size:11px; }
-.send-btn.mic:hover { border-color:var(--blue, #409eff); }
-.send-btn.mic.recording { background:#f56c6c; border-color:#f56c6c; color:#fff; animation:mic-pulse 1.2s ease-in-out infinite; }
-@keyframes mic-pulse { 50% { box-shadow:0 0 0 6px rgba(245,108,108,.18); } }
-.chat-icon-btn.tts-on { color:var(--blue, #409eff); background:#ecf5ff; }
-@media (max-width:460px) {
-  .chat-head { padding-left:12px; padding-right:10px; }
-  .chat-body { padding:14px 12px 10px; }
-  .chat-context { padding:9px 12px; }
-  .ctx-note { display:none; }
-  .chat-input { padding:10px 12px 12px; }
+/* 输入框：圆角卡片，底栏放上下文与发送 */
+.composer-wrap { flex:none; padding:10px 14px 14px; }
+.expanded .composer-wrap { padding:12px 32px 22px; }
+.composer { max-width:760px; margin:0 auto; border:1px solid #dcdce1; border-radius:16px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.05); transition:border-color .15s, box-shadow .15s; }
+.composer.focused { border-color:#b9d3ff; box-shadow:0 0 0 3px rgba(22,119,255,.10), 0 6px 20px rgba(0,0,0,.05); }
+.composer-input { display:block; width:100%; min-height:44px; max-height:180px; padding:12px 14px 4px; border:0; outline:none; resize:none; background:transparent; font:inherit; font-size:13px; line-height:1.55; color:var(--c-ink); }
+.composer-input::placeholder { color:#a1a1a6; }
+.composer-bar { display:flex; align-items:center; gap:8px; padding:4px 8px 8px 10px; }
+.ctx-chip { display:inline-flex; align-items:center; gap:5px; min-width:0; max-width:70%; overflow:hidden; padding:3px 8px; border-radius:7px; background:var(--c-soft); color:var(--c-sub); font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+.ctx-chip em { overflow:hidden; color:#8e8e93; font-style:normal; text-overflow:ellipsis; }
+.send { display:grid; place-items:center; flex:none; width:30px; height:30px; margin-left:auto; padding:0; border:0; border-radius:50%; background:var(--c-ink); color:#fff; cursor:pointer; transition:opacity .15s, transform .15s; }
+.send:hover:not(:disabled) { transform:scale(1.05); }
+.send:disabled { opacity:.25; cursor:default; }
+.send.stop { background:#d03b3b; }
+
+@media (max-width:640px) {
+  .thread-inner { padding:16px 12px 20px; }
+  .composer-wrap { padding:8px 10px 10px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .chat:not(.expanded) .threads, .work-chevron, .send { transition:none; }
+  .shimmer, .thread-spin, .step-dot.running, .cursor { animation:none; }
 }
 </style>
