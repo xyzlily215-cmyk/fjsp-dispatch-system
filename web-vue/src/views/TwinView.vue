@@ -16,7 +16,7 @@
         </div>
         <div class="twin-actions">
           <button v-if="!simRunning" type="button" class="t-btn primary" @click="startSim">启动虚拟车间</button>
-          <button v-else type="button" class="t-btn" @click="stopSim">停止虚拟车间</button>
+          <button v-else type="button" class="t-btn warning" @click="stopSim">停止虚拟车间</button>
           <button type="button" class="t-btn danger-outline" :disabled="!simRunning || faultSent" @click="injectFault()">
             {{ faultSent ? '故障序列已触发' : '随机故障注入' }}
           </button>
@@ -37,36 +37,15 @@
         </div>
       </div>
 
-      <div class="map-card">
-        <div class="map-title">一号车间 · 实时布局 <span class="map-hint">点击设备查看实时画面</span></div>
-        <svg class="map" viewBox="0 0 1000 500" @click.self="selected = null">
-          <image v-if="gridOk" :href="gridUrl" x="0" y="0" width="1000" height="500" opacity="0.5" preserveAspectRatio="none" />
-          <polygon v-for="z in zones" :key="z.id" :points="z.svgPoints" class="zone" />
-          <text v-for="z in zones" :key="z.id + '-label'" :x="z.labelX" :y="z.labelY" class="zone-label">{{ z.name }}</text>
-          <g v-for="m in machines" :key="m.id" @click.stop="select(m)" class="machine"
-             :class="{ selected: selected?.id === m.id, bad: m.online && m.health?.level === 'bad', attention: m.online && m.health?.level === 'attention' }">
-            <template v-if="m.online && m.health && m.health.level !== 'ok'">
-              <circle :cx="sx(m.position.x)" :cy="sy(m.position.y)" r="34" class="ripple" :class="m.health.level" />
-              <circle :cx="sx(m.position.x)" :cy="sy(m.position.y)" r="34" class="ripple r2" :class="m.health.level" />
-            </template>
-            <rect :x="sx(m.position.x) - 40" :y="sy(m.position.y) - 25" width="80" height="50" rx="6"
-                  :fill="statusColor(m)" :transform="`rotate(${-m.position.yaw} ${sx(m.position.x)} ${sy(m.position.y)})`"
-                  class="machine-rect" />
-            <text :x="sx(m.position.x)" :y="sy(m.position.y) + 5" class="machine-label">{{ machineCode(m) }}</text>
-            <circle v-if="m.health.level !== 'ok'" :cx="sx(m.position.x) + 34" :cy="sy(m.position.y) - 19" r="8"
-                    :fill="m.health.level === 'bad' ? '#f56c6c' : '#e6a23c'" class="alarm-pip" />
-          </g>
-          <g v-for="a in agvs" :key="a.id" class="agv">
-            <polyline v-if="trailPoints(a.id)" :points="trailPoints(a.id)" class="agv-trail" />
-            <circle :cx="sx(a.position.x)" :cy="sy(a.position.y)" r="14" fill="#409eff" opacity="0.9" />
-            <line :x1="sx(a.position.x)" :y1="sy(a.position.y)"
-                  :x2="sx(a.position.x) + 18 * Math.cos((a.position.yaw * Math.PI) / 180)"
-                  :y2="sy(a.position.y) - 18 * Math.sin((a.position.yaw * Math.PI) / 180)"
-                  stroke="#fff" stroke-width="3" stroke-linecap="round" />
-            <text :x="sx(a.position.x)" :y="sy(a.position.y) - 20" class="agv-label">{{ a.id }}</text>
-          </g>
-        </svg>
-      </div>
+      <section class="map-card">
+        <div class="scene-heading">
+          <div><h2>一号车间 · 三维实时视图</h2><p>设备状态与现场位置同步，选择机床查看运行详情</p></div>
+          <span class="scene-live"><span class="hub-dot" :class="hubClass"></span>{{ hubText }}</span>
+        </div>
+        <WorkshopScene :devices="snap.devices" :selected-id="selected?.id" :zones="snap.world?.places || []" @select="select" />
+        <div class="scene-legend"><span><i class="run"></i>运行 {{ machines.filter(m => m.online && m.status === 'running').length }}</span><span><i class="idle"></i>空闲 {{ machines.filter(m => m.online && m.status === 'idle').length }}</span><span><i class="down"></i>告警 {{ alarms.length }}</span><span><i class="off"></i>离线 {{ machines.filter(m => !m.online).length }}</span><span class="legend-agv">AGV {{ agvs.length }} 台</span></div>
+      </section>
+      <div class="equipment-heading"><h2>设备运行监测</h2><span>点击卡片与三维模型联动</span></div>
 
       <div v-if="selected" class="detail-card">
         <div class="detail-head">
@@ -76,7 +55,7 @@
           <div class="detail-head-actions">
             <template v-if="selected.id.startsWith('cnc-')">
               <button type="button" class="t-btn danger-outline small" @click="injectFault(selected)">注入过热故障</button>
-              <button type="button" class="t-btn small" @click="recover(selected)">恢复正常</button>
+              <button type="button" class="t-btn success small" @click="recover(selected)">恢复正常</button>
             </template>
             <button v-if="isAlarm(selected)" type="button" class="t-btn primary small" @click="askAgent(selected)">交给 AI 处理</button>
             <button type="button" class="t-btn small" @click="selected = null">收起</button>
@@ -97,47 +76,41 @@
       </div>
 
       <div class="cards">
-        <div v-for="m in machines" :key="m.id" class="dev-card" :class="[{ alarm: isAlarm(m), off: !m.online, selected: selected?.id === m.id }]" @click="select(m)">
-          <div class="dev-head">
+        <button type="button" v-for="m in machines" :key="m.id" class="dev-card" :aria-pressed="selected?.id === m.id" :class="[{ alarm: isAlarm(m), off: !m.online, selected: selected?.id === m.id }]" @click="select(m)">
+          <span class="dev-head">
             <span class="dev-dot" :class="statusClass(m)"></span>
             <b>{{ machineCode(m) }}</b>
             <span class="dev-status">{{ statusText(m) }}</span>
-          </div>
-          <div class="dev-metrics">
-            <div class="metric"><span>温度</span><b :class="tempClass(m)">{{ fmt(m.metrics?.temperature, '°') }}</b></div>
-            <div class="metric"><span>振动</span><b>{{ fmt(m.metrics?.vibration, '') }}</b></div>
-            <div class="metric"><span>转速</span><b>{{ m.metrics?.spindleRpm ?? '—' }}</b></div>
-          </div>
-          <div class="load-bar"><div class="load-fill" :style="{ width: Math.min(m.spindleLoad ?? 0, 100) + '%' }"></div></div>
-          <div class="dev-job">{{ m.currentJob || '—' }}</div>
-        </div>
+          </span>
+          <span class="dev-metrics">
+            <span class="metric"><span>温度</span><b :class="tempClass(m)">{{ fmt(m.metrics?.temperature, '°') }}</b></span>
+            <span class="metric"><span>振动</span><b>{{ fmt(m.metrics?.vibration, '') }}</b></span>
+            <span class="metric"><span>转速</span><b>{{ m.metrics?.spindleRpm ?? '—' }}</b></span>
+          </span>
+          <span class="load-bar"><span class="load-fill" :style="{ width: Math.min(m.spindleLoad ?? 0, 100) + '%' }"></span></span>
+          <span class="dev-job">{{ m.currentJob || '—' }}</span>
+        </button>
       </div>
     </div>
-
-    <aside class="twin-chat">
-      <AgentChat embedded />
-    </aside>
   </div>
 </template>
 
 <script setup>
-/* 数字孪生车间（AI 驾驶舱）：MHS 虚拟设备实时状态 + 设备控制 + 内嵌 AI 调度助手。
+/* 数字孪生车间：MHS 虚拟设备实时状态 + 设备控制，AI 助手由全局工作栏提供。
  * 数据：/twin/stream SSE 1Hz 快照；画面：/twin/device/:id/panel 轮询刷新；
  * 控制：虚拟车间启停、M-03 故障注入/恢复（agent-bff 直控仿真进程，免脚本）；
  * 告警联动：一键请求 AI 处理（附设备快照上下文，衔接 SKILL 的 MHS 告警处置流程）。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
-  openTwinStream, twinGridUrl, twinInjectFault, twinPanelUrl, twinRecover, twinSimStart, twinSimStop,
+  openTwinStream, twinInjectFault, twinPanelUrl, twinRecover, twinSimStart, twinSimStop,
 } from '../api/twin';
 import { useAgentStore } from '../stores/agent';
-import AgentChat from '../components/AgentChat.vue';
+import WorkshopScene from '../components/WorkshopScene.vue';
 
 const agent = useAgentStore();
 const snap = ref({ hub: 'connecting', devices: [], world: null, sim: null });
 const selected = ref(null);
 const faultSent = ref(false);
-const gridOk = ref(true);
-const gridUrl = twinGridUrl();
 const panelTs = ref(Date.now());
 
 let closeStream = null;
@@ -147,24 +120,9 @@ const machines = computed(() => snap.value.devices.filter((d) => d.kind === 'mac
 const agvs = computed(() => snap.value.devices.filter((d) => d.kind === 'agv' && d.position));
 const alarms = computed(() => snap.value.devices.filter((d) => isAlarm(d)));
 const simRunning = computed(() => !!snap.value.sim?.running);
-
-const zones = computed(() => {
-  const places = snap.value.world?.places ?? [];
-  return places.map((p) => {
-    const pts = (p.points ?? []).map(([x, y]) => `${sx(x)},${sy(y)}`);
-    const cx = (p.points ?? []).reduce((s, [x]) => s + x, 0) / Math.max((p.points ?? []).length, 1);
-    const cy = (p.points ?? []).reduce((s, [, y]) => s + y, 0) / Math.max((p.points ?? []).length, 1);
-    return { ...p, svgPoints: pts.join(' '), labelX: sx(cx), labelY: sy(cy) };
-  });
-});
-
 const hubClass = computed(() => (snap.value.hub === 'connected' ? 'ok' : 'bad'));
 const hubText = computed(() => (snap.value.hub === 'connected' ? '设备通道已连接' : '设备通道连接中…'));
 const panelSrc = computed(() => (selected.value ? twinPanelUrl(selected.value.id, panelTs.value) : ''));
-
-/* 地图坐标：车间 20m x 10m → 1000x500 SVG（y 轴翻转，地图 y 向上） */
-const sx = (x) => x * 50;
-const sy = (y) => (10 - y) * 50;
 
 function machineCode(d) {
   return d.id.startsWith('cnc-m') ? 'M-' + d.id.slice(5).toUpperCase() : String(d.id).toUpperCase();
@@ -176,10 +134,6 @@ function statusText(d) {
 function statusClass(d) {
   if (!d.online) return 'off';
   return { running: 'run', idle: 'idle', down: 'down' }[d.status] ?? 'off';
-}
-function statusColor(d) {
-  if (!d.online) return '#c0c4cc';
-  return { running: '#67c23a', idle: '#e6a23c', down: '#f56c6c' }[d.status] ?? '#c0c4cc';
 }
 function tempClass(d) {
   const t = d.metrics?.temperature;
@@ -265,35 +219,15 @@ async function askAgent(d) {
     + `当前主轴温度 ${temp}、振动 ${vib}、状态 ${statusText(d)}。`
     + `请按 MHS 设备告警处置流程处理：先 read_device 复核设备真实状态，再评估是否需要报故障重调度，写操作我会人工审批。`;
   try {
-    await agent.send(msg, { section: '工作台', title: '数字孪生车间', route: 'twin', query: { device: d.id } });
+    await agent.send(msg, { section: '工作台', title: '加工中心', route: 'twin', query: { device: d.id } });
   } catch (e) {
     ElMessage.error(e.message || '发送失败');
   }
 }
 
-/* AGV 尾迹：每次快照记录最近 12 个位置，地图上渲染渐隐虚线轨迹 */
-const agvTrails = {};
-
-function trailPoints(id) {
-  const t = agvTrails[id];
-  return t && t.length > 1 ? t.map(([x, y]) => `${sx(x)},${sy(y)}`).join(' ') : '';
-}
-
 function applySnapshot(s) {
   snap.value = s;
-  for (const d of s.devices) {
-    if (d.kind !== 'agv' || !d.position) continue;
-    const trail = agvTrails[d.id] ?? (agvTrails[d.id] = []);
-    const last = trail[trail.length - 1];
-    if (!last || last[0] !== d.position.x || last[1] !== d.position.y) {
-      trail.push([d.position.x, d.position.y]);
-      if (trail.length > 12) trail.shift();
-    }
-  }
-  if (selected.value) {
-    const fresh = s.devices.find((d) => d.id === selected.value.id);
-    if (fresh) selected.value = fresh;
-  }
+  if (selected.value) selected.value = s.devices.find((d) => d.id === selected.value.id) || null;
 }
 
 /* 标签页隐藏时暂停 SSE 与画面轮询（1Hz 快照 × 长开页面的资源优化），回前台即恢复 */
@@ -309,7 +243,6 @@ onMounted(() => {
   closeStream = openTwinStream(applySnapshot);
   panelTimer = setInterval(() => { panelTs.value = Date.now(); }, 2500);
   document.addEventListener('visibilitychange', onVisibility);
-  fetch(gridUrl, { method: 'HEAD' }).then((r) => { gridOk.value = r.ok; }).catch(() => { gridOk.value = false; });
 });
 
 onBeforeUnmount(() => {
@@ -322,12 +255,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .twin { display:flex; gap:14px; align-items:flex-start; }
 .twin-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; }
-.twin-chat { flex:none; width:400px; position:sticky; top:12px; height:calc(100vh - 130px); border:1px solid var(--line,#e4e7ed); border-radius:10px; overflow:hidden; background:#fff; }
-@media (max-width: 1100px) {
-  .twin { flex-direction:column; }
-  .twin-chat { width:100%; position:static; height:620px; }
-}
-
 .twin-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
 .twin-status { display:flex; align-items:center; gap:8px; font-size:13px; color:#606266; }
 .hub-dot { width:9px; height:9px; border-radius:50%; }
@@ -337,13 +264,17 @@ onBeforeUnmount(() => {
 .sim-off { color:#f56c6c; }
 .alarm-count { color:#f56c6c; font-weight:600; }
 .twin-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.t-btn { border:1px solid #dcdfe6; background:#fff; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; color:#606266; }
-.t-btn:hover { border-color:var(--blue,#409eff); color:var(--blue,#409eff); }
-.t-btn.primary { background:var(--blue,#409eff); border-color:var(--blue,#409eff); color:#fff; }
-.t-btn.primary:hover { background:#66b1ff; }
+.t-btn { border:1px solid transparent; background:#e8ecf3; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; color:#3a3a3c; }
+.t-btn:hover { background:#dde3ee; }
+.t-btn.primary { background:var(--blue,#1677ff); border-color:transparent; color:#fff; }
+.t-btn.primary:hover { background:#3d8bff; }
 .t-btn.small { padding:4px 10px; font-size:12px; }
-.t-btn.danger-outline { border-color:#fbc4c4; color:#f56c6c; }
-.t-btn.danger-outline:hover:not(:disabled) { background:#fef0f0; }
+.t-btn.warning { background:var(--warning,#fa8c16); border-color:transparent; color:#fff; }
+.t-btn.warning:hover:not(:disabled) { background:#ffa940; }
+.t-btn.success { background:var(--success,#52c41a); border-color:transparent; color:#fff; }
+.t-btn.success:hover:not(:disabled) { background:#69d134; }
+.t-btn.danger-outline { border-color:transparent; background:var(--danger,#f5222d); color:#fff; }
+.t-btn.danger-outline:hover:not(:disabled) { background:#ff4d4f; }
 .t-btn:disabled { opacity:.55; cursor:default; }
 .twin-banner { padding:10px 14px; border-radius:8px; background:#fdf6ec; border:1px solid #faecd8; color:#e6a23c; font-size:13px; }
 
@@ -354,32 +285,29 @@ onBeforeUnmount(() => {
 .alarm-info b { color:#303133; }
 .alarm-reason { color:#909399; font-size:12px; }
 
-.map-card { background:#fff; border:1px solid var(--line,#e4e7ed); border-radius:10px; padding:14px; }
-.map-title { font-size:14px; font-weight:600; color:var(--ink,#303133); margin-bottom:10px; display:flex; align-items:baseline; gap:10px; }
-.map-hint { font-size:12px; font-weight:400; color:#909399; }
-.map { width:100%; border-radius:8px; background:#f7f9fc; }
-.zone { fill:rgba(64,158,255,.05); stroke:#c4dbf7; stroke-width:1.5; stroke-dasharray:6 4; }
-.zone-label { font-size:15px; fill:#a0b8d8; text-anchor:middle; }
-.machine { cursor:pointer; }
-.machine-rect { stroke:#fff; stroke-width:2; transition:filter .15s; }
-.machine:hover .machine-rect { filter:brightness(1.12); }
-.machine.selected .machine-rect { stroke:#1b2b63; stroke-width:3; }
-.machine-label { font-size:15px; font-weight:700; fill:#fff; text-anchor:middle; pointer-events:none; }
-.alarm-pip { stroke:#fff; stroke-width:2; animation:pip 1.2s ease-in-out infinite; }
-@keyframes pip { 50% { opacity:.35; } }
-/* 告警联动动效：故障/关注设备呼吸闪烁 + 波纹扩散；AGV 平滑移动 + 尾迹 */
-.machine.bad .machine-rect { animation:breathe 1.1s ease-in-out infinite; }
-@keyframes breathe { 50% { filter:brightness(1.3) drop-shadow(0 0 8px rgba(245,108,108,.85)); } }
-.ripple { fill:none; stroke-width:2.5; opacity:0; pointer-events:none; animation:ripple 2.2s ease-out infinite; }
-.ripple.r2 { animation-delay:1.1s; }
-.ripple.bad { stroke:#f56c6c; }
-.ripple.attention { stroke:#e6a23c; }
-@keyframes ripple { 0% { r:34px; opacity:.8; } 100% { r:92px; opacity:0; } }
-.agv circle, .agv line, .agv text { transition:cx .95s linear, cy .95s linear, x .95s linear, y .95s linear, x1 .95s linear, y1 .95s linear, x2 .95s linear, y2 .95s linear; }
-.agv-trail { fill:none; stroke:#409eff; stroke-width:2; opacity:.35; stroke-dasharray:2 5; stroke-linecap:round; }
-.alarm-card.bad { animation:alarmGlow 1.6s ease-in-out infinite; }
-@keyframes alarmGlow { 50% { box-shadow:0 0 0 4px rgba(245,108,108,.16); } }
-.agv-label { font-size:12px; fill:#409eff; text-anchor:middle; font-weight:600; }
+.map-card { background:var(--el-color-white); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.scene-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 20px; }
+.scene-heading h2,.equipment-heading h2 { margin:0; color:var(--ink); font-size:16px; font-weight:600; }
+.scene-heading p { margin:4px 0 0; color:var(--ink); opacity:.7; font-size:12px; }
+.scene-live { display:flex; align-items:center; gap:7px; white-space:nowrap; font-size:12px; color:var(--ink); }
+.scene-legend { display:flex; align-items:center; flex-wrap:wrap; gap:20px; padding:13px 20px; font-size:12px; color:var(--ink); }
+.scene-legend span { display:flex; align-items:center; gap:7px; }
+.scene-legend i { width:8px; height:8px; border-radius:50%; }
+.scene-legend .run { background:var(--success); }
+.scene-legend .idle { background:var(--warning); }
+.scene-legend .down { background:var(--danger); }
+.scene-legend .off { background:var(--muted); }
+.legend-agv { margin-left:auto; }
+.equipment-heading { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+.equipment-heading span { font-size:12px; color:var(--ink); opacity:.7; }
+.twin { gap:20px; }
+.twin-toolbar { padding:14px 16px; background:var(--el-color-white); border:1px solid var(--line); border-radius:12px; gap:14px; }
+.twin-status { flex-wrap:wrap; }
+.dev-card { text-align:left; font-variant-numeric:tabular-nums; }
+.dev-card:focus-visible,.t-btn:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+.load-bar,.load-fill,.dev-job { display:block; }
+@media (max-width:1280px) { .twin { flex-direction:column; } .twin-main { width:100%; } }
+@media (prefers-reduced-motion:reduce) { .load-fill { transition:none; } }
 
 .detail-card { background:#fff; border:1px solid var(--line,#e4e7ed); border-radius:10px; padding:14px; }
 .detail-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
