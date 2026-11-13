@@ -47,7 +47,8 @@ export const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore(pinia);
   if (to.meta.public) {
-    return auth.isLoggedIn ? { name: 'board' } : true;
+    /* 只有登录页对已登录用户跳回看板；大屏等其他免登录页登录后也要能直接打开 */
+    return to.name === 'login' && auth.isLoggedIn ? { name: 'board' } : true;
   }
   if (!auth.isLoggedIn) return { name: 'login' };
   if (to.meta.roles && !auth.hasAnyRole(...to.meta.roles)) return { name: 'board' };
