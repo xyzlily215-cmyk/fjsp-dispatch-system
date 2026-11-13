@@ -676,6 +676,9 @@ function auditAttempt(conversationId: string, requestId: string, by: string, det
 
 // 启动时恢复持久化的审批记录（任务 3.4）：遗留 pending 一律置 expired 并记审计——
 // pending 承诺随进程消亡，旧批准不回放（1.2 语义保持，持久化只为状态可查）。
+// 存量审计文件（0600 收敛前创建）补一次权限收敛；appendFileSync 的 mode 只对新建生效
+try { if (existsSync(AUDIT_FILE)) chmodSync(AUDIT_FILE, 0o600) } catch (err) { console.error('[agent-bff] 审计文件权限收敛失败:', err) }
+
 for (const rec of loadApprovalsFromFile(APPROVALS_FILE, (converted) => {
   auditApproval(converted, 'expired', 'system', 'BFF 重启，pending 承诺随进程消亡（旧批准不回放）')
 })) {
