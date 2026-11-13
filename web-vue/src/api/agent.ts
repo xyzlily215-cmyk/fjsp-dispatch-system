@@ -126,6 +126,7 @@ const STREAM_EVENTS: AgentEventName[] = [
   'user_message', 'turn_start', 'assistant_delta', 'assistant_message',
   'tool_call', 'tool_result', 'permission_request', 'permission_resolved',
   'turn_end', 'turn_error', 'stream_closed', 'resync_required',
+  'workflow_update',
 ];
 
 export function openAgentStream(conversationId: string, handlers: AgentEventHandlers, opts: { sinceId?: number } = {}): () => void {

@@ -64,6 +64,14 @@ export interface RunDeps {
   onRejected?: (cp: WorkflowCheckpoint, approval: PendingApproval | null) => Promise<void> | void
 }
 
+// A guarded write suspends the current node before any effect; approval is not
+// node completion. Resume re-executes the same node with the same step key.
+export class ToolApprovalRequired extends Error {
+  constructor(readonly approval: {
+    tool: string; args: Record<string, unknown>; requestId: string; expiresAt: string; argsDigest: string
+  }) { super('WORKFLOW_WRITE_APPROVAL_REQUIRED') }
+}
+
 const noop = () => {}
 const APPROVAL_TTL_MS = 5 * 60 * 1000
 
@@ -164,6 +172,15 @@ export async function runWorkflow(workflowId: string, nodes: WorkflowNode[], dep
           action = out
         }
       } catch (e) {
+        if (e instanceof ToolApprovalRequired) {
+          const grant = e.approval
+          // Waiting for a human is not a failed business attempt.
+          store.deferAttempt(workflowId)
+          store.recordApproval(workflowId, { requestId: grant.requestId, tool: grant.tool,
+            bizObject: null, argsDigest: grant.argsDigest,
+            issuedAt: new Date().toISOString(), expiresAt: grant.expiresAt })
+          return store.load(workflowId)!
+        }
         action = routeFailure(classifyFailure(e))
       }
 

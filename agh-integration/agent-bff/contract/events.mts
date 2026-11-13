@@ -40,6 +40,12 @@ export const SSE_EVENTS: Record<string, SseEventContract> = {
       properties: { ...VERSION, text: { type: 'string' }, context: { type: ['object', 'null'] } },
     },
   },
+  workflow_update: {
+    v: 1, stream: 'agent', summary: '受控工作流状态快照；完整状态可经GET workflows重新同步',
+    schema: { type: 'object', required: ['v', 'workflow'], properties: {
+      ...VERSION, workflow: { type: 'object', required: ['workflowId', 'status'] },
+    } },
+  },
   turn_start: {
     v: 1, stream: 'agent', summary: '回合开始',
     schema: { type: 'object', required: ['v'], properties: { ...VERSION } },

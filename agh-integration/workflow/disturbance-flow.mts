@@ -43,6 +43,7 @@ export type { ToolStructured, FlowTools } from './flow-common.mts'
 
 // 触发输入：checkpoint.trigger.detail 的契约形状。BREAKDOWN = 设备故障，NEW_ORDER = 插单。
 export interface DisturbanceEventInput {
+  eventId?: string // Already registered by a business page/chat; never register it again.
   eventType: 'BREAKDOWN' | 'NEW_ORDER'
   // BREAKDOWN
   machineId?: string
@@ -94,6 +95,7 @@ async function receiveEvent(ctx: NodeContext): Promise<NodeAction | ErrorEnvelop
 async function registerEvent(ctx: NodeContext): Promise<NodeAction | ErrorEnvelope> {
   const prev = stepResult(ctx, 'receive-event')!
   const event = prev.event as DisturbanceEventInput
+  if (event.eventId) return { action: 'advance', result: { eventId: event.eventId, event, reused: true }, refs: { eventId: event.eventId } }
   const idempotencyKey = ctx.checkpoint.current!.idempotencyKey
   const args =
     event.eventType === 'BREAKDOWN'

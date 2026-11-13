@@ -52,6 +52,37 @@ export const CHAT_REQUEST: Schema = {
   },
 }
 
+export const WORKFLOW_CREATE_REQUEST: Schema = {
+  type: 'object', additionalProperties: false, required: ['conversationId', 'sourceEventId', 'event'],
+  properties: {
+    conversationId: { type: 'string', pattern: '^[\\w-]{1,80}$' },
+    sourceEventId: { type: 'string', minLength: 1, maxLength: 120 },
+    event: { type: 'object', additionalProperties: false, required: ['eventType', 'occurredAt'], properties: {
+      eventId: { type: 'string', minLength: 1, maxLength: 120 },
+      eventType: { type: 'string', enum: ['BREAKDOWN', 'NEW_ORDER'] },
+      machineId: { type: 'string', minLength: 1, maxLength: 120 },
+      occurredAt: { type: 'string', minLength: 1, maxLength: 40 },
+      repairDurationMinutes: { type: 'integer', minimum: 1, maximum: 10080 },
+      orderCode: { type: 'string', minLength: 1, maxLength: 120 },
+      productFamily: { type: 'string', minLength: 1, maxLength: 120 },
+      quantity: { type: 'integer', minimum: 1 },
+      arrivalAt: { type: 'string', maxLength: 40 }, dueAt: { type: 'string', maxLength: 40 },
+      priority: { type: 'integer', minimum: 1, maximum: 5 },
+      subType: { type: 'string', enum: ['URGENT_INSERT', 'NORMAL_APPEND'] },
+      note: { type: 'string', maxLength: 1000 },
+    } },
+  },
+}
+export const WORKFLOW_RESPONSE: Schema = {
+  type: 'object', required: ['ok', 'workflow'], properties: {
+    ok: { type: 'boolean' }, deduplicated: { type: 'boolean' },
+    workflow: { type: 'object', required: ['workflowId', 'conversationId', 'status', 'running', 'recoveryRequired'], properties: {
+      workflowId: { type: 'string' }, conversationId: { type: 'string' }, status: { type: 'string' },
+      running: { type: 'boolean' }, recoveryRequired: { type: 'boolean' },
+    } },
+  },
+}
+
 export const CANCEL_REQUEST: Schema = {
   type: 'object',
   required: ['conversationId'],
@@ -354,6 +385,24 @@ export const HTTP_CONTRACT: EndpointContract[] = [
     method: 'POST', path: '/agent-api/chat', summary: '发送消息（异步回合，事件经 SSE 下发）', auth: 'bearer',
     requestBody: CHAT_REQUEST,
     responses: { 202: CHAT_ACCEPTED, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE, 503: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/workflows', summary: '创建受控扰动处置实例（属主、角色、事件去重；异步执行）', auth: 'bearer',
+    requestBody: WORKFLOW_CREATE_REQUEST,
+    responses: { 202: WORKFLOW_RESPONSE, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE, 503: ERROR_RESPONSE },
+  },
+  {
+    method: 'GET', path: '/agent-api/workflows', summary: '当前用户的流程列表（可按conversationId过滤）', auth: 'bearer',
+    responses: { 200: { type: 'object', required: ['ok', 'workflows'], properties: { ok: { type: 'boolean' }, workflows: { type: 'array', items: { type: 'object' } } } }, 401: ERROR_RESPONSE },
+  },
+  {
+    method: 'GET', path: '/agent-api/workflows/{id}', summary: '查询属主流程快照', auth: 'bearer',
+    responses: { 200: WORKFLOW_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+  },
+  {
+    method: 'POST', path: '/agent-api/workflows/{id}/resume', summary: '属主重新认证后恢复，不接受节点/批准状态等客户端控制字段', auth: 'bearer',
+    requestBody: { type: 'object', additionalProperties: false, properties: {} },
+    responses: { 202: WORKFLOW_RESPONSE, 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE },
   },
   {
     method: 'POST', path: '/agent-api/cancel', summary: '取消当前回合', auth: 'bearer',

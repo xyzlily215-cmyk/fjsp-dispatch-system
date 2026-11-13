@@ -65,6 +65,11 @@ import { createClient, type PermissionOutcome, type Session } from '../agnes-har
 import { tools as fjspToolDefs } from '../fjsp-tools/index.mjs'
 import { mhsHub } from './mhs.mts'
 import { simStart, simStatus, simStop } from './sim.mts'
+import { ManagedWorkflowRuntime, WorkflowHttpError } from '../workflow/managed-runtime.mts'
+import { CheckpointStore } from '../workflow/checkpoint.mts'
+import { createAghDisturbanceAgent } from '../workflow/agh-analysis.mts'
+import type { DisturbanceEventInput } from '../workflow/disturbance-flow.mts'
+import { __contract as toolContract } from '../fjsp-tools/index.mjs'
 import { experienceQuery } from './rag.mts'
 import { validateEvent, withVersion } from './contract/events.mts'
 import {
@@ -73,7 +78,7 @@ import {
   AUDIT_TRAIL_RESPONSE,
   CHAT_ACCEPTED, CONVERSATION_SNAPSHOT_RESPONSE, HEALTH_RESPONSE, PERMISSION_ACCEPTED, RAG_QUERY_RESULT,
   SIM_START_RESULT, SIM_STOP_RESULT, STREAM_TICKET_RESPONSE, TWIN_ACTION_ACCEPTED, TWIN_SNAPSHOT,
-  IMPORT_CONVERT_RESULT, IMPORT_UPLOAD_RESULT,
+  IMPORT_CONVERT_RESULT, IMPORT_UPLOAD_RESULT, WORKFLOW_RESPONSE,
 } from './contract/http.mts'
 import { validateValue, type Schema } from './contract/validate.mts'
 
@@ -154,6 +159,7 @@ type ApprovalRecord = {
   createdAt: number
   expiresAt: number
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'timeout'
+  approvedBy?: string // Workflow execution checks this against fresh token introspection.
 }
 type Conversation = {
   id: string
@@ -863,6 +869,7 @@ function decideRegisteredApproval(
       return sendJson(res, 503, { error: 'audit_unavailable', detail: '审批审计写入失败，批准未生效，请重试或联系管理员' })
     }
     record.status = 'approved'
+    record.approvedBy = user.username
   } else {
     // 拒绝不受角色闸限制（安全操作，避免挂起方悬挂到超时）
     auditApproval(record, 'rejected', user.username)
@@ -936,6 +943,7 @@ async function handleChat(conv: Conversation, body: { message?: unknown; context
   const message = typeof body.message === 'string' ? body.message.trim() : ''
   if (!message) return sendJson(res, 400, { error: 'message_required' })
   if (conv.busy) return sendJson(res, 409, { error: 'turn_in_progress', conversationId: conv.id })
+  if (workflowRuntime.activeConversation(conv.id)) return sendJson(res, 409, { error: 'conversation_workflow_active', conversationId: conv.id })
   let session: Session
   try {
     session = await ensureSession(conv)
@@ -1100,6 +1108,45 @@ function cors(req: IncomingMessage, res: ServerResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Last-Event-ID, Authorization')
 }
 
+const runtimeTools = new Map(fjspToolDefs.map((tool) => [tool.name, tool]))
+const workflowRuntime = new ManagedWorkflowRuntime({
+  store: new CheckpointStore(process.env.AGENT_BFF_WORKFLOW_DIR ?? new URL('./.web-workflows', import.meta.url).pathname),
+  tools: { call: async (name, args = {}) => {
+    const tool = runtimeTools.get(name)
+    if (!tool) return { ok: false, error: { code: 'FJSP_NOT_FOUND', message: '未知工作流工具' } }
+    return (await tool.execute(args)).structured
+  } },
+  validate: (name, args) => {
+    const tool = runtimeTools.get(name)
+    return !!tool && toolContract.validateParams(tool.parameters, args).length === 0
+  },
+  authenticate: async (token) => {
+    // A workflow write cannot rely on the ordinary 30s auth cache.
+    authCache.delete(token)
+    const user = await introspectToken(token)
+    return user && user !== 'unavailable' ? user : null
+  },
+  registerApproval: (conversationId, workflowId, name, args) => {
+    const conv = conversations.get(conversationId)
+    if (!conv?.owner) throw new Error('WORKFLOW_CONVERSATION_UNAVAILABLE')
+    const toolCall = { name, args }
+    const rec = buildApprovalRecord(conv, randomUUID(), toolCall, undefined, workflowId)
+    broadcast(conv, 'permission_request', { requestId: rec.requestId, toolCall, options: [], deadlineMs: rec.expiresAt,
+      approval: { tool: rec.tool, risk: rec.risk, summary: rec.argsSummary, digest: rec.argsDigest.slice(0, 12),
+        bizObject: rec.bizObject, requiredRoles: rec.requiredRoles, expiresAt: rec.expiresAt } })
+    return rec
+  },
+  readApproval: (requestId) => approvals.get(requestId) ?? null,
+  audit: (entry) => writeAudit({ ts: new Date().toISOString(), ...entry }),
+  changed: (conversationId, workflow) => {
+    const conv = conversations.get(conversationId)
+    if (conv) broadcast(conv, 'workflow_update', { workflow })
+  },
+  // Opt-in only: enabling the Web runner must not silently start billed inference.
+  agent: () => process.env.AGENT_BFF_WORKFLOW_MODEL === '1' && process.env.AGENT_BFF_ANALYSIS_WORKSPACE
+    ? createAghDisturbanceAgent({ workspace: process.env.AGENT_BFF_ANALYSIS_WORKSPACE }) : undefined,
+})
+
 const server = createServer(async (req, res) => {
   cors(req, res)
   if (req.method === 'OPTIONS') {
@@ -1200,6 +1247,42 @@ const server = createServer(async (req, res) => {
         messagesComplete,
         pendingApprovals,
       }, CONVERSATION_SNAPSHOT_RESPONSE, 'conversations/snapshot')
+    }
+    if (path === '/agent-api/workflows' || path.startsWith('/agent-api/workflows/')) {
+      // Mutating workflow endpoints never accept an SSE ticket as authorization.
+      const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null
+      if (!bearer) return sendJson(res, 401, { error: 'unauthorized' })
+      const user = await requireAuth(req, url, res)
+      if (!user) return
+      if (req.method === 'POST' && path === '/agent-api/workflows') {
+        const body = await readBody(req)
+        if (!checkBody('POST', '/agent-api/workflows', body, res)) return
+        const event = body.event as DisturbanceEventInput
+        const validTime = (value: unknown) => typeof value === 'string' && /(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))
+        const missing = event.eventType === 'BREAKDOWN'
+          ? !event.machineId || !event.repairDurationMinutes
+          : !event.orderCode || !event.productFamily || !event.quantity || !event.priority || !validTime(event.arrivalAt) || !validTime(event.dueAt)
+        if (missing || !validTime(event.occurredAt)) return sendJson(res, 400, { error: 'invalid_request', detail: '事件参数不完整或时间缺少时区' })
+        const conv = getConversation(String(body.conversationId), user.username)
+        if (!authorizeConversation(conv, user, res)) return
+        if (conv.busy) return sendJson(res, 409, { error: 'turn_in_progress' })
+        const result = workflowRuntime.create(user, bearer, { conversationId: conv.id, sourceEventId: String(body.sourceEventId), event })
+        saveStore()
+        return sendJsonChecked(res, 202, { ok: true, ...result }, WORKFLOW_RESPONSE, 'workflows/create')
+      }
+      if (req.method === 'GET' && path === '/agent-api/workflows') {
+        return sendJson(res, 200, { ok: true, workflows: workflowRuntime.list(user.username, url.searchParams.get('conversationId') ?? undefined) })
+      }
+      const match = path.match(/^\/agent-api\/workflows\/(wf-[A-Za-z0-9-]+)(\/resume)?$/)
+      if (!match) return sendJson(res, 404, { error: 'not_found' })
+      if (req.method === 'GET' && !match[2]) return sendJsonChecked(res, 200,
+        { ok: true, workflow: workflowRuntime.view(match[1], user.username) }, WORKFLOW_RESPONSE, 'workflows/get')
+      if (req.method === 'POST' && match[2]) {
+        const body = await readBody(req)
+        if (!checkBody('POST', '/agent-api/workflows/{id}/resume', body, res)) return
+        return sendJsonChecked(res, 202, { ok: true, workflow: workflowRuntime.resume(match[1], user, bearer) }, WORKFLOW_RESPONSE, 'workflows/resume')
+      }
+      return sendJson(res, 405, { error: 'method_not_allowed' })
     }
     if (req.method === 'POST' && path === '/agent-api/chat') {
       const user = await requireAuth(req, url, res)
@@ -1520,6 +1603,7 @@ const server = createServer(async (req, res) => {
     }
     sendJson(res, 404, { error: 'not_found' })
   } catch (err) {
+    if (err instanceof WorkflowHttpError) return sendJson(res, err.status, { error: err.code })
     if (err instanceof Error && err.message === 'invalid_json') {
       return sendJson(res, 400, { error: 'invalid_request', detail: '请求体不是合法 JSON' })
     }
@@ -1530,6 +1614,7 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`[agent-bff] listening on http://${HOST}:${PORT}/agent-api (workspace ${AGH_HOME})`)
   mhsHub.start()
+  void workflowRuntime.recoverOnStartup().catch((error) => console.error('[agent-bff] workflow startup recovery failed', error instanceof Error ? error.message : 'unavailable'))
 })
 
 // 供 test-approval.mts（tsx 直接 import 本模块）注入审批请求、检查审批记录：

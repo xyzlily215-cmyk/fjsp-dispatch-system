@@ -183,6 +183,9 @@ export interface TwinEventPayload {
 }
 
 /** SSE 事件名 → payload（与 contract/events.mts 的注册表一一对应；v = 协议版本） */
+/** workflow_update 携带的流程快照（至少含 workflowId/status，其余字段随运行器演进） */
+export type WorkflowUpdateSnapshot = Record<string, unknown> & { readonly workflowId: string; readonly status: string };
+
 export interface AgentStreamEvents {
   user_message: { v: number; text: string; context: AgentPageContext | null };
   turn_start: { v: number };
@@ -206,6 +209,8 @@ export interface AgentStreamEvents {
   stream_closed: { v: number };
   /** 订阅序号已出回放缓冲窗口（逐订阅者控制帧，不进回放缓冲）；收到后重新取快照再订阅 */
   resync_required: { v: number; lastEventId: number };
+  /** 受控工作流状态快照（1.x 新增，可选监听；完整状态经 GET /agent-api/workflows 重新同步） */
+  workflow_update: { v: number; workflow: WorkflowUpdateSnapshot };
 }
 
 export type AgentEventName = keyof AgentStreamEvents;

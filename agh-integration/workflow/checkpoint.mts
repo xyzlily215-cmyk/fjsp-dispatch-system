@@ -238,6 +238,15 @@ export class CheckpointStore {
     return this.write(cp)
   }
 
+  // An authorization wait has not attempted the business operation. Keep the
+  // stable step key without consuming its bounded execution retry budget.
+  deferAttempt(workflowId: string): WorkflowCheckpoint {
+    const cp = this.mustLoad(workflowId)
+    if (!cp.current) throw new Error('没有待授权步骤')
+    cp.current.attempt = Math.max(0, cp.current.attempt - 1)
+    return this.write(cp)
+  }
+
   recordApproval(workflowId: string, approval: PendingApproval): WorkflowCheckpoint {
     const cp = this.mustLoad(workflowId)
     cp.pendingApproval = approval

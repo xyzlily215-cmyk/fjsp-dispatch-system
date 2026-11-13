@@ -20,3 +20,6 @@ agent-bff/.approvals.json
 # agent-bff runtime deps & local models
 agent-bff/node_modules/
 agent-bff/models/
+
+# agent-bff 受控工作流检查点（runtime artifact）
+agent-bff/.web-workflows/
