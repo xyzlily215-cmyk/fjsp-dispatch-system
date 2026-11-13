@@ -1,0 +1,123 @@
+# 生产编排：postgres + algorithm + business + web(Nginx)。
+# 用法（在 deploy/ 目录下）：
+#   cp env.prod.example .env.prod   # 填入真实口令
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# 前置条件（构建产物在本地 Mac 完成，服务器只跑运行时）：
+#   business-service: mvn -q -DskipTests package  →  target/business-service-1.0.0.jar
+#   web-vue:          npm ci && npm run build     →  dist/
+
+services:
+  postgres:
+    image: postgres:16.15
+    container_name: fjsp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${FJSP_DB_NAME:?FJSP_DB_NAME is required}
+      POSTGRES_USER: ${FJSP_DB_USER:?FJSP_DB_USER is required}
+      POSTGRES_PASSWORD: ${FJSP_DB_PASSWORD:?FJSP_DB_PASSWORD is required}
+      TZ: Asia/Shanghai
+    # 不发布端口：仅 compose 内网可访问，业务服务经 fjsp-net 连接
+    volumes:
+      - fjsp-pgdata:/var/lib/postgresql/data
+    networks:
+      - fjsp-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    mem_limit: 512m
+
+  algorithm:
+    build:
+      context: ../algorithm-service
+    image: fjsp/algorithm-service:1.0.0
+    container_name: fjsp-algorithm
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    networks:
+      - fjsp-net
+    mem_limit: 512m
+
+  business:
+    build:
+      context: ../business-service
+    image: fjsp/business-service:1.0.0
+    container_name: fjsp-business
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      algorithm:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      FJSP_DB_HOST: postgres
+      FJSP_DB_PORT: "5432"
+      FJSP_DB_NAME: ${FJSP_DB_NAME}
+      FJSP_DB_USER: ${FJSP_DB_USER}
+      FJSP_DB_PASSWORD: ${FJSP_DB_PASSWORD}
+      FJSP_ALGORITHM_BASE_URL: http://algorithm:8101
+      FJSP_JWT_SECRET: ${FJSP_JWT_SECRET:?FJSP_JWT_SECRET is required}
+      FJSP_SEED_ADMIN_PASSWORD: ${FJSP_SEED_ADMIN_PASSWORD:?FJSP_SEED_ADMIN_PASSWORD is required}
+      # 2G 内存服务器：限制 JVM 堆，防止 OOM 被杀
+      JAVA_TOOL_OPTIONS: "-Xmx512m -Xms256m"
+      TZ: Asia/Shanghai
+    # 不发布端口：经 Nginx 同源反代对外
+    networks:
+      - fjsp-net
+    mem_limit: 900m
+
+  # 数字孪生 + AI 副驾一体化（AGH daemon + AgnesHub + agent-bff + MHS 虚拟设备）
+  twin:
+    build:
+      context: ../agh-integration
+      dockerfile: Dockerfile.twin
+    image: fjsp/twin:1.0.0
+    container_name: fjsp-twin
+    restart: unless-stopped
+    depends_on:
+      - business
+    environment:
+      AGENT_BFF_HOST: 0.0.0.0
+      AGNES_HUB_URL: ws://127.0.0.1:4180/ws/hub
+      FJSP_API_BASE: http://business:8081/api/v1
+      # 甘特图链接等回跳地址；env.prod 中按公网地址配置
+      FJSP_WEB_BASE: ${FJSP_WEB_BASE:?FJSP_WEB_BASE is required}
+      # fjsp-tools 在 daemon 进程内运行，业务系统登录用种子 admin 账号
+      FJSP_AUTH_USER: ${FJSP_AUTH_USER:-admin}
+      FJSP_AUTH_PASSWORD: ${FJSP_SEED_ADMIN_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      # 持久化 daemon 数据（模型账号配置、fjsp-tools 插件安装状态、会话库）
+      - agh-data:/root/.agh
+    # 不发布端口：Nginx 经内网反代 /agent-api/
+    networks:
+      - fjsp-net
+    mem_limit: 1200m
+
+  web:
+    image: nginx:1.27-alpine
+    container_name: fjsp-web
+    restart: unless-stopped
+    depends_on:
+      - business
+      - twin
+    ports:
+      - "80:80"
+    volumes:
+      - ../web-vue/dist:/usr/share/nginx/html:ro
+      - ./nginx/fjsp.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - fjsp-net
+    mem_limit: 128m
+
+networks:
+  fjsp-net:
+
+volumes:
+  fjsp-pgdata:
+  agh-data:

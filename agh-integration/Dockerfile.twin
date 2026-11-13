@@ -1,0 +1,52 @@
+# 数字孪生 + AI 副驾一体化镜像（生产用）：
+# 单容器四进程 = AGH daemon + AgnesHub(serve:4180) + agent-bff(4178) + MHS 虚拟设备(按需 spawn)，
+# 复刻 scripts/start-demo.sh 的本地拓扑，进程间全部走容器内 localhost。
+#
+# 构建上下文为 agh-integration/（见同目录 .dockerignore）：
+#   docker build -f Dockerfile.twin .
+#
+# 注意：
+# - AGH 要求 Node >= 24.10（daemon 依赖 node:sqlite setAuthorizer），基础镜像固定 node:24。
+# - agnes-harness 未随仓库分发，需本机已有构建产物（packages/cli/dist）；COPY 的是当前机器
+#   的完整源码树（含 node_modules，pnpm 符号链接结构自包含）。
+# - agent-bff 依赖在镜像内 npm ci（onnxruntime-node 自带 linux x64 二进制）；
+#   mhs-devices/.venv 在镜像内重建（sim.mts 固定调用该路径的 python）。
+
+FROM node:24-bookworm
+
+# 国内构建加速：Debian/npm/pip 全部走阿里云镜像（服务器与本机构建都受益）
+RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-venv python3-pip procps curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm config set registry https://registry.npmmirror.com \
+ && npm install -g tsx
+
+WORKDIR /app/agh-integration
+
+# AGH 源码树（含已构建的 packages/cli/dist 与 node_modules）
+COPY agnes-harness/ agnes-harness/
+
+# fjsp-tools 插件源（daemon 经 reinstall-plugin.mts 以 file:./fjsp-tools 安装）
+COPY fjsp-tools/ fjsp-tools/
+
+# agent-bff：先装依赖再 COPY 源码（.dockerignore 已排除本机 node_modules）
+# --ignore-scripts：onnxruntime-node 的 postinstall 不处理 302 重定向，在部分网络下必失败；
+# 其各平台 CPU 二进制随 npm 包自带（含 linux/x64），跳过脚本不影响运行，装完显式断言。
+COPY agent-bff/package.json agent-bff/package-lock.json agent-bff/
+RUN cd agent-bff && npm ci --omit=dev --ignore-scripts \
+ && test -f node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node
+COPY agent-bff/ agent-bff/
+
+# MHS 虚拟设备：重建 Linux venv（pillow 用于机床面板画面数据源）
+COPY mhs-devices/machine-m03.py mhs-devices/
+RUN python3 -m venv mhs-devices/.venv \
+ && mhs-devices/.venv/bin/pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+    pillow "jsonschema>=4.18" "websockets>=14"
+
+COPY docker/twin-entrypoint.sh /usr/local/bin/twin-entrypoint.sh
+COPY docker/twin-init.sh /usr/local/bin/twin-init.sh
+RUN chmod +x /usr/local/bin/twin-entrypoint.sh /usr/local/bin/twin-init.sh
+
+EXPOSE 4178
+ENTRYPOINT ["twin-entrypoint.sh"]

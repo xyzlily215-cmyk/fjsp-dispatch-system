@@ -1,0 +1,13 @@
+# Dockerfile.twin 构建上下文的排除项（context = agh-integration/）
+# 本机 node_modules / venv 含 macOS 原生二进制，必须在镜像内重建
+agent-bff/node_modules
+mhs-devices/.venv
+# 运行时产物与归档，运行时不需要
+evidence/
+agh-trace-*.zip
+.agh-session-id
+# 验证驱动/评测/工作流技能不随 twin 容器运行
+driver/
+evaluation/
+workflow/
+skills/
