@@ -400,7 +400,7 @@ onMounted(() => {
   transform:translateX(-102%); transition:transform .22s ease-out; }
 .chat:not(.expanded).threads-open .threads { transform:translateX(0); }
 .threads-scrim { position:absolute; z-index:5; inset:0; border:0; background:rgba(15,23,42,.18); cursor:default; }
-.threads-head { display:flex; align-items:center; gap:4px; height:52px; padding:0 10px 0 16px; flex:none; }
+.threads-head { display:flex; align-items:center; gap:4px; height:64px; box-sizing:border-box; padding:0 10px 0 16px; flex:none; border-bottom:1px solid var(--c-line); }
 .threads-head strong { flex:1; font-size:13px; font-weight:650; }
 .threads-search { display:flex; align-items:center; gap:6px; margin:0 12px 8px; padding:0 10px; height:32px; border:1px solid var(--c-line); border-radius:8px; background:#fff; color:var(--c-sub); }
 .threads-search input { flex:1; min-width:0; border:0; outline:none; background:transparent; font-size:12px; color:var(--c-ink); }
@@ -432,7 +432,7 @@ onMounted(() => {
 .icon-btn.sm { width:24px; height:24px; border-radius:6px; background:#fff; box-shadow:0 0 0 1px var(--c-line); }
 .icon-btn.sm.danger:hover { color:#d03b3b; }
 /* 顶栏 */
-.thread-head { display:flex; align-items:center; gap:4px; height:52px; padding:0 8px 0 10px; flex:none; border-bottom:1px solid var(--c-line); }
+.thread-head { display:flex; align-items:center; gap:4px; height:64px; box-sizing:border-box; padding:0 8px 0 10px; flex:none; border-bottom:1px solid var(--c-line); }
 .thread-heading { display:flex; flex-direction:column; flex:1; min-width:0; padding:0 4px; }
 .thread-heading strong { overflow:hidden; font-size:13.5px; font-weight:650; white-space:nowrap; text-overflow:ellipsis; }
 .thread-heading span { overflow:hidden; color:#8e8e93; font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
