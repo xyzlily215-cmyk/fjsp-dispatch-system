@@ -8,36 +8,34 @@
     </div></section>
   </div>
   <div v-else class="board-page">
-    <section class="bd-hero" aria-label="车间生产态势总览">
-      <div class="bd-hero-grid" aria-hidden="true"></div>
-      <div class="bd-hero-glow" aria-hidden="true"></div>
-      <div class="bd-hero-top">
-        <div>
-          <div class="bd-hero-eyebrow"><span class="bd-pulse" :class="plan ? 'on' : 'idle'"></span>{{ plan ? '计划执行中' : '待排程' }} · {{ nowLabel }}</div>
-          <h1 class="bd-hero-title">调度看板</h1>
-          <p class="bd-hero-sub">
-            <template v-if="plan">{{ filters.planVersionId ? '所选计划' : '当前发布计划' }} <b>{{ plan.versionCode }}</b> · {{ windowLabel }}<template v-if="win.from"> · {{ fmtDateTime(win.from) }} ~ {{ fmtDateTime(win.to) }}</template></template>
-            <template v-else-if="pendingReview">{{ pendingReview }} 个方案待审核，发布后即可查看排程指标；下方为订单与设备基础态势。</template>
-            <template v-else>尚无发布计划，下方统计基于订单与设备基础数据实时计算。</template>
-          </p>
+    <header class="bd-header">
+      <div class="bd-heading">
+        <div class="bd-heading-line">
+          <h1 class="bd-title">调度看板</h1>
+          <div class="bd-status"><span class="bd-status-dot" :class="plan ? 'on' : 'idle'"></span>{{ plan ? '计划执行中' : '待排程' }}<span class="bd-updated">{{ nowLabel }}</span></div>
         </div>
-        <div class="bd-hero-actions">
-          <button class="bd-btn ghost" @click="refresh"><AppIcon name="refresh" />刷新</button>
-          <button v-if="!plan" class="bd-btn primary" @click="router.push({ name: pendingReview ? 'review' : 'baseline' })"><AppIcon v-if="!pendingReview" name="plus" />{{ pendingReview ? '查看待审核方案' : '创建基线排程' }}</button>
-          <button v-else class="bd-btn ghost" @click="router.push({ name: 'baseline' })"><AppIcon name="plus" />新建排程</button>
-          <details v-role="['ADMIN']" class="board-more">
-            <summary class="bd-btn ghost">更多</summary>
-            <div class="board-more-menu"><button type="button" @click="resetDemo">重置演示数据</button></div>
-          </details>
-        </div>
+        <p class="bd-subtitle">
+          <template v-if="plan">{{ filters.planVersionId ? '所选计划' : '当前发布计划' }} <b>{{ plan.versionCode }}</b> · {{ windowLabel }}<template v-if="win.from"> · {{ fmtDateTime(win.from) }} ~ {{ fmtDateTime(win.to) }}</template></template>
+          <template v-else-if="pendingReview">{{ pendingReview }} 个方案待审核，发布后即可查看排程指标；下方为订单与设备基础态势。</template>
+          <template v-else>尚无发布计划，下方统计基于订单与设备基础数据实时计算。</template>
+        </p>
       </div>
-      <div class="bd-hero-stats">
-        <div v-for="s in heroStats" :key="s.label" class="bd-hero-stat" :class="s.tone">
-          <div class="bd-hero-stat-label">{{ s.label }}</div>
-          <div class="bd-hero-stat-value">{{ s.value }}<small>{{ s.unit }}</small></div>
-          <div class="bd-hero-stat-sub">{{ s.sub }}</div>
-        </div>
+      <div class="bd-actions">
+        <button class="bd-btn ghost" @click="refresh"><AppIcon name="refresh" />刷新</button>
+        <button v-if="!plan" class="bd-btn primary" @click="router.push({ name: pendingReview ? 'review' : 'baseline' })"><AppIcon v-if="!pendingReview" name="plus" />{{ pendingReview ? '查看待审核方案' : '创建基线排程' }}</button>
+        <button v-else class="bd-btn ghost" @click="router.push({ name: 'baseline' })"><AppIcon name="plus" />新建排程</button>
+        <details v-role="['ADMIN']" class="board-more">
+          <summary class="bd-btn ghost">更多</summary>
+          <div class="board-more-menu"><button type="button" @click="resetDemo">重置演示数据</button></div>
+        </details>
       </div>
+    </header>
+    <section class="bd-overview" aria-label="车间生产态势总览">
+      <article v-for="s in heroStats" :key="s.label" class="bd-stat" :class="s.tone">
+        <div class="bd-stat-label">{{ s.label }}</div>
+        <div class="bd-stat-value">{{ s.value }}<small>{{ s.unit }}</small></div>
+        <div class="bd-stat-sub">{{ s.sub }}</div>
+      </article>
     </section>
 
     <div v-if="loadError" class="error-box" style="margin-bottom:14px">
@@ -542,43 +540,34 @@ onMounted(load);
 </script>
 
 <style scoped>
-/* ===== 顶部总览：深蓝渐变 + 网格光晕 ===== */
-.bd-hero { position:relative; overflow:hidden; margin-bottom:18px; padding:22px 26px 20px; border-radius:16px; color:#fff;
-  background:radial-gradient(120% 140% at 0% 0%, #1f4fa8 0%, #12306e 42%, #0b1d45 100%);
-  box-shadow:0 18px 40px rgba(11,29,69,.28), inset 0 1px 0 rgba(255,255,255,.08); }
-.bd-hero-grid { position:absolute; inset:0; pointer-events:none; opacity:.35;
-  background-image:linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
-  background-size:28px 28px; mask-image:linear-gradient(180deg, #000 0%, transparent 85%); }
-.bd-hero-glow { position:absolute; right:-80px; top:-120px; width:420px; height:420px; border-radius:50%; pointer-events:none;
-  background:radial-gradient(circle, rgba(86,160,255,.45) 0%, rgba(86,160,255,0) 65%); animation:bd-float 9s ease-in-out infinite; }
-@keyframes bd-float { 0%,100% { transform:translate(0,0); } 50% { transform:translate(-30px,24px); } }
-.bd-hero-top { position:relative; display:flex; justify-content:space-between; align-items:flex-start; gap:24px; }
-.bd-hero-eyebrow { display:flex; align-items:center; gap:8px; color:#b9cdf2; font-size:12px; letter-spacing:.04em; }
-.bd-pulse { position:relative; width:8px; height:8px; border-radius:50%; background:#fab219; }
-.bd-pulse.on { background:#3ddc84; }
-.bd-pulse::after { content:""; position:absolute; inset:-4px; border-radius:50%; border:2px solid currentColor; color:inherit; opacity:0; animation:bd-ping 2s ease-out infinite; }
-.bd-pulse.on::after { color:#3ddc84; } .bd-pulse.idle::after { color:#fab219; }
-@keyframes bd-ping { 0% { transform:scale(.6); opacity:.9; } 100% { transform:scale(1.8); opacity:0; } }
-.bd-hero-title { margin:6px 0 4px; font-size:26px; font-weight:700; letter-spacing:.02em; }
-.bd-hero-sub { margin:0; max-width:720px; color:#c9d8f5; font-size:13px; }
-.bd-hero-sub b { color:#fff; }
-.bd-hero-actions { display:flex; align-items:center; gap:8px; flex:none; }
-.bd-btn { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:9px; font-size:13px; cursor:pointer; list-style:none; transition:background .2s, transform .2s; }
-.bd-btn.ghost { color:#e6eeff; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.08); }
-.bd-btn.ghost:hover { background:rgba(255,255,255,.16); }
-.bd-btn.primary { color:#0b1d45; border:0; background:linear-gradient(180deg,#ffffff,#dfe9ff); font-weight:600; box-shadow:0 6px 16px rgba(0,0,0,.18); }
-.bd-btn.primary:hover { transform:translateY(-1px); }
-.bd-btn:focus-visible { outline:2px solid #9ec5f4; outline-offset:2px; }
+/* ===== 页面标题与独立指标卡片 ===== */
+.bd-header { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:20px; }
+.bd-heading { min-width:0; }
+.bd-heading-line { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+.bd-title { margin:0; color:var(--ink); font-size:24px; font-weight:650; line-height:1.4; }
+.bd-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px; color:#626873; font-size:12px; }
+.bd-status-dot { flex:none; width:7px; height:7px; border-radius:50%; background:#b7791f; }
+.bd-status-dot.on { background:#21814b; }
+.bd-updated { padding-left:8px; border-left:1px solid var(--line); font-variant-numeric:tabular-nums; }
+.bd-subtitle { margin:6px 0 0; max-width:720px; color:#626873; font-size:13px; overflow-wrap:anywhere; }
+.bd-subtitle b { color:var(--ink); }
+.bd-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; flex:none; }
+.bd-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:0 14px; border-radius:8px; font-size:13px; cursor:pointer; list-style:none; transition:background .2s, border-color .2s; }
+.bd-btn.ghost { color:var(--ink); border:1px solid var(--line); background:#fff; }
+.bd-btn.ghost:hover { border-color:#b6c2d2; background:#f5f7fa; }
+.bd-btn.primary { color:#fff; border:1px solid var(--blue); background:var(--blue); font-weight:600; }
+.bd-btn.primary:hover { border-color:var(--blue-deep); background:var(--blue-deep); }
+.bd-btn:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
 .board-more summary::-webkit-details-marker { display:none; }
-.bd-hero-stats { position:relative; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-top:20px; }
-.bd-hero-stat { padding:14px 16px; border:1px solid rgba(255,255,255,.12); border-radius:12px; background:rgba(255,255,255,.06); backdrop-filter:blur(6px); }
-.bd-hero-stat-label { color:#b9cdf2; font-size:12px; }
-.bd-hero-stat-value { margin-top:6px; font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.1; }
-.bd-hero-stat-value small { margin-left:3px; color:#b9cdf2; font-size:13px; font-weight:500; }
-.bd-hero-stat-sub { margin-top:6px; color:#9fb4dc; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.bd-hero-stat.danger { border-color:rgba(255,120,120,.45); background:rgba(208,59,59,.18); }
-.bd-hero-stat.danger .bd-hero-stat-value { color:#ffb4b4; }
-.bd-hero-stat.warn .bd-hero-stat-value { color:#ffd78a; }
+.bd-overview { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:16px; margin-bottom:24px; }
+.bd-stat { min-width:0; padding:20px; border:1px solid #e2e2e6; border-radius:14px; background:#fff; }
+.bd-stat-label { color:#626873; font-size:13px; }
+.bd-stat-value { margin-top:12px; color:var(--ink); font-size:30px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; overflow-wrap:anywhere; }
+.bd-stat-value small { margin-left:4px; color:#626873; font-size:13px; font-weight:400; }
+.bd-stat-sub { margin-top:10px; color:#626873; font-size:12px; overflow-wrap:anywhere; }
+.bd-stat.danger { border-color:#ebcaca; background:#fffafa; }
+.bd-stat.danger .bd-stat-value { color:#b4232e; }
+.bd-stat.warn .bd-stat-value { color:#946200; }
 /* ===== 区块标题与卡片 ===== */
 .bd-section-title { display:flex; align-items:baseline; gap:10px; margin:22px 0 12px; color:var(--ink); font-size:15px; font-weight:650; }
 .bd-section-title::before { content:""; align-self:center; width:4px; height:14px; border-radius:2px; background:linear-gradient(180deg,#5598e7,#1c5cab); }
@@ -651,20 +640,29 @@ onMounted(load);
 /* 响应式：按内容区实际宽度（AI 面板停靠会挤占）而非视口切换 */
 .board-page { container-type:inline-size; }
 @container (max-width:1120px) {
+  .bd-header { flex-wrap:wrap; gap:16px; }
   /* 两列：dense 回填，紧迫度与风险订单并排、产品族与优先级并排，避免空洞 */
   .bd-grid { grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-flow:row dense; }
   .bd-span-2, .bd-flow-card { grid-column:1 / -1; }
 }
 @container (max-width:760px) {
-  .bd-hero-stats { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .bd-overview { grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }
+  .bd-stat { grid-column:span 2; padding:16px; }
+  .bd-stat:nth-last-child(-n+2) { grid-column:span 3; }
 }
 @container (max-width:640px) {
-  .bd-hero-top { flex-direction:column; }
-  .bd-hero-stats, .bd-grid { grid-template-columns:minmax(0,1fr); }
+  .bd-header { flex-direction:column; }
+  .bd-heading-line { align-items:flex-start; flex-direction:column; }
+  .bd-actions { width:100%; }
+  .bd-btn { min-height:44px; }
+  .bd-overview { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .bd-stat, .bd-stat:nth-last-child(-n+2) { grid-column:auto; }
+  .bd-stat:last-child { grid-column:1 / -1; }
+  .bd-grid { grid-template-columns:minmax(0,1fr); }
   .bd-donut { flex-direction:column; }
 }
 @media (prefers-reduced-motion:reduce) {
-  .bd-hero-glow, .bd-pulse::after { animation:none; }
+  .bd-btn { transition:none; }
   .bd-card, .bd-card:hover { transition:none; transform:none; }
 }
 </style>
