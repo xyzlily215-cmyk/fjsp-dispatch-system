@@ -9,5 +9,8 @@ agh-trace-*.zip
 # 验证驱动/评测/工作流技能不随 twin 容器运行
 driver/
 evaluation/
-workflow/
 skills/
+# workflow/ 运行时需要（agent-bff 受控工作流运行时），只排除测试与说明文档
+workflow/test-*.mts
+workflow/*.md
+agent-bff/test-*.mts

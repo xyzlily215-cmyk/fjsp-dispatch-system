@@ -17,9 +17,13 @@ function trustedLinkApiBase(value) {
   return null;
 }
 
+// 最终回退与 AGENT_API_BASE 同规则：本机页面直连 8081（演示脚本拓扑），
+// 其他主机（云服务器经 Nginx 同源反代）走同源 /api/v1。
 export const API_BASE = trustedLinkApiBase(new URLSearchParams(location.search).get('api'))
   || localStorage.getItem('fjsp.apiBase')
-  || 'http://localhost:8081/api/v1';
+  || (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+    ? 'http://localhost:8081/api/v1'
+    : location.origin + '/api/v1');
 
 const TOKEN_KEY = 'fjsp.token';
 

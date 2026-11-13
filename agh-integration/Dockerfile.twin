@@ -27,6 +27,14 @@ WORKDIR /app/agh-integration
 # AGH 源码树（含已构建的 packages/cli/dist 与 node_modules）
 COPY agnes-harness/ agnes-harness/
 
+# 本机拷入的 @agnes/system-node 原生插件是 macOS 构建（Mach-O），Linux 下无法加载：
+# 用随包源码在镜像内重新编译（node:24 完整镜像自带 cc 与 /usr/local/include/node 头文件），
+# 输出到 daemon 解析 "@agnes/system-node/native" 的实际位置，并加载一次断言可用。
+RUN NATIVE_DIR=/app/agh-integration/agnes-harness/packages/cli/dist/local/node_modules/@agnes/system-node/dist/native \
+ && rm -f "$NATIVE_DIR/agnes-system.node" \
+ && node agnes-harness/packages/system-node/scripts/build-native.mjs --output-dir "$NATIVE_DIR" \
+ && node -e "require(process.argv[1])" "$NATIVE_DIR/agnes-system.node"
+
 # fjsp-tools 插件源（daemon 经 reinstall-plugin.mts 以 file:./fjsp-tools 安装）
 COPY fjsp-tools/ fjsp-tools/
 
@@ -37,6 +45,10 @@ COPY agent-bff/package.json agent-bff/package-lock.json agent-bff/
 RUN cd agent-bff && npm ci --omit=dev --ignore-scripts \
  && test -f node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node
 COPY agent-bff/ agent-bff/
+
+# agent-bff 引用的受控工作流运行时（../workflow）及其依赖的分析守卫插件（../analysis-guard）
+COPY workflow/ workflow/
+COPY analysis-guard/ analysis-guard/
 
 # MHS 虚拟设备：重建 Linux venv（pillow 用于机床面板画面数据源）
 COPY mhs-devices/machine-m03.py mhs-devices/

@@ -54,3 +54,14 @@ test('invalid links fall back to explicitly configured base', async () => {
     assert.equal(request.url, 'https://trusted.example.test/api/v1/dashboard');
   }
 });
+
+test('public host without link or stored base uses same-origin API', async () => {
+  const request = await requestFrom('http://121.196.213.39/', null, null);
+  assert.equal(request.url, 'http://121.196.213.39/api/v1/dashboard');
+  assert.equal(request.authorization, 'Bearer test-token');
+});
+
+test('public host ignores external link and stays same-origin', async () => {
+  const request = await requestFrom('http://121.196.213.39/', 'https://attacker.invalid/api/v1', null);
+  assert.equal(request.url, 'http://121.196.213.39/api/v1/dashboard');
+});
