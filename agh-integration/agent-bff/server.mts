@@ -57,7 +57,7 @@
 //       FJSP_WORKFLOW_DIR（审计聚合读取工作流检查点目录，默认 ~/.agh/fjsp-workflows，与 workflow/checkpoint.mts 同约定）
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { appendFileSync, chmodSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import * as XLSX from 'xlsx'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -491,7 +491,10 @@ const approvals = new Map<string, ApprovalRecord>()
 // 路径晚绑定 env：测试可在运行中切换 AGENT_BFF_APPROVALS_FILE。
 function saveApprovals() {
   try {
-    writeFileSync(process.env.AGENT_BFF_APPROVALS_FILE ?? APPROVALS_FILE, JSON.stringify(Object.fromEntries(approvals), null, 2))
+    const file = process.env.AGENT_BFF_APPROVALS_FILE ?? APPROVALS_FILE
+    // 0600：记录含会话/业务对象/参数摘要；mode 只在新建时生效，存量文件补 chmod 收敛
+    writeFileSync(file, JSON.stringify(Object.fromEntries(approvals), null, 2), { mode: 0o600 })
+    chmodSync(file, 0o600)
   } catch (err) {
     console.error('[agent-bff] 审批记录持久化写入失败:', err)
   }
@@ -606,12 +609,24 @@ function approvalSummary(record: ApprovalRecord) {
 
 // 惰性过期（仅无 daemon 承诺可 settle 的路径：GET 查询 / 工作流登记审批的裁决）：
 // 读取时发现 pending 已过有效期 → 落 expired + 审计 + 持久化。返回是否发生了过期转换。
-function expireIfDue(record: ApprovalRecord, by: string): boolean {
+function expireIfDue(record: ApprovalRecord, by: string, detail = '读取时发现已过有效期（惰性过期）'): boolean {
   if (record.status !== 'pending' || Date.now() <= record.expiresAt) return false
   record.status = 'expired'
-  auditApproval(record, 'expired', by, '读取时发现已过有效期（惰性过期）')
+  auditApproval(record, 'expired', by, detail)
   saveApprovals()
   return true
+}
+
+// 登记审批（POST /approvals 与 Web 工作流运行时）没有 daemon 承诺可挂超时：到期主动落
+// expired + 审计 + 广播 permission_resolved，避免"永不裁决且无人 GET"时零审计留痕。
+// 已裁决的记录 expireIfDue 直接 no-op；unref 不拖住进程退出。
+function scheduleRegisteredExpiry(record: ApprovalRecord, conv: Conversation) {
+  const timer = setTimeout(() => {
+    if (expireIfDue(record, 'system', '登记审批到期未裁决（定时过期）')) {
+      broadcast(conv, 'permission_resolved', { requestId: record.requestId, verdict: { verdict: 'rejected' } })
+    }
+  }, Math.max(record.expiresAt - Date.now(), 0) + 50)
+  timer.unref?.()
 }
 
 // 审计：批准/拒绝/过期/越权尝试/超时一律落 JSONL，含操作者、工具、参数摘要、业务对象。
@@ -621,7 +636,7 @@ function expireIfDue(record: ApprovalRecord, by: string): boolean {
 // 审计路径晚绑定 env：测试可在运行中切换 AGENT_BFF_AUDIT_FILE 制造写失败。
 function writeAudit(entry: Record<string, unknown>): boolean {
   try {
-    appendFileSync(process.env.AGENT_BFF_AUDIT_FILE ?? AUDIT_FILE, JSON.stringify(entry) + '\n')
+    appendFileSync(process.env.AGENT_BFF_AUDIT_FILE ?? AUDIT_FILE, JSON.stringify(entry) + '\n', { mode: 0o600 })
     return true
   } catch (err) {
     console.error('[agent-bff] 审批审计写入失败:', err)
@@ -1131,6 +1146,7 @@ const workflowRuntime = new ManagedWorkflowRuntime({
     if (!conv?.owner) throw new Error('WORKFLOW_CONVERSATION_UNAVAILABLE')
     const toolCall = { name, args }
     const rec = buildApprovalRecord(conv, randomUUID(), toolCall, undefined, workflowId)
+    scheduleRegisteredExpiry(rec, conv)
     broadcast(conv, 'permission_request', { requestId: rec.requestId, toolCall, options: [], deadlineMs: rec.expiresAt,
       approval: { tool: rec.tool, risk: rec.risk, summary: rec.argsSummary, digest: rec.argsDigest.slice(0, 12),
         bizObject: rec.bizObject, requiredRoles: rec.requiredRoles, expiresAt: rec.expiresAt } })
@@ -1332,6 +1348,11 @@ const server = createServer(async (req, res) => {
         else auditAttempt(conversationId, requestId, user.username, '审批记录/会话不存在（404 探测）')
         return sendJson(res, 404, { error: 'permission_not_found' })
       }
+      if (record.status === 'expired' || record.status === 'timeout') {
+        // 已被定时器/惰性过期收口：仍按过期语义 410（与"裁决时才发现过期"同口径），不报已裁决
+        auditApproval(record, 'rejected', user.username, `过期后裁决尝试（已是 ${record.status}）`)
+        return sendJson(res, 410, { error: 'approval_expired', detail: '审批请求已过期' })
+      }
       if (record.status !== 'pending') {
         auditApproval(record, 'rejected', user.username, `重复裁决尝试（已是 ${record.status}）`)
         return sendJson(res, 409, { error: 'approval_already_decided', detail: '该审批已被裁决过' })
@@ -1386,6 +1407,7 @@ const server = createServer(async (req, res) => {
       const requestId = randomUUID()
       const record = buildApprovalRecord(conv, requestId, toolCall, typeof body.ttlMs === 'number' ? body.ttlMs : undefined,
         typeof body.workflowId === 'string' ? body.workflowId : undefined)
+      scheduleRegisteredExpiry(record, conv)
       broadcast(conv, 'permission_request', {
         requestId,
         toolCall,

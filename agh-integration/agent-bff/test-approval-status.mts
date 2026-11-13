@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -225,6 +225,39 @@ try {
   assert.equal(lateDecide.status, 410)
   assert.equal(lateDecide.data.error, 'approval_expired')
   ok('过期：GET 惰性过期报 expired，过期后裁决 → 410 approval_expired')
+
+  // 9b. 到期定时器：登记后无人 GET、无人裁决，到期也应主动落 expired + 审计 + 广播收口
+  const regIdle = await api('POST', '/approvals', {
+    token: 'tok-bob',
+    body: { conversationId: 'conv-bob', toolCall: { name: 'fjsp_publish', args: { planVersionId: 'PV-11' } } },
+  })
+  assert.equal(regIdle.status, 202)
+  const idleId = regIdle.data.approval.requestId
+  await new Promise((r) => setTimeout(r, APPROVAL_TTL_MS + 400))
+  assert.equal(persisted()[idleId]?.status, 'expired', '定时器应把无人处理的登记审批落 expired')
+  const idleAudit = auditLines().find((l) => l.requestId === idleId && l.result === 'expired')
+  assert.ok(idleAudit && idleAudit.by === 'system' && /定时过期/.test(idleAudit.detail), '定时过期应以 system 身份留痕')
+  const idleResolved = bff.conversations.get('conv-bob')!.buffer
+    .find((e) => e.event === 'permission_resolved' && JSON.parse(e.data).requestId === idleId)
+  assert.ok(idleResolved, '定时过期应广播 permission_resolved 收起前端卡片')
+  const idleDecide = await api('POST', '/permission', {
+    token: 'tok-bob', body: { conversationId: 'conv-bob', requestId: idleId, verdict: 'allowed-once' },
+  })
+  assert.equal(idleDecide.status, 410, '定时过期后裁决仍报 410（不是 409 已裁决）')
+  ok('到期定时器：无人 GET 也落 expired + system 审计 + permission_resolved，之后裁决 410')
+
+  // 9c. 跨用户登记：alice 不能在 bob 的会话里登记审批
+  const crossReg = await api('POST', '/approvals', {
+    token: 'tok-alice',
+    body: { conversationId: 'conv-bob', toolCall: { name: 'fjsp_publish', args: { planVersionId: 'PV-12' } } },
+  })
+  assert.equal(crossReg.status, 403, JSON.stringify(crossReg.data))
+  ok('POST /approvals 跨用户登记 → 403')
+
+  // 9d. 文件权限：审批记录与审计 JSONL 均为 0600
+  assert.equal(statSync(join(tmp, 'approvals.json')).mode & 0o777, 0o600, '.approvals.json 应为 0600')
+  assert.equal(statSync(join(tmp, 'audit.jsonl')).mode & 0o777, 0o600, '审计 JSONL 应为 0600')
+  ok('审批记录与审计文件权限 0600')
 
   // 10. 持久化文件可供重启恢复；loadApprovalsFromFile 把遗留 pending 置 expired（旧批准不回放）
   const staged = join(tmp, 'approvals-restart.json')

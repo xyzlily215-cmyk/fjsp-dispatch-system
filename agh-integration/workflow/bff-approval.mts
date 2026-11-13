@@ -22,7 +22,17 @@ export class BffUnavailableError extends Error {
   }
 }
 
-export type BffApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'timeout' | 'not_found'
+// BFF 明确拒绝（403：工作流账号不是会话属主 / 会话为历史遗留）：重试不会自愈，
+// 调用方应转人工而不是无限等待。permanent 标记供 runner 识别（避免循环 import）。
+export class BffForbiddenError extends Error {
+  readonly permanent = true
+  constructor(message: string) {
+    super(message)
+    this.name = 'BffForbiddenError'
+  }
+}
+
+export type BffApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'timeout' | 'not_found' | 'forbidden'
 
 export interface BffApprovalClientOptions {
   baseUrl: string // 如 http://127.0.0.1:4178/agent-api
@@ -68,6 +78,7 @@ function client(opts: BffApprovalClientOptions): BffApprovalClient {
         // 关联键贯通（任务 4.2）：审批记录带 workflowId，审计聚合可按工作流回溯审批链
         ...(req.workflowId ? { workflowId: req.workflowId } : {}),
       })
+      if (status === 403) throw new BffForbiddenError(`BFF 拒绝登记审批（HTTP 403）：${JSON.stringify(data)}`)
       const approval = data?.approval as { requestId?: unknown; expiresAt?: unknown } | undefined
       if ((status !== 200 && status !== 202) || typeof approval?.requestId !== 'string' || typeof approval?.expiresAt !== 'number') {
         throw new BffUnavailableError(`BFF 登记审批失败（HTTP ${status}）：${JSON.stringify(data)}`)
@@ -77,6 +88,7 @@ function client(opts: BffApprovalClientOptions): BffApprovalClient {
     async check(requestId) {
       const { status, data } = await request('GET', `/approvals/${encodeURIComponent(requestId)}`)
       if (status === 404) return 'not_found'
+      if (status === 403) return 'forbidden'
       const s = (data?.approval as { status?: unknown } | undefined)?.status
       if (status === 200 && typeof s === 'string' && KNOWN_STATUS.has(s)) return s as BffApprovalStatus
       throw new BffUnavailableError(`BFF 审批查询失败（HTTP ${status}）：${JSON.stringify(data)}`)
@@ -100,6 +112,7 @@ export function makeApprovalChecker(opts: BffApprovalClientOptions): (approval: 
     const s = await c.check(approval.requestId)
     if (s === 'pending') return 'pending'
     if (DECIDED.has(s)) return 'decided'
+    if (s === 'forbidden') return 'forbidden' // 403 不可自愈：recovery 转人工，不当作不可达无限挂起
     return 'expired' // expired / timeout / not_found：无法确认有效即标过期重发（方案 3.5）
   }
 }
@@ -116,6 +129,7 @@ export async function pollApprovalDecision(
   while (true) {
     const s = await c.check(approval.requestId)
     if (s === 'approved' || s === 'rejected') return s
+    if (s === 'forbidden') throw new BffForbiddenError(`BFF 拒绝审批查询（HTTP 403）：requestId ${approval.requestId}`)
     if (s !== 'pending') return 'expired'
     if (Date.now() >= deadline) return 'expired'
     await new Promise((r) => setTimeout(r, pollMs))

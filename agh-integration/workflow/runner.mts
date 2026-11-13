@@ -123,6 +123,11 @@ export async function suspendForApproval(
       approval = { ...approval, requestId: reg.requestId, expiresAt: reg.expiresAt }
       log(`节点 ${nodeName} 审批已登记 BFF：requestId ${reg.requestId}`)
     } catch (e) {
+      if ((e as { permanent?: boolean })?.permanent) {
+        // BFF 明确拒绝（403）：落本地句柄只会在恢复时 404→重发→再 403 循环，直接转人工
+        log(`节点 ${nodeName} BFF 拒绝登记审批（${String(e)}），转人工`)
+        return store.setStatus(workflowId, 'FAILED', `审批登记被 BFF 拒绝：${String(e)}`)
+      }
       // 登记失败不阻断挂起：落本地句柄，恢复时核对不到有效审批即标过期重发
       log(`节点 ${nodeName} BFF 审批登记失败（${String(e)}），先落本地句柄待恢复重发`)
     }

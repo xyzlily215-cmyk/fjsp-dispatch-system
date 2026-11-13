@@ -26,7 +26,7 @@ import {
 // （保守方向：过期重发，不回放旧批准）。任务 3.4 起由 bff-approval.mts 的
 // makeApprovalChecker 注入真实核对（调 BFF GET /agent-api/approvals/:requestId），
 // 能返回 pending/decided；核对器抛错（BFF 不可达）时 recover 输出 unavailable 不推进。
-export type ApprovalValidity = 'pending' | 'decided' | 'expired' | 'unknown'
+export type ApprovalValidity = 'pending' | 'decided' | 'expired' | 'unknown' | 'forbidden'
 
 // 副作用核对结论：
 //   done          副作用已发生（业务现态中有证据）→ 跳过重做，补登记后继续；
@@ -220,6 +220,12 @@ export async function recover(store: CheckpointStore, workflowId: string, deps: 
     } catch (e) {
       // 审批核对失败（如 BFF 不可达）：与业务现态不可核对同口径，fail-safe 不推进
       return { action: 'unavailable', workflowId, reason: `审批状态核对失败：${String(e)}` }
+    }
+    if (validity === 'forbidden') {
+      // BFF 明确 403（工作流账号非会话属主 / 历史遗留会话）：重试与重发都不会自愈，转人工
+      const msg = '审批状态核对被 BFF 拒绝（403）：工作流账号无权访问该审批所属会话，需人工处理'
+      store.setStatus(workflowId, 'FAILED', msg)
+      return { action: 'needs-human', workflowId, reason: msg }
     }
     const expiredByClock = now() > Date.parse(cp.pendingApproval.expiresAt)
     if (validity === 'pending' && !expiredByClock) {

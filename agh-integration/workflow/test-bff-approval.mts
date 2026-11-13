@@ -13,6 +13,7 @@ import { buildDisturbanceFlow, type FlowTools, type DisturbanceEventInput } from
 import type { DisturbanceAgent } from './agent-nodes.mts'
 import {
   BffUnavailableError,
+  BffForbiddenError,
   createBffApprovalChannel,
   makeApprovalChecker,
   pollApprovalDecision,
@@ -87,6 +88,7 @@ function makeMockBff() {
   const requests: { method: string; path: string; body?: Record<string, unknown>; auth?: string }[] = []
   let n = 0
   let unreachable = false
+  let forbidden = false
   const fetchImpl = (async (url: string | URL, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
     const u = String(url)
     const path = u.slice(u.indexOf('/agent-api') + '/agent-api'.length)
@@ -94,6 +96,7 @@ function makeMockBff() {
     requests.push({ method: init?.method ?? 'GET', path, body, auth: init?.headers?.Authorization })
     if (unreachable) throw new Error('connect ECONNREFUSED')
     const json = (status: number, data: unknown) => ({ status, json: async () => data }) as unknown as Response
+    if (forbidden) return json(403, { error: 'conversation_forbidden', detail: '审批所属会话属于其他用户' })
     if (init?.method === 'POST' && path === '/approvals') {
       const requestId = `bff-req-${++n}`
       const expiresAt = Date.now() + ((body?.ttlMs as number) ?? 5 * 60_000)
@@ -124,6 +127,7 @@ function makeMockBff() {
       rec.status = 'expired'
     },
     setUnreachable(v: boolean) { unreachable = v },
+    setForbidden(v: boolean) { forbidden = v },
   }
 }
 
@@ -273,6 +277,43 @@ async function testRegisterFailureFallsBackToLocalHandle() {
   console.log('ok 登记失败 → 回落本地句柄（恢复时重发）')
 }
 
+async function testRecoveryForbiddenNeedsHuman() {
+  const { store, workflowId } = setup()
+  const { tools } = makeMockTools()
+  const bff = makeMockBff()
+  const channel = createBffApprovalChannel(bff.opts)!
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent, log, approvalChannel: channel })
+  assert.equal(cp.status, 'WAITING_APPROVAL')
+  bff.setForbidden(true)
+
+  const decision = await recover(store, workflowId, {
+    readDashboard: async () => ({ ok: true, currentPlan: { id: 'pv-old' }, recentEvents: [{ eventId: 'ev-1' }] }),
+    readTask: async (taskId: string) => ({ ok: true, task: { taskId, status: 'SUCCESS', resultStatus: 'FEASIBLE', planVersionId: 'pv-new-1' } }),
+    readPlan: async (planVersionId: string) => ({ ok: true, plan: { id: planVersionId, status: 'REVIEW_PENDING' } }),
+    checkApproval: makeApprovalChecker(bff.opts),
+  })
+  assert.equal(decision.action, 'needs-human', '403 不可自愈，应转人工而非 unavailable 无限挂起')
+  assert.equal(store.load(workflowId)!.status, 'FAILED')
+
+  await assert.rejects(
+    pollApprovalDecision(bff.opts, cp.pendingApproval!, { pollMs: 5 }),
+    (e) => e instanceof BffForbiddenError,
+    '轮询遇 403 抛 BffForbiddenError（与不可达区分）',
+  )
+  console.log('ok 恢复：BFF 403 → needs-human + FAILED，轮询抛 BffForbiddenError')
+}
+
+async function testRegisterForbiddenFails() {
+  const { store, workflowId } = setup()
+  const { tools } = makeMockTools()
+  const bff = makeMockBff()
+  bff.setForbidden(true)
+  const cp = await runWorkflow(workflowId, buildDisturbanceFlow(), { store, tools, agent, log, approvalChannel: createBffApprovalChannel(bff.opts)! })
+  assert.equal(cp.status, 'FAILED', '登记被 403 拒绝不应落本地句柄（否则恢复时 404→重发→403 循环）')
+  assert.equal(cp.pendingApproval ?? null, null)
+  console.log('ok 登记被 BFF 403 拒绝 → FAILED 转人工')
+}
+
 const tests = [
   testSuspendRegisterApproveCompletes,
   testRejectTerminates,
@@ -280,6 +321,8 @@ const tests = [
   testRecoveryExpiredReissues,
   testRecoveryBffUnreachableDoesNotAdvance,
   testRegisterFailureFallsBackToLocalHandle,
+  testRecoveryForbiddenNeedsHuman,
+  testRegisterForbiddenFails,
 ]
 
 let failed = 0
