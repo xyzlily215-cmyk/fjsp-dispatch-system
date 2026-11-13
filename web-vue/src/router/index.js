@@ -6,13 +6,15 @@ import { useAuthStore } from '../stores/auth';
  * meta: { section, title, roles? } —— roles 供菜单过滤与路由守卫（服务端仍强校验）。 */
 const routes = [
   { path: '/login', name: 'login', component: () => import('../layout/LoginView.vue'), meta: { public: true } },
+  /* 数据大屏：独立全屏路由，不套 AppLayout 外壳；假数据阶段免登录，接真数据后再定访问控制 */
+  { path: '/screen', name: 'screen', component: () => import('../views/ScreenView.vue'), meta: { public: true } },
   {
     path: '/',
     component: () => import('../layout/AppLayout.vue'),
     children: [
       { path: '', redirect: { name: 'board' } },
       { path: 'board', name: 'board', component: () => import('../views/BoardView.vue'), meta: { section: '工作台', title: '调度看板' } },
-      { path: 'twin', name: 'twin', component: () => import('../views/TwinView.vue'), meta: { section: '工作台', title: '数字孪生车间' } },
+      { path: 'twin', name: 'twin', component: () => import('../views/TwinView.vue'), meta: { section: '工作台', title: '加工中心' } },
       { path: 'machines', name: 'machines', component: () => import('../views/MachinesView.vue'), meta: { section: '基础数据', title: '设备管理' } },
       { path: 'calendar', name: 'calendar', component: () => import('../views/CalendarView.vue'), meta: { section: '基础数据', title: '设备日历' } },
       { path: 'templates', name: 'templates', component: () => import('../views/TemplatesView.vue'), meta: { section: '基础数据', title: '工艺模板' } },

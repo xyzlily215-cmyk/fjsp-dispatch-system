@@ -21,8 +21,10 @@ export default defineConfig({
              （若给 element-plus 强制成组会把整库拉进该 chunk，破坏按需 tree-shaking）。
              echarts/zrender 单独成 chunk：只有甘特路由引用它，rollup 只打包已被按需
              tree-shaking 选中的模块，该 chunk 仍随甘特路由懒加载；独立出来是为避免
-             甘特业务代码 + echarts 合成一个超 600kB 预警线的巨型 chunk。 */
+             甘特业务代码 + echarts 合成一个超 600kB 预警线的巨型 chunk；three 同理按数字孪生路由拆分。 */
           if (/[\\/]node_modules[\\/](echarts|zrender)[\\/]/.test(id)) return 'echarts';
+          if (/[\\/]node_modules[\\/]three[\\/]examples[\\/]jsm[\\/](postprocessing|shaders|math)[\\/]/.test(id)) return 'three-effects';
+          if (/[\\/]node_modules[\\/]three[\\/]/.test(id)) return 'three';
           if (/[\\/]node_modules[\\/](vue|vue-router|pinia|@vue)([\\/]|$)/.test(id)) return 'vendor';
         },
       },
