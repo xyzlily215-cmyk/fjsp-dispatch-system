@@ -25,11 +25,14 @@ psqlq(){ docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -t -A -c "$1
 say "0. 登录获取 token（默认 admin，可用 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 覆盖）"
 AUTH_USER="${FJSP_AUTH_USER:-admin}"
 AUTH_PASS="${FJSP_AUTH_PASSWORD:-Fj@123456}"
+TOKEN="${FJSP_AUTH_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
 LOGIN=$(command curl -s -X POST "$BASE/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"$AUTH_USER\",\"password\":\"$AUTH_PASS\"}")
 TOKEN=$(echo "$LOGIN" | jqget "['data']['token']")
-[ -n "$TOKEN" ] && [ "$TOKEN" != "None" ] && ok "登录成功 user=$AUTH_USER" || { bad "登录失败: $LOGIN"; exit 1; }
+[ -n "$TOKEN" ] && [ "$TOKEN" != "None" ] && ok "登录成功 user=$AUTH_USER" || { bad "登录失败: $LOGIN；启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN。"; exit 1; }
+fi
 # 后续所有 curl 调用统一携带 Bearer token（shell 函数覆盖，保持下面写法不变）
 curl() { command curl -H "Authorization: Bearer $TOKEN" "$@"; }
 

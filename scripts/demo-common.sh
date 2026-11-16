@@ -170,11 +170,16 @@ wait_for_readiness() {
 
 # 登录业务服务并导出 FJSP_AUTH_TOKEN（默认 admin 演示账号，可用 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 覆盖）
 demo_auth_login() {
+  # 图形验证码由用户在登录页完成；自动化优先复用该会话的令牌。
+  if [[ -n "${FJSP_AUTH_TOKEN:-}" ]]; then
+    export FJSP_AUTH_TOKEN
+    return 0
+  fi
   local body
   body="$(curl -fsS -X POST "$FJSP_API_BASE/auth/login" \
     -H 'Content-Type: application/json' -H 'X-Source: demo-script' \
     -d "{\"username\":\"$FJSP_AUTH_USER\",\"password\":\"$FJSP_AUTH_PASSWORD\"}")" || {
-      printf '登录业务服务失败: %s\n' "$FJSP_API_BASE" >&2
+      printf '登录业务服务失败: %s；启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN。\n' "$FJSP_API_BASE" >&2
       return 1
     }
   FJSP_AUTH_TOKEN="$(printf '%s' "$body" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["token"])')"

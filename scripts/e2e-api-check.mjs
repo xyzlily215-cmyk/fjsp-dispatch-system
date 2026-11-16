@@ -4,7 +4,7 @@ const API = process.env.FJSP_API || 'http://localhost:8081/api/v1';
 const AUTH_USER = process.env.FJSP_AUTH_USER || 'admin';
 const AUTH_PASS = process.env.FJSP_AUTH_PASSWORD || 'Fj@123456';
 let failures = 0;
-let TOKEN = null;
+let TOKEN = process.env.FJSP_AUTH_TOKEN || null;
 
 function assert(cond, msg) {
   if (cond) { console.log('PASS ' + msg); }
@@ -37,6 +37,7 @@ console.log('== auth ==');
 {
   const raw = await fetch(API + '/machines');
   assert(raw.status === 401, `未认证 GET /machines 返回 401（实际 ${raw.status}）`);
+  if (!TOKEN) {
   const resp = await fetch(API + '/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -45,8 +46,9 @@ console.log('== auth ==');
   const json = await resp.json();
   assert(json && json.code === 'OK', `登录成功 user=${AUTH_USER}`);
   hasFields(json.data || {}, ['token', 'username', 'role', 'displayName', 'expiresAt'], 'auth/login');
-  if (!json.data || !json.data.token) throw new Error('登录失败，无法继续: ' + JSON.stringify(json));
+  if (!json.data || !json.data.token) throw new Error('登录失败，启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN: ' + JSON.stringify(json));
   TOKEN = json.data.token;
+  }
   const me = await call('/auth/me');
   assert(me.username === AUTH_USER, `auth/me 返回当前用户 ${AUTH_USER}`);
 }

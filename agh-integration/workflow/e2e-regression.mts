@@ -68,6 +68,10 @@ const flog = (m: string) => { logLines.push(m); console.log(`[flow] ${m}`) }
 // ---- 业务 API（独立于 evaluation/common.mjs，避免其 parseArgs 副作用）----
 let TOKEN = ''
 async function bizLogin() {
+  if (process.env.FJSP_AUTH_TOKEN) {
+    TOKEN = process.env.FJSP_AUTH_TOKEN
+    return
+  }
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: process.env.FJSP_AUTH_USER, password: process.env.FJSP_AUTH_PASSWORD }),

@@ -37,7 +37,7 @@ function parseArgs(argv) {
 
 const opts = parseArgs(process.argv.slice(2));
 const API = opts.base.replace(/\/+$/, '');
-let TOKEN = null;
+let TOKEN = process.env.FJSP_AUTH_TOKEN || null;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -72,10 +72,12 @@ process.on('SIGINT', () => {
 // 1. 登录
 console.log(`== 登录 ${API}（user=${opts.user}）==`);
 try {
-  const auth = await call('/auth/login', { method: 'POST', body: { username: opts.user, password: opts.password } });
-  TOKEN = auth.token;
+  if (!TOKEN) {
+    const auth = await call('/auth/login', { method: 'POST', body: { username: opts.user, password: opts.password } });
+    TOKEN = auth.token;
+  }
 } catch (e) {
-  console.error(`[失败] 登录失败：${e.message}`);
+  console.error(`[失败] 登录失败：${e.message}；启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN。`);
   process.exit(1);
 }
 

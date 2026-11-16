@@ -1,4 +1,4 @@
 package com.fjsp.business.dto;
 
-public record LoginRequest(String username, String password) {
+public record LoginRequest(String username, String password, String captchaId, String captchaCode) {
 }

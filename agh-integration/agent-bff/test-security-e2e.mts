@@ -59,13 +59,16 @@ process.env.AGNES_HUB_URL = `ws://127.0.0.1:${HUB_PORT}/ws/hub`
 process.env.AGENT_BFF_APPROVAL_TTL_MS = String(APPROVAL_TTL_MS)
 
 async function loginReal(username: string): Promise<string> {
+  // 多角色安全回归需要各角色自己的会话，不能复用同一个 admin token。
+  const token = process.env[`FJSP_AUTH_TOKEN_${username.toUpperCase()}`]
+  if (token) return token
   const res = await fetch(`${FJSP_API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password: SEED_PASSWORD }),
   })
   const json = await res.json().catch(() => null)
-  assert.ok(res.ok && json?.data?.token, `真实登录失败: ${username} HTTP ${res.status}`)
+  assert.ok(res.ok && json?.data?.token, `真实登录失败: ${username} HTTP ${res.status}；启用验证码后请设置 FJSP_AUTH_TOKEN_${username.toUpperCase()}`)
   return json.data.token as string
 }
 

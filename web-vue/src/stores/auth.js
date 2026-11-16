@@ -27,13 +27,29 @@ export const useAuthStore = defineStore('auth', {
     hasAnyRole(...roles) {
       return this.role === 'ADMIN' || roles.includes(this.role);
     },
-    async login(username, password) {
+    async loadCaptcha() {
+      let resp;
+      try {
+        resp = await fetch(API_BASE + '/auth/captcha', {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch (e) {
+        throw new ApiError('E_NETWORK', '验证码加载失败，请检查网络后重试');
+      }
+      const body = await resp.json().catch(() => null);
+      if (!resp.ok || !body || body.code !== 'OK') {
+        throw new ApiError(body?.code || 'E_HTTP_' + resp.status, body?.message || '验证码加载失败，请重试');
+      }
+      return body.data;
+    },
+    async login(username, password, captchaId, captchaCode) {
       let resp;
       try {
         resp = await fetch(API_BASE + '/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Source': 'web' },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, captchaId, captchaCode }),
           signal: AbortSignal.timeout(15000),
         });
       } catch (e) {
@@ -43,7 +59,7 @@ export const useAuthStore = defineStore('auth', {
             : '无法连接业务服务 ' + API_BASE + '：' + (e && e.message));
       }
       const body = await resp.json().catch(() => null);
-      if (!body || body.code !== 'OK') {
+      if (!resp.ok || !body || body.code !== 'OK') {
         throw new ApiError(body && body.code ? body.code : 'E_HTTP_' + resp.status,
           body && body.message ? body.message : '登录失败');
       }

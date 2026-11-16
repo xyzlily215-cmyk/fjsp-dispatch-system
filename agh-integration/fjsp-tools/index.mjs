@@ -297,7 +297,7 @@ async function apiWithRetry(method, path, body, allowReauth, idempotencyKey) {
   if (res.status === 401) {
     return {
       ok: false,
-      error: { code: 'FJSP_UNAUTHORIZED', message: '业务服务认证失败，请检查 FJSP_AUTH_USER/FJSP_AUTH_PASSWORD 或 FJSP_AUTH_TOKEN', httpStatus: 401 },
+      error: { code: 'FJSP_UNAUTHORIZED', message: '业务服务认证失败；启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN，令牌过期后需重新登录更新', httpStatus: 401 },
     }
   }
   if (!res.ok || (env && typeof env.code === 'string' && env.code !== 'OK')) {

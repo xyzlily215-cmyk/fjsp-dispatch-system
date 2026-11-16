@@ -28,6 +28,8 @@ const assert = (cond, msg) => {
   else { failures++; console.log('FAIL ' + msg) }
 }
 
+let TOKEN = process.env.FJSP_AUTH_TOKEN
+if (!TOKEN) {
 const loginRes = await fetch(`${FJSP_API_BASE}/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -35,10 +37,11 @@ const loginRes = await fetch(`${FJSP_API_BASE}/auth/login`, {
 })
 const loginJson = await loginRes.json()
 if (!loginRes.ok || !loginJson?.data?.token) {
-  console.error(`FAIL: 登录回归业务服务失败 HTTP ${loginRes.status}`)
+  console.error(`FAIL: 登录回归业务服务失败 HTTP ${loginRes.status}；启用验证码后请设置 FJSP_AUTH_TOKEN。`)
   process.exit(1)
 }
-const TOKEN = loginJson.data.token
+TOKEN = loginJson.data.token
+}
 
 async function breakdownCount() {
   const res = await fetch(`${FJSP_API_BASE}/events?eventType=BREAKDOWN&page=0&size=1`, {

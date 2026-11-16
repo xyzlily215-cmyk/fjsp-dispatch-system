@@ -71,6 +71,10 @@ export async function api(opts, path, { method = 'GET', body, idem, expectError 
 }
 
 export async function login(opts) {
+  if (process.env.FJSP_AUTH_TOKEN) {
+    TOKEN = process.env.FJSP_AUTH_TOKEN;
+    return;
+  }
   const resp = await fetch(opts.base + '/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,7 +82,7 @@ export async function login(opts) {
   });
   const json = await resp.json().catch(() => null);
   if (!resp.ok || !json?.data?.token) {
-    throw new Error(`登录业务服务失败: ${opts.base}（HTTP ${resp.status} ${json?.code || ''}）`);
+    throw new Error(`登录业务服务失败: ${opts.base}（HTTP ${resp.status} ${json?.code || ''}）；启用验证码后请先网页登录并设置 FJSP_AUTH_TOKEN。`);
   }
   TOKEN = json.data.token;
   console.log(`== 登录 ${opts.base}（user=${opts.user}）==`);
