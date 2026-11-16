@@ -45,6 +45,7 @@
         <div class="scene-stage-wrap">
           <TwinStage
             ref="stageRef"
+            initial-view="campus"
             :devices="snap.devices"
             :selected-id="selected?.id"
             :zones="snap.world?.places || []"
@@ -52,11 +53,6 @@
             labels
             @select="select"
           />
-          <div class="scene-controls" role="group" aria-label="车间视角">
-            <button type="button" class="t-btn small" @click="stageRef?.focusDevice()">设备近景</button>
-            <button type="button" class="t-btn small" @click="stageRef?.focusScene('overview')">立体视角</button>
-            <button type="button" class="t-btn small" @click="stageRef?.focusScene('top')">俯视车间</button>
-          </div>
           <div v-if="!snap.devices.length" class="scene-empty">等待设备上线 · 模型将按实时坐标显示</div>
         </div>
         <div class="scene-hint">拖动旋转 · 滚轮缩放 · 点击设备查看详情</div>

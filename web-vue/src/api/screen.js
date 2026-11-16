@@ -112,19 +112,20 @@ export async function getWorkshopDevices() {
     id: `cnc-m${String(i + 1).padStart(2, '0')}`,
     name,
     kind: 'machine',
-    online: statuses[i] !== 'down' || Math.random() > 0.5,
+    online: true,
     status: statuses[i],
     load: [87, 92, 78, 0, 85, 90, 66, 81][i],
     position: { x: xs[i], y: ys[i], yaw: ys[i] > 5 ? 180 : 0 },
   }));
   const t = (Date.now() / 1000) % 40 / 40;
+  const progress = t <= 0.5 ? t * 2 : (1 - t) * 2;
   machines.push({
     id: 'agv-01',
     name: 'AGV-01',
     kind: 'agv',
     online: true,
     status: 'run',
-    position: { x: 2 + t * 15, y: 5, yaw: t > 0.5 ? 180 : 0 },
+    position: { x: 2 + progress * 15, y: 5, yaw: t > 0.5 ? 180 : 0 },
   });
   return machines;
 }

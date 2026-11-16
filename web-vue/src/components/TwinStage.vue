@@ -1,5 +1,13 @@
 <template>
   <div ref="host" class="twin-stage" @pointerdown="rememberPointer" @pointerup="pick">
+    <div v-if="!error" class="stage-tools" role="group" aria-label="三维车间视角" @pointerdown.stop @pointerup.stop>
+      <button type="button" :disabled="!ready" @click="focusScene('campus')">厂区外景</button>
+      <button type="button" :disabled="!ready" @click="focusScene('overview')">车间总览</button>
+      <button type="button" :disabled="!ready || !devices.length" @click="focusDevice()">设备近景</button>
+      <button type="button" :disabled="!ready" @click="focusScene('top')">俯视</button>
+      <button type="button" :disabled="!ready || reducedMotion" :aria-pressed="touring" @click="toggleTour">{{ touring ? '停止巡检' : '自动巡检' }}</button>
+    </div>
+    <div v-if="touring" class="stage-tour" role="status">正在巡检 · {{ viewLabel }}<span>拖动场景可退出</span></div>
     <div v-if="error" class="twin-stage__message" role="alert">
       <b>三维车间暂不可用</b>
       <p>{{ error }}</p>
@@ -18,6 +26,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { createDarkWorkshop, updateDarkDevices, animateDarkWorkshop, disposeDarkWorkshop } from './twinSceneDark';
 
 const props = defineProps({
@@ -25,52 +34,83 @@ const props = defineProps({
   metrics: { type: Object, default: () => ({}) },
   selectedId: { type: String, default: null },
   zones: { type: Array, default: () => [] },
-  /* 悬浮数据卡片（加工区统计/缓存区/空压站/故障/AGV 状态）：大屏开启；
-   * 加工中心页只要厂房画面，整组关闭（设备识别靠 labels 名牌） */
+  initialView: { type: String, default: 'overview' },
+  /* 悬浮故障与 AGV 标签：大屏开启；加工中心以 labels 名牌识别设备。 */
   callouts: { type: Boolean, default: true },
   /* 设备名牌与区域标签：加工中心页需要与设备卡片联动点名，大屏用悬浮卡片已足够 */
   labels: { type: Boolean, default: false },
 });
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select', 'view-change']);
 const host = ref(null);
 const error = ref('');
+const ready = ref(false);
+const touring = ref(false);
+const reducedMotion = ref(false);
+const viewLabel = ref('车间总览');
 let renderer, labels, scene, camera, controls, composer, workshop, observer;
+let motionPreference;
+let nextTourAt = 0;
+let tourIndex = 0;
+let lastFrameTime = 0;
 let callouts = [];
+let showCallouts = true;
 const labelMap = new Map();
 let downPos = null;
 
-/* 数据大屏 mock 用 'run'，MHS 真实设备用 'running'，两处数据源共用同一场景 */
-function isRun(d) {
-  return d.status === 'run' || d.status === 'running';
-}
-
 /* 相机视角预设：页签切换时平滑飞过去 */
 const SCENE_PRESETS = {
-  overview: { pos: [21, 12, 14], target: [9, 1, -3], rotate: false },
-  zoneA: { pos: [8, 9, 14], target: [8, 1.1, -2.7], rotate: false },
-  zoneB: { pos: [8, 9, -24], target: [8, 1.1, -7.3], rotate: false },
-  aisle: { pos: [23, 9, 6], target: [5.5, 0.5, -5], rotate: false },
+  overview: { pos: [20, 8.5, 13], target: [9.5, 1, -4.5], label: '车间总览' },
+  zoneA: { pos: [14, 6.8, 5], target: [8, 1.1, -2.7], label: '加工区 A' },
+  zoneB: { pos: [17, 9, -2], target: [8, 1.1, -7.3], label: '加工区 B' },
+  aisle: { pos: [21, 4.8, -0.5], target: [7, 0.6, -5], label: '物流通道' },
   top: { pos: [10, 30, -4.99], target: [10, 0, -5], rotate: false },
+  campus: { pos: [29.4, 23.8, 20.9], target: [10, 0, -2], label: '厂区外景' },
 };
+const TOUR_VIEWS = ['overview', 'zoneA', 'aisle', 'zoneB'];
 let flight = null;
 
-function setShellVisible(visible) {
-  const shell = workshop?.root.getObjectByName('hall-shell');
-  if (shell) shell.visible = visible;
+function setShellVisible(campus, top = false) {
+  const roof = workshop?.root.getObjectByName('hall-roof');
+  if (roof) roof.visible = !top;
   const surroundings = workshop?.root.getObjectByName('campus-context');
-  if (surroundings) surroundings.visible = visible;
+  if (surroundings) surroundings.visible = campus;
+  const ground = workshop?.root.getObjectByName('workshop-ground');
+  if (ground) ground.visible = !campus;
 }
 
-function focusScene(key) {
+function stopTour() {
+  touring.value = false;
+}
+
+function focusScene(key, automatic = false) {
   const preset = SCENE_PRESETS[key];
   if (!preset || !camera || !controls) return;
+  if (!automatic) stopTour();
+  emit('view-change', key);
+  showCallouts = key === 'overview';
+  for (const callout of callouts) callout.visible = showCallouts;
+  viewLabel.value = preset.label || '俯视车间';
   flight = {
     pos: new THREE.Vector3(...preset.pos),
     target: new THREE.Vector3(...preset.target),
-    rotate: preset.rotate,
+    rotate: false,
   };
+  if (reducedMotion.value) {
+    camera.position.copy(flight.pos);
+    controls.target.copy(flight.target);
+    flight = null;
+  }
   controls.autoRotate = false;
-  setShellVisible(key === 'overview');
+  setShellVisible(key === 'campus', key === 'top' || key === 'zoneA' || key === 'zoneB');
+}
+
+function toggleTour() {
+  if (touring.value) return stopTour();
+  if (reducedMotion.value) return;
+  touring.value = true;
+  tourIndex = 0;
+  focusScene(TOUR_VIEWS[0], true);
+  nextTourAt = performance.now() + 6500;
 }
 
 /* 设备近景：优先选中设备，否则第一台在线机床（加工中心页「设备近景」按钮） */
@@ -80,14 +120,25 @@ function focusDevice(id) {
     || props.devices.find(d => d.kind === 'machine' && d.online && d.position)
     || props.devices.find(d => d.kind === 'machine' && d.position);
   if (!device) return;
+  stopTour();
+  emit('view-change', 'device');
+  showCallouts = false;
+  for (const callout of callouts) callout.visible = false;
   const { x, y } = device.position;
+  const yaw = (device.position.yaw || 0) * Math.PI / 180;
+  const offset = new THREE.Vector3(3.3, 0, 4.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   flight = {
-    pos: new THREE.Vector3(x + 3.3, 2.9, -y + 4.3),
+    pos: new THREE.Vector3(x + offset.x, 2.9, -y + offset.z),
     target: new THREE.Vector3(x, 1.35, -y),
     rotate: false,
   };
   controls.autoRotate = false;
-  setShellVisible(false);
+  if (reducedMotion.value) {
+    camera.position.copy(flight.pos);
+    controls.target.copy(flight.target);
+    flight = null;
+  }
+  setShellVisible(false, true);
 }
 
 defineExpose({ focusScene, focusDevice });
@@ -136,35 +187,19 @@ function syncCallouts() {
   clearCallouts();
   if (!props.callouts) return;
   const machines = props.devices.filter(d => d.kind === 'machine');
-  const running = machines.filter(d => d.online && isRun(d)).length;
-  const list = [
-    {
-      title: '主厂房 · 加工区',
-      rows: [['运行设备', `${running}/${machines.length || 8}`], ['综合利用率', `${props.metrics.utilization ?? '—'}%`]],
-      pos: [12, 4.3, -9.2],
-    },
-    {
-      title: '缓存区',
-      rows: [['在制物料', '126 件'], ['今日出库', '42 批']],
-      pos: [18.4, 3.2, -6.8],
-    },
-    {
-      title: '空压站',
-      rows: [['运行状态', '正常'], ['管网压力', '0.62 MPa']],
-      pos: [-4.6, 2.0, -8.0],
-    },
-  ];
+  const list = [];
   // 故障卡片由设备状态驱动（无坐标的设备无法锚定，跳过）
-  for (const d of machines.filter(m => (m.status === 'down' || !m.online) && m.position).slice(0, 2)) {
+  for (const d of machines.filter(m => (m.status === 'down' || m.health?.level === 'bad') && m.online !== false && m.position).slice(0, 1)) {
     list.push({
       title: `${d.name || d.id} · 故障`,
-      rows: [['主轴温度报警', ''], ['已自动触发重调度', '']],
-      pos: [d.position.x, 3.5, -d.position.y],
+      rows: [],
+      pos: [d.position.x, 3.3, -d.position.y],
       danger: true,
     });
   }
   for (const item of list) {
     const obj = makeCallout(item);
+    obj.visible = showCallouts;
     obj.position.set(...item.pos);
     workshop.root.add(obj);
     callouts.push(obj);
@@ -175,8 +210,9 @@ function syncCallouts() {
   if (agvModel) {
     const agvStatus = !agv.online ? '离线'
       : ({ run: '物料配送中', running: '物料配送中', idle: '待机', down: '故障' }[agv.status] || '—');
-    const obj = makeCallout({ title: (agv.name || agv.id).toUpperCase(), rows: [['状态', agvStatus]] });
-    obj.position.set(0, 1.5, 0);
+    const obj = makeCallout({ title: `${(agv.name || agv.id).toUpperCase()} · ${agvStatus}`, rows: [] });
+    obj.visible = showCallouts;
+    obj.position.set(0, 1.1, 0);
     agvModel.add(obj);
     callouts.push(obj);
   }
@@ -222,6 +258,8 @@ function sync() {
 }
 
 function cleanup() {
+  ready.value = false;
+  stopTour();
   observer?.disconnect();
   renderer?.setAnimationLoop(null);
   controls?.dispose();
@@ -238,26 +276,31 @@ function cleanup() {
   renderer = null;
   composer = null;
   flight = null;
+  lastFrameTime = 0;
 }
 
 function initialize() {
   cleanup();
   error.value = '';
+  const initialKey = Object.hasOwn(SCENE_PRESETS, props.initialView) ? props.initialView : 'overview';
+  const initialPreset = SCENE_PRESETS[initialKey];
+  showCallouts = initialKey === 'overview';
+  viewLabel.value = initialPreset.label || '俯视车间';
   try {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xb9c9cf);
-    scene.fog = new THREE.Fog(0xb9c9cf, 65, 150);
+    scene.background = new THREE.Color('#2c414f');
+    scene.fog = new THREE.Fog('#2c414f', 28, 110);
     camera = new THREE.PerspectiveCamera(38, 1, 0.5, 180);
-    camera.position.set(...SCENE_PRESETS.overview.pos);
+    camera.position.set(...initialPreset.pos);
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.95;
+    renderer.toneMappingExposure = 0.85;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.45;
+    scene.environmentIntensity = 0.35;
     pmrem.dispose();
     host.value.append(renderer.domElement);
 
@@ -266,36 +309,38 @@ function initialize() {
     host.value.append(labels.domElement);
 
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(...SCENE_PRESETS.overview.target);
+    controls.target.set(...initialPreset.target);
     controls.enableDamping = true;
     controls.enablePan = false;
-    controls.minDistance = 10;
+    controls.minDistance = 3.5;
     controls.maxDistance = 75;
     controls.maxPolarAngle = Math.PI / 2.2;
     controls.autoRotate = false;
     controls.autoRotateSpeed = 0.45;
+    controls.addEventListener('start', () => { stopTour(); flight = null; emit('view-change', 'custom'); });
     controls.update();
 
-    /* 白昼自然光：半球天光 + 太阳平行光（投影） + 反向补光 */
-    scene.add(new THREE.HemisphereLight(0xdbe9f2, 0x706c55, 0.85));
-    const sun = new THREE.DirectionalLight(0xfff0d4, 2.5);
+    /* 冷色环境补光 + 暖色工作照明，保留设备轮廓与地坪接触阴影。 */
+    scene.add(new THREE.HemisphereLight(0xc6dce7, 0x35403b, 0.65));
+    const sun = new THREE.DirectionalLight(0xffe6bf, 1.6);
     sun.position.set(-18, 32, 24);
     sun.target.position.set(9, 0, -3);
     scene.add(sun.target);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
-    Object.assign(sun.shadow.camera, { left: -38, right: 38, top: 38, bottom: -38 });
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -23, right: 23, top: 23, bottom: -23 });
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 100;
     sun.shadow.bias = -0.00015;
     sun.shadow.normalBias = 0.025;
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xdfeaf5, 0.35);
+    const fill = new THREE.DirectionalLight(0xc1e0ee, 0.5);
     fill.position.set(-15, 12, -20);
     scene.add(fill);
 
     workshop = createDarkWorkshop();
     scene.add(workshop.root);
+    setShellVisible(initialKey === 'campus', ['top', 'zoneA', 'zoneB'].includes(initialKey));
     sync();
 
     composer = new EffectComposer(renderer);
@@ -304,6 +349,7 @@ function initialize() {
     const occlusion = new GTAOPass(scene, camera, 960, 540, undefined, { radius: 0.65, thickness: 1, distanceFallOff: 0.7, scale: 1, samples: 8 });
     occlusion.blendIntensity = 0.8;
     composer.addPass(occlusion);
+    composer.addPass(new UnrealBloomPass(new THREE.Vector2(960, 540), 0.09, 0.3, 1.5));
     composer.addPass(new OutputPass());
 
     observer = new ResizeObserver(() => {
@@ -316,13 +362,23 @@ function initialize() {
       labels.setSize(width, height);
     });
     observer.observe(host.value);
+    ready.value = true;
+    emit('view-change', initialKey);
 
     let lastRender = 0;
     renderer.setAnimationLoop((time) => {
-      if (document.hidden) return;
+      if (document.hidden && lastRender) return;
+      const delta = Math.min(0.1, Math.max(0, (time - (lastFrameTime || time)) / 1000));
+      lastFrameTime = time;
+      if (touring.value && time >= nextTourAt) {
+        tourIndex = (tourIndex + 1) % TOUR_VIEWS.length;
+        focusScene(TOUR_VIEWS[tourIndex], true);
+        nextTourAt = time + 6500;
+      }
       if (flight) {
-        camera.position.lerp(flight.pos, 0.07);
-        controls.target.lerp(flight.target, 0.07);
+        const step = 1 - Math.exp(-delta * 4);
+        camera.position.lerp(flight.pos, step);
+        controls.target.lerp(flight.target, step);
         if (camera.position.distanceTo(flight.pos) < 0.08) {
           controls.autoRotate = flight.rotate;
           flight = null;
@@ -331,7 +387,7 @@ function initialize() {
       controls.update();
       if (time - lastRender < 33) return;
       lastRender = time;
-      animateDarkWorkshop(workshop, time);
+      animateDarkWorkshop(workshop, time, reducedMotion.value);
       composer.render();
       labels.render(scene, camera);
     });
@@ -349,20 +405,53 @@ watch(() => [props.devices, props.selectedId, props.zones, props.labels], () => 
   }
 });
 watch(() => [props.metrics, props.callouts], () => { if (workshop) syncCallouts(); });
-onMounted(initialize);
-onBeforeUnmount(cleanup);
+function syncMotionPreference() {
+  reducedMotion.value = motionPreference.matches;
+  if (reducedMotion.value) {
+    stopTour();
+    if (flight) {
+      camera?.position.copy(flight.pos);
+      controls?.target.copy(flight.target);
+      flight = null;
+    }
+  }
+}
+onMounted(() => {
+  motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  syncMotionPreference();
+  motionPreference.addEventListener('change', syncMotionPreference);
+  initialize();
+});
+onBeforeUnmount(() => {
+  motionPreference?.removeEventListener('change', syncMotionPreference);
+  cleanup();
+});
 </script>
 
 <style scoped>
 .twin-stage {
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: linear-gradient(180deg, #a9c2da 0%, #d4dfe7 42%, #b3c0ba 100%);
+  background: #2c414f;
   overflow: hidden;
 }
 
 .twin-stage :deep(canvas) { display: block; }
+.stage-tools { position: absolute; z-index: 3; top: 14px; right: 14px; display: flex; gap: 4px; padding: 4px; background: #182329; border: 1px solid #4b5b61; border-radius: 4px; }
+.stage-tools button { padding: 7px 10px; border: 0; border-radius: 2px; background: transparent; color: #e3eae8; font: inherit; font-size: 12px; cursor: pointer; }
+.stage-tools button:hover { background: #344248; }
+.stage-tools button[aria-pressed=true] { background: #dcc075; color: #172126; }
+.stage-tools button:disabled { opacity: 0.45; cursor: default; }
+.stage-tools button:focus-visible { outline: 2px solid #e5c46c; outline-offset: 1px; }
+.stage-tour { position: absolute; z-index: 2; left: 18px; bottom: 58px; padding: 9px 12px; background: #1b282f; color: #f0d48c; font-size: 12px; }
+.stage-tour span { margin-left: 12px; color: #c1cfcd; }
+@media (max-width: 600px) {
+  .stage-tools { top: auto; bottom: 60px; right: 8px; left: 8px; justify-content: center; }
+  .stage-tools button { padding: 8px; }
+  .stage-tour { bottom: 110px; left: 8px; }
+}
 
 .twin-stage :deep(.twin-labels) {
   position: absolute;
@@ -386,10 +475,10 @@ onBeforeUnmount(cleanup);
 .twin-stage :deep(.twin-namelabel[data-selected]) { outline: 2px solid #00b8d9; }
 
 .twin-stage :deep(.twin-zonelabel) {
-  color: #172237;
+  color: #d5ded8;
   font-size: 12px;
   font-weight: 600;
-  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 3px #111a20;
 }
 
 /* 悬浮数据卡片：卡片 + 引线 + 锚点光斑 */
@@ -401,12 +490,10 @@ onBeforeUnmount(cleanup);
 }
 
 .twin-stage :deep(.tc-card) {
-  min-width: 150px;
-  padding: 8px 12px;
-  background: linear-gradient(160deg, rgba(18, 74, 140, 0.88), rgba(10, 40, 92, 0.85));
-  border: 1px solid rgba(64, 180, 255, 0.7);
-  border-radius: 5px;
-  box-shadow: 0 0 16px rgba(45, 140, 255, 0.35), inset 0 0 14px rgba(0, 180, 255, 0.12);
+  padding: 7px 10px;
+  background: #1c2b32;
+  border: 1px solid #617477;
+  border-radius: 3px;
   font-size: 11px;
   color: #c6d9ec;
 }
@@ -414,9 +501,8 @@ onBeforeUnmount(cleanup);
 .twin-stage :deep(.tc-card b) {
   display: block;
   font-size: 12px;
-  color: #aee2ff;
-  margin-bottom: 5px;
-  letter-spacing: 1px;
+  color: #edf2e9;
+  margin: 0;
 }
 
 .twin-stage :deep(.tc-row) {
@@ -427,7 +513,7 @@ onBeforeUnmount(cleanup);
   white-space: nowrap;
 }
 
-.twin-stage :deep(.tc-row span) { color: #8fb8e0; }
+.twin-stage :deep(.tc-row span) { color: #b4c4c6; }
 
 .twin-stage :deep(.tc-row em) {
   font-style: normal;
@@ -436,9 +522,8 @@ onBeforeUnmount(cleanup);
 }
 
 .twin-stage :deep(.twin-callout.is-danger .tc-card) {
-  background: linear-gradient(160deg, rgba(122, 22, 32, 0.9), rgba(70, 12, 20, 0.88));
+  background: #4d2728;
   border-color: rgba(255, 96, 110, 0.75);
-  box-shadow: 0 0 16px rgba(255, 77, 94, 0.4), inset 0 0 14px rgba(255, 77, 94, 0.12);
 }
 
 .twin-stage :deep(.twin-callout.is-danger .tc-card b) { color: #ffb3ba; }
@@ -447,12 +532,12 @@ onBeforeUnmount(cleanup);
 
 .twin-stage :deep(.tc-stem) {
   width: 1px;
-  height: 34px;
-  background: linear-gradient(180deg, rgba(64, 180, 255, 0.85), rgba(64, 180, 255, 0.2));
+  height: 20px;
+  background: #8eaaa9;
 }
 
 .twin-stage :deep(.twin-callout.is-danger .tc-stem) {
-  background: linear-gradient(180deg, rgba(255, 77, 94, 0.7), rgba(255, 77, 94, 0.15));
+  background: #e58a83;
 }
 
 .twin-stage :deep(.tc-dot) {

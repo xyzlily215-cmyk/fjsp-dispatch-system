@@ -31,9 +31,9 @@
       </div>
     </header>
     <section class="bd-overview" aria-label="车间生产态势总览">
-      <article v-for="s in heroStats" :key="s.label" class="bd-stat" :class="s.tone">
+      <article v-for="(s, i) in heroStats" :key="s.label" class="bd-stat bd-reveal" :class="s.tone" :style="{ '--d': i * 60 + 'ms' }">
         <div class="bd-stat-label">{{ s.label }}</div>
-        <div class="bd-stat-value">{{ s.value }}<small>{{ s.unit }}</small></div>
+        <div class="bd-stat-value"><CountUp :value="s.value" /><small>{{ s.unit }}</small></div>
         <div class="bd-stat-sub">{{ s.sub }}</div>
       </article>
     </section>
@@ -88,23 +88,47 @@
       <div class="kpis">
         <article v-for="c in kpiCards" :key="c.jump" class="kpi" :class="c.active ? `needs-${c.tone}` : ''" role="button" tabindex="0" :aria-label="c.label + '，' + c.value + (c.unit || '') + '，查看详情'" title="点击查看详情" @click="kpiJump(c.jump)" @keydown.enter.space.prevent="kpiJump(c.jump)">
           <div class="kpi-label">{{ c.label }}</div>
-          <div class="kpi-value">{{ c.value }}<span class="kpi-unit">{{ c.unit || '' }}</span></div>
+          <div class="kpi-value"><CountUp :value="c.value" /><span class="kpi-unit">{{ c.unit || '' }}</span></div>
           <div class="trend">{{ c.sub || '' }}</div>
         </article>
       </div>
+
+      <section v-if="gantt.lanes.length" class="bd-card bd-reveal bd-gantt" style="--d:120ms" aria-label="计划甘特缩略">
+        <header class="bd-card-head">
+          <h2>计划甘特缩略</h2>
+          <span>{{ gantt.lanes.length }} 台设备 · {{ gantt.orders.length }} 个订单 · {{ fmtDateTime(new Date(gantt.start).toISOString()) }} ~ {{ fmtDateTime(new Date(gantt.end).toISOString()) }}</span>
+          <a @click="kpiJump('cmax')">打开资源甘特</a>
+        </header>
+        <div class="bd-gantt-body" :class="{ hovering: hoverOrder }" @mouseleave="hoverOrder = null">
+          <div v-for="l in gantt.lanes" :key="l.machineId" class="bd-gantt-lane">
+            <span class="bd-gantt-name">{{ l.machineId }}</span>
+            <div class="bd-gantt-track">
+              <i v-for="(b, bi) in l.bars" :key="b.key" class="bd-gantt-bar"
+                 :class="{ on: hoverOrder === b.orderKey }"
+                 :style="{ left: b.left + '%', width: b.width + '%', background: orderColor(b.orderKey), '--d': bi * 25 + 'ms' }"
+                 :title="`${b.label} · ${l.machineId}\n${fmtDateTime(b.startAt)} ~ ${fmtDateTime(b.endAt)}`"
+                 @mouseenter="hoverOrder = b.orderKey"></i>
+            </div>
+          </div>
+          <div class="bd-gantt-axis">
+            <span v-for="t in ganttAxis" :key="t.pct" :style="{ left: t.pct + '%' }">{{ fmtTime(new Date(t.ms).toISOString()) }}</span>
+          </div>
+          <div v-if="gantt.nowPct !== null" class="bd-gantt-now" :style="{ left: `calc(var(--lane-x) + (100% - var(--lane-x)) * ${gantt.nowPct / 100})` }"><em>现在</em></div>
+        </div>
+      </section>
     </template>
 
     <template v-if="stats">
       <div class="bd-section-title">生产态势<span>基于订单与设备基础数据 · 排程前理论值</span></div>
       <div class="bd-grid">
-        <section class="bd-card bd-span-2">
-          <header class="bd-card-head"><h2>设备理论负荷</h2><span>候选工序工时按可选设备均摊 / 计划周期 {{ fmtMinutes(stats.totals.horizonMinutes) }}</span></header>
+        <section style="--d:70ms" class="bd-reveal bd-card bd-span-2">
+          <header class="bd-card-head"><h2>设备理论负荷</h2><span>≥85% 标红 · 候选工序工时按可选设备均摊 / 计划周期 {{ fmtMinutes(stats.totals.horizonMinutes) }}</span></header>
           <EchartPanel class="bd-chart" :option="loadOption" />
         </section>
-        <section class="bd-card">
+        <section style="--d:140ms" class="bd-reveal bd-card">
           <header class="bd-card-head"><h2>交期紧迫度</h2><span>最短加工链 / 交付窗口</span></header>
           <div class="bd-donut">
-            <EchartPanel class="bd-chart small" :option="urgencyChartOption" />
+            <EchartPanel class="bd-chart small" :option="urgencyChartOption" carousel />
             <ul class="bd-legend">
               <li v-for="u in stats.urgency" :key="u.key" :class="u.key">
                 <i></i><span>{{ u.label }}<small>{{ urgencyRange(u) }}</small></span><b>{{ u.orders }}</b>
@@ -113,11 +137,11 @@
           </div>
         </section>
 
-        <section class="bd-card bd-span-2">
-          <header class="bd-card-head"><h2>交期分布</h2><span>按小时统计订单到期数量</span></header>
+        <section style="--d:210ms" class="bd-reveal bd-card bd-span-2">
+          <header class="bd-card-head"><h2>交期分布</h2><span>按小时统计订单到期数量 · 橙线为当前时刻</span></header>
           <EchartPanel class="bd-chart" :option="dueOption" />
         </section>
-        <section class="bd-card">
+        <section style="--d:280ms" class="bd-reveal bd-card">
           <header class="bd-card-head"><h2>交期风险订单</h2><a @click="router.push({ name: 'orders' })">全部订单</a></header>
           <ol class="bd-risk-list">
             <li v-for="r in stats.riskOrders" :key="r.orderId" :class="r.level.key">
@@ -134,7 +158,7 @@
           </ol>
         </section>
 
-        <section class="bd-card">
+        <section style="--d:350ms" class="bd-reveal bd-card">
           <header class="bd-card-head"><h2>产品族构成</h2><span>订单数 · 件数</span></header>
           <div class="bd-stack" role="img" :aria-label="familyAria">
             <i v-for="(f, i) in stats.families" :key="f.family" :style="{ flexGrow: f.orders, background: familyColor(i) }"></i>
@@ -148,7 +172,7 @@
             </li>
           </ul>
         </section>
-        <section class="bd-card">
+        <section style="--d:420ms" class="bd-reveal bd-card">
           <header class="bd-card-head"><h2>订单优先级</h2><span>P5 最高 · 求解权重 8</span></header>
           <div class="bd-prio">
             <div v-for="(p, i) in stats.priorities" :key="p.level" class="bd-prio-row">
@@ -158,11 +182,11 @@
             </div>
           </div>
         </section>
-        <section class="bd-card bd-flow-card">
+        <section style="--d:490ms" class="bd-reveal bd-card bd-flow-card">
           <header class="bd-card-head"><h2>订单流转</h2><span>待排程 → 已排程 → 生产中 → 已完成</span></header>
           <div class="bd-flow">
             <div v-for="s in flowSteps" :key="s.key" class="bd-flow-step" :class="{ active: s.count > 0 }">
-              <b>{{ s.count }}</b><span>{{ s.label }}</span>
+              <b><CountUp :value="s.count" /></b><span>{{ s.label }}</span>
             </div>
           </div>
           <div class="bd-wc">
@@ -227,9 +251,11 @@ import {
 import { useSharedStore } from '../stores/shared';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import CountUp from '../components/CountUp.vue';
 import AppIcon from '../components/AppIcon.vue';
 import EchartPanel from './screen/echart-panel.vue';
-import { buildBoardStats, URGENCY_LEVELS } from '../utils/boardStats.js';
+import { buildBoardStats, hourKey, URGENCY_LEVELS } from '../utils/boardStats.js';
+import { buildGanttStrip, ganttTicks } from '../utils/boardGantt.js';
 import { BOARD_COLORS, machineLoadOption, dueDistributionOption, urgencyOption } from '../utils/boardCharts.js';
 
 const BOARD_FILTERS_KEY = 'fjsp.board.filters';
@@ -274,6 +300,8 @@ const loadError = ref(null);    // 有缓存时的刷新失败（顶部提示 + 
 const orders = ref([]);
 const machineList = ref([]);
 const ordersError = ref(null);  // 订单/设备基础数据失败只影响生产态势区，不拖垮整页
+const planOps = ref([]);        // 当前计划工序（甘特缩略条用），失败时只隐藏缩略条
+const hoverOrder = ref(null);
 
 async function load() {
   loading.value = true;
@@ -287,6 +315,7 @@ async function load() {
     await basics;
     dash.value = d;
     versions.value = v;
+    loadPlanOps(d && d.currentPlan);
     // 指定版本时 Shared 保留全局"当前发布计划"语义，避免其他页面误读选中版本
     if (!filters.planVersionId) shared.dashboard = d;
     shared.boardCache = { dash: d, versions: v };
@@ -312,6 +341,14 @@ async function load() {
     customFrom.value = isoToLocalInput(filters.from);
     customTo.value = isoToLocalInput(filters.to);
   }
+}
+
+async function loadPlanOps(p) {
+  if (!p) { planOps.value = []; return; }
+  try {
+    const page = await Api.planVersionOperations(p.id);
+    if (plan.value && plan.value.id === p.id) planOps.value = page.items || [];
+  } catch (e) { planOps.value = []; }
 }
 
 const plan = computed(() => dash.value && dash.value.currentPlan);
@@ -348,7 +385,7 @@ const versionOptions = computed(() => {
 const stats = computed(() => (orders.value.length || machineList.value.length
   ? buildBoardStats(orders.value, machineList.value) : null));
 const loadOption = computed(() => machineLoadOption(stats.value ? stats.value.machineLoad : []));
-const dueOption = computed(() => dueDistributionOption(stats.value ? stats.value.dueBuckets : []));
+const dueOption = computed(() => dueDistributionOption(stats.value ? stats.value.dueBuckets : [], hourKey(now.value)));
 const urgencyChartOption = computed(() => {
   const s = stats.value;
   const active = s ? s.urgency.reduce((n, u) => n + u.orders, 0) : 0;
@@ -405,6 +442,11 @@ const heroStats = computed(() => {
 const now = ref(new Date());
 const clock = setInterval(() => { now.value = new Date(); }, 30000);
 onBeforeUnmount(() => clearInterval(clock));
+const gantt = computed(() => buildGanttStrip(planOps.value, machineList.value, now.value.getTime()));
+const ganttAxis = computed(() => ganttTicks(gantt.value.start, gantt.value.end, 6));
+// 订单配色：分类色循环（订单多时颜色会重复，悬停同一订单会在所有设备上同时高亮）
+const GANTT_PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#8a5cd1', '#d4a017', '#e0518a', '#2fa4b8', '#6b7f99'];
+function orderColor(key) { return GANTT_PALETTE[gantt.value.orders.indexOf(key) % GANTT_PALETTE.length]; }
 const nowLabel = computed(() => fmtDateTime(now.value.toISOString()));
 
 const kpiCards = computed(() => {
@@ -547,7 +589,8 @@ onMounted(load);
 .bd-title { margin:0; color:var(--ink); font-size:24px; font-weight:650; line-height:1.4; }
 .bd-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px; color:#626873; font-size:12px; }
 .bd-status-dot { flex:none; width:7px; height:7px; border-radius:50%; background:#b7791f; }
-.bd-status-dot.on { background:#21814b; }
+.bd-status-dot.on { position:relative; background:#21814b; }
+.bd-status-dot.on::after { content:""; position:absolute; inset:-4px; border-radius:50%; border:2px solid #21814b; opacity:0; animation:bd-ping 2s cubic-bezier(0,0,.2,1) infinite; }
 .bd-updated { padding-left:8px; border-left:1px solid var(--line); font-variant-numeric:tabular-nums; }
 .bd-subtitle { margin:6px 0 0; max-width:720px; color:#626873; font-size:13px; overflow-wrap:anywhere; }
 .bd-subtitle b { color:var(--ink); }
@@ -560,12 +603,17 @@ onMounted(load);
 .bd-btn:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
 .board-more summary::-webkit-details-marker { display:none; }
 .bd-overview { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:16px; margin-bottom:24px; }
-.bd-stat { min-width:0; padding:20px; border:1px solid #e2e2e6; border-radius:14px; background:#fff; }
+.bd-stat { position:relative; overflow:hidden; min-width:0; padding:20px; border:1px solid #e2e2e6; border-radius:14px;
+  background:radial-gradient(120% 90% at 100% 0%,rgba(42,120,214,.09),rgba(42,120,214,0) 60%),linear-gradient(180deg,#fff,#fbfcfe);
+  transition:box-shadow .25s, transform .25s, border-color .25s; }
+.bd-stat::after { content:""; position:absolute; inset:0; background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.75) 50%,transparent 60%); transform:translateX(-100%); pointer-events:none; }
+.bd-stat:hover { border-color:#c9d8ec; box-shadow:0 12px 28px rgba(16,36,52,.08); transform:translateY(-2px); }
+.bd-stat:hover::after { animation:bd-sheen .9s ease; }
 .bd-stat-label { color:#626873; font-size:13px; }
 .bd-stat-value { margin-top:12px; color:var(--ink); font-size:30px; font-weight:650; font-variant-numeric:tabular-nums; line-height:1.2; overflow-wrap:anywhere; }
 .bd-stat-value small { margin-left:4px; color:#626873; font-size:13px; font-weight:400; }
 .bd-stat-sub { margin-top:10px; color:#626873; font-size:12px; overflow-wrap:anywhere; }
-.bd-stat.danger { border-color:#ebcaca; background:#fffafa; }
+.bd-stat.danger { border-color:#ebcaca; background:radial-gradient(120% 90% at 100% 0%,rgba(208,59,59,.1),rgba(208,59,59,0) 60%),#fffafa; animation:bd-alert 2.4s ease-in-out infinite; }
 .bd-stat.danger .bd-stat-value { color:#b4232e; }
 .bd-stat.warn .bd-stat-value { color:#946200; }
 /* ===== 区块标题与卡片 ===== */
@@ -576,7 +624,8 @@ onMounted(load);
 .bd-span-2 { grid-column:span 2; }
 .bd-card { position:relative; display:flex; flex-direction:column; min-width:0; padding:16px 18px; border:1px solid #e6eaf0; border-radius:14px; background:#fff;
   box-shadow:0 1px 2px rgba(16,36,52,.04), 0 10px 28px rgba(16,36,52,.05); transition:box-shadow .25s, transform .25s; }
-.bd-card:hover { box-shadow:0 2px 4px rgba(16,36,52,.05), 0 16px 36px rgba(16,36,52,.09); transform:translateY(-1px); }
+.bd-card:hover { box-shadow:0 2px 4px rgba(16,36,52,.05), 0 16px 36px rgba(16,36,52,.09); transform:translateY(-2px); }
+.bd-card:hover::before { opacity:1; background:linear-gradient(90deg,rgba(42,120,214,0),#2a78d6,rgba(42,120,214,0)); background-size:200% 100%; animation:bd-sweep 1.6s linear infinite; }
 .bd-card::before { content:""; position:absolute; left:18px; right:18px; top:0; height:2px; border-radius:0 0 2px 2px; background:linear-gradient(90deg,#2a78d6,rgba(42,120,214,0)); opacity:.7; }
 .bd-card-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
 .bd-card-head h2 { margin:0; color:var(--ink); font-size:14px; font-weight:650; white-space:nowrap; }
@@ -601,7 +650,10 @@ onMounted(load);
 .bd-risk-main span { display:block; overflow:hidden; color:var(--muted); font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
 .bd-risk-bar { height:6px; overflow:hidden; border-radius:3px; background:#eef1f5; }
 .bd-risk-bar i { display:block; height:100%; border-radius:3px; }
-.bd-risk-list .critical .bd-risk-bar i { background:linear-gradient(90deg,#ec835a,#d03b3b); }
+.bd-risk-bar i { transform-origin:left; animation:bd-grow .9s cubic-bezier(.2,.8,.2,1) both; }
+.bd-risk-list .critical .bd-risk-bar { overflow:visible; }
+.bd-risk-list .critical .bd-risk-bar i { background:repeating-linear-gradient(-45deg,rgba(255,255,255,.22) 0 4px,transparent 4px 8px),linear-gradient(90deg,#ec835a,#d03b3b);
+  background-size:11.3px 100%,100% 100%; box-shadow:0 0 8px rgba(208,59,59,.45); animation:bd-grow .9s cubic-bezier(.2,.8,.2,1) both, bd-stripe 1s linear infinite; }
 .bd-risk-list .warning .bd-risk-bar i { background:linear-gradient(90deg,#ffd166,#fab219); }
 .bd-risk-list .good .bd-risk-bar i { background:#0ca30c; }
 .bd-risk-meter em { display:block; margin-top:4px; color:var(--muted); font-size:11px; font-style:normal; text-align:right; }
@@ -622,11 +674,14 @@ onMounted(load);
 .bd-prio-row span { color:var(--muted); font-weight:600; }
 .bd-prio-row b { color:var(--ink); font-size:13px; font-variant-numeric:tabular-nums; text-align:right; }
 .bd-prio-track { height:10px; overflow:hidden; border-radius:5px; background:#f1f4f8; }
-.bd-prio-track i { display:block; height:100%; border-radius:0 5px 5px 0; transition:width .8s cubic-bezier(.2,.8,.2,1); }
+.bd-prio-track i { transform-origin:left; animation:bd-grow .9s cubic-bezier(.2,.8,.2,1) both; display:block; height:100%; border-radius:0 5px 5px 0; transition:width .8s cubic-bezier(.2,.8,.2,1); }
 /* 订单流转 + 工作中心 */
-.bd-flow { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:4px; }
+.bd-flow { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:4px; }
 .bd-flow-step { position:relative; padding:10px 6px 8px; border-radius:10px; background:#f5f7fa; text-align:center; }
-.bd-flow-step:not(:last-child)::after { content:""; position:absolute; right:-6px; top:50%; width:6px; height:2px; background:#d8dee8; }
+/* 步骤间连线：虚线流动 + 箭头，表示订单向右流转 */
+.bd-flow-step:not(:last-child)::after { content:""; position:absolute; right:-14px; top:50%; width:14px; height:2px; margin-top:-1px;
+  background:repeating-linear-gradient(90deg,#5598e7 0 3px,transparent 3px 6px); background-size:6px 2px; animation:bd-flow .6s linear infinite; }
+.bd-flow-step:not(:last-child)::before { content:""; position:absolute; right:-15px; top:50%; margin-top:-3px; border:3px solid transparent; border-left:4px solid #5598e7; z-index:1; }
 .bd-flow-step b { display:block; color:#9aa4b2; font-size:20px; font-variant-numeric:tabular-nums; }
 .bd-flow-step span { color:var(--muted); font-size:11px; }
 .bd-flow-step.active { background:linear-gradient(180deg,#eef5ff,#e1edff); }
@@ -661,8 +716,40 @@ onMounted(load);
   .bd-grid { grid-template-columns:minmax(0,1fr); }
   .bd-donut { flex-direction:column; }
 }
+/* 甘特缩略条 */
+.bd-gantt { margin-top:16px; }
+.bd-gantt .bd-card-head span { flex:1; }
+.bd-gantt-body { --lane-x:64px; position:relative; display:grid; gap:5px; padding-bottom:20px; }
+.bd-gantt-lane { display:grid; grid-template-columns:var(--lane-x) 1fr; align-items:center; }
+.bd-gantt-name { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.bd-gantt-track { position:relative; height:14px; border-radius:4px; background:repeating-linear-gradient(90deg,#f3f6fb 0 calc(100% / 6 - 1px),#e6ebf2 calc(100% / 6 - 1px) calc(100% / 6)); }
+.bd-gantt-bar { position:absolute; top:1px; bottom:1px; border-radius:3px; opacity:.88; cursor:pointer; transform-origin:left;
+  animation:bd-grow .6s cubic-bezier(.2,.8,.2,1) both; animation-delay:var(--d,0ms); transition:opacity .2s, filter .2s, box-shadow .2s; }
+.bd-gantt-body.hovering .bd-gantt-bar { opacity:.22; }
+.bd-gantt-body.hovering .bd-gantt-bar.on { opacity:1; filter:saturate(1.2); box-shadow:0 0 0 1.5px #fff, 0 2px 8px rgba(16,36,52,.3); z-index:1; }
+.bd-gantt-axis { position:absolute; left:var(--lane-x); right:0; bottom:0; height:16px; }
+.bd-gantt-axis span { position:absolute; transform:translateX(-50%); color:var(--muted); font-size:10px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.bd-gantt-axis span:first-child { transform:none; }
+.bd-gantt-axis span:last-child { transform:translateX(-100%); }
+.bd-gantt-now { position:absolute; top:-4px; bottom:16px; width:2px; margin-left:-1px; background:#eb6834; box-shadow:0 0 8px rgba(235,104,52,.6); pointer-events:none; z-index:2; }
+.bd-gantt-now::before { content:""; position:absolute; left:-3px; top:-2px; width:8px; height:8px; border-radius:50%; background:#eb6834; animation:bd-ping-solid 2s ease-out infinite; }
+.bd-gantt-now em { position:absolute; left:6px; top:-6px; padding:0 5px; border-radius:4px; background:#eb6834; color:#fff; font-size:10px; font-style:normal; line-height:16px; }
+@keyframes bd-ping-solid { 0% { box-shadow:0 0 0 0 rgba(235,104,52,.5); } 100% { box-shadow:0 0 0 8px rgba(235,104,52,0); } }
+/* 进场：依次淡入上浮（--d 为错峰延迟） */
+.bd-reveal { animation:bd-rise .55s cubic-bezier(.2,.8,.2,1) both; animation-delay:var(--d,0ms); }
+.bd-stat.danger.bd-reveal { animation:bd-rise .55s cubic-bezier(.2,.8,.2,1) both, bd-alert 2.4s ease-in-out .6s infinite; animation-delay:var(--d,0ms), .6s; }
+@keyframes bd-rise { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+@keyframes bd-ping { 0% { opacity:.6; transform:scale(.6); } 80%,100% { opacity:0; transform:scale(1.6); } }
+@keyframes bd-alert { 0%,100% { box-shadow:0 0 0 0 rgba(208,59,59,0); border-color:#ebcaca; } 50% { box-shadow:0 0 0 4px rgba(208,59,59,.12); border-color:#e29a9a; } }
+@keyframes bd-sheen { to { transform:translateX(100%); } }
+@keyframes bd-sweep { from { background-position:100% 0; } to { background-position:-100% 0; } }
+@keyframes bd-flow { from { background-position:0 0; } to { background-position:6px 0; } }
+@keyframes bd-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+@keyframes bd-stripe { from { background-position:0 0,0 0; } to { background-position:11.3px 0,0 0; } }
 @media (prefers-reduced-motion:reduce) {
   .bd-btn { transition:none; }
-  .bd-card, .bd-card:hover { transition:none; transform:none; }
+  .bd-card, .bd-card:hover, .bd-stat, .bd-stat:hover { transition:none; transform:none; }
+  .bd-reveal, .bd-stat.danger, .bd-stat.danger.bd-reveal, .bd-stat:hover::after, .bd-card:hover::before,
+  .bd-status-dot.on::after, .bd-flow-step::after, .bd-gantt-bar, .bd-gantt-now::before, .bd-risk-bar i, .bd-risk-list .critical .bd-risk-bar i, .bd-prio-track i { animation:none; }
 }
 </style>

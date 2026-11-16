@@ -50,11 +50,9 @@
           </div>
 
           <div class="scene-frame rise" style="animation-delay:.2s">
-            <TwinStage ref="stageRef" class="scene-stage" :devices="devices" :metrics="metrics" />
-            <div class="scene-veil" aria-hidden="true"></div>
-            <div class="scene-scan" aria-hidden="true"></div>
+            <TwinStage ref="stageRef" class="scene-stage" :devices="devices" :metrics="metrics" initial-view="campus" @view-change="activeTab = $event" />
             <div class="scene-top">
-              <div class="scene-title"><span class="live-dot"></span>柔性车间 · 设备实时孪生视图</div>
+              <div class="scene-title"><span class="live-dot"></span>柔性车间 · 生产现场（演示数据）</div>
             </div>
             <div class="scene-bottom">
               <div class="hud-box">
@@ -119,8 +117,8 @@
 
       <!-- 状态栏 -->
       <footer class="screen-foot">
-        <span>◈ 数据来源：MES 制造执行系统 / WMS 仓储系统 / IoT 设备网关</span>
-        <span>面板刷新 <b class="num">30s</b> · 设备刷新 <b class="num">5s</b> · 最近同步 <span class="num">{{ timeText }}</span></span>
+        <span>数据来源：内置演示数据 · 实时设备请进入加工中心</span>
+        <span>面板刷新 <b class="num">30s</b> · 设备刷新 <b class="num">1s</b> · 当前时间 <span class="num">{{ timeText }}</span></span>
         <span>● <b>系统运行正常</b> | 动态柔性车间生产调度与仿真决策系统</span>
       </footer>
     </div>
@@ -189,13 +187,14 @@ const agvCount = computed(() => devices.value.filter(d => d.kind === 'agv').leng
 
 /* 场景视角页签 */
 const SCENE_TABS = [
-  { key: 'overview', label: '综合厂区' },
+  { key: 'campus', label: '厂区外景' },
+  { key: 'overview', label: '车间总览' },
   { key: 'zoneA', label: '加工区 A' },
   { key: 'zoneB', label: '加工区 B' },
   { key: 'aisle', label: '物流通道' },
 ];
 const stageRef = ref(null);
-const activeTab = ref('overview');
+const activeTab = ref('campus');
 function focusScene(key) {
   activeTab.value = key;
   stageRef.value?.focusScene(key);
@@ -237,7 +236,7 @@ onMounted(() => {
   loadPanels();
   loadDevices();
   panelTimer = setInterval(loadPanels, 30000);
-  deviceTimer = setInterval(loadDevices, 5000);
+  deviceTimer = setInterval(loadDevices, 1000);
 });
 
 onBeforeUnmount(() => {
@@ -475,8 +474,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
   border: 1px solid rgba(64, 166, 255, 0.42);
-  background: #071a38;
-  box-shadow: inset 0 0 60px rgba(0, 20, 70, 0.6);
+  background: #2c414f;
 }
 
 .scene-frame::after {
@@ -489,32 +487,6 @@ onBeforeUnmount(() => {
 }
 
 .scene-stage { position: absolute; inset: 0; }
-
-.scene-veil {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-  background:
-    linear-gradient(90deg, rgba(3, 14, 38, 0.55), transparent 20%, transparent 80%, rgba(3, 14, 38, 0.55)),
-    linear-gradient(180deg, rgba(3, 14, 38, 0.5), transparent 22%, transparent 74%, rgba(3, 14, 38, 0.62));
-}
-
-.scene-scan {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 70px;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(60, 200, 255, 0.1), transparent);
-  animation: scan 7s linear infinite;
-}
-
-@keyframes scan {
-  0% { top: -70px; }
-  100% { top: 100%; }
-}
 
 .scene-top {
   position: absolute;

@@ -40,7 +40,7 @@ export function orderProfile(o) {
 const hourFmt = new Intl.DateTimeFormat('zh-CN', {
   timeZone: TZ, month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false,
 });
-function hourKey(iso) {
+export function hourKey(iso) {
   const parts = Object.fromEntries(hourFmt.formatToParts(new Date(iso)).map(p => [p.type, p.value]));
   return `${parts.month}-${parts.day} ${parts.hour === '24' ? '00' : parts.hour}时`;
 }

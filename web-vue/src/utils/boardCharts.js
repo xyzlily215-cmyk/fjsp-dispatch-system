@@ -14,6 +14,16 @@ const TOOLTIP = {
   textStyle: { color: BOARD_COLORS.ink, fontSize: 12 }, extraCssText: 'box-shadow:0 8px 24px rgba(16,36,52,.12);border-radius:8px;',
 };
 
+/* 负荷着色：≥85% 红（过载）、≥70% 橙（偏高），其余蓝；状态色均配数值标签，不单靠颜色传达 */
+export const LOAD_ALERT = 0.85;
+const LOAD_WARN = 0.7;
+const hGrad = (a, b) => ({ type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: a }, { offset: 1, color: b }] });
+export function loadColor(rate) {
+  if (rate >= LOAD_ALERT) return hGrad('#ec835a', BOARD_COLORS.status.critical);
+  if (rate >= LOAD_WARN) return hGrad('#ffd166', '#eb9a19');
+  return hGrad('#86b6ef', BOARD_COLORS.series[0]);
+}
+
 export function machineLoadOption(machineLoad) {
   const rows = [...machineLoad].reverse(); // 横向条形：负荷最高的在最上方
   return {
@@ -36,36 +46,57 @@ export function machineLoadOption(machineLoad) {
       axisTick: { show: false }, axisLine: { show: false }, axisLabel: { ...AXIS_LABEL, color: BOARD_COLORS.ink, fontSize: 12 },
     },
     series: [{
-      type: 'bar', barWidth: 12, data: rows.map(r => r.rate ?? 0),
-      itemStyle: {
-        borderRadius: [0, 4, 4, 0],
-        color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#86b6ef' }, { offset: 1, color: BOARD_COLORS.series[0] }] },
-      },
+      type: 'bar', barWidth: 12,
+      data: rows.map(r => ({ value: r.rate ?? 0, itemStyle: { color: loadColor(r.rate ?? 0) } })),
+      itemStyle: { borderRadius: [0, 4, 4, 0] },
       showBackground: true, backgroundStyle: { color: '#f3f6fb', borderRadius: [0, 4, 4, 0] },
       label: { show: true, position: 'right', color: BOARD_COLORS.ink, fontSize: 11, formatter: (p) => `${(p.value * 100).toFixed(0)}%` },
+      animationDelay: (i) => i * 60,
+      markLine: {
+        silent: true, symbol: 'none', animation: false,
+        lineStyle: { color: BOARD_COLORS.status.critical, type: 'dashed', width: 1, opacity: 0.7 },
+        label: { position: 'insideEndTop', color: '#b33434', fontSize: 10, formatter: `过载线 ${LOAD_ALERT * 100}%` },
+        data: [{ xAxis: LOAD_ALERT }],
+      },
     }],
   };
 }
 
-export function dueDistributionOption(dueBuckets) {
+/* nowLabel：当前小时的桶标签（与 boardStats.hourKey 同格式），在范围内时画"现在"竖线 */
+export function dueDistributionOption(dueBuckets, nowLabel) {
+  const nowIndex = nowLabel ? dueBuckets.findIndex(b => b.label === nowLabel) : -1;
+  const peak = dueBuckets.some(b => b.orders > 0);
   return {
     animationDuration: 900,
     grid: { left: 34, right: 12, top: 18, bottom: 40 },
-    tooltip: { ...TOOLTIP, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(42,120,214,.06)' } },
+    tooltip: { ...TOOLTIP, trigger: 'axis', axisPointer: { type: 'line', lineStyle: { color: 'rgba(42,120,214,.35)' } },
       formatter: (ps) => `${ps[0].name}<br><b>${ps[0].value}</b> 单到期` },
     xAxis: {
-      type: 'category', data: dueBuckets.map(b => b.label),
+      type: 'category', boundaryGap: false, data: dueBuckets.map(b => b.label),
       axisTick: { show: false }, axisLine: { lineStyle: { color: '#d8dce3' } },
       axisLabel: { ...AXIS_LABEL, interval: (i) => i % 4 === 0, formatter: (v) => v.replace(' ', '\n') },
     },
     yAxis: { type: 'value', minInterval: 1, axisLabel: AXIS_LABEL, splitLine: { lineStyle: { color: BOARD_COLORS.grid } } },
     series: [{
-      type: 'bar', barMaxWidth: 14, data: dueBuckets.map(b => b.orders),
-      itemStyle: {
-        borderRadius: [4, 4, 0, 0],
-        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: BOARD_COLORS.series[0] }, { offset: 1, color: '#9ec5f4' }] },
+      type: 'line', smooth: 0.35, symbol: 'circle', symbolSize: 6, showSymbol: false,
+      data: dueBuckets.map(b => b.orders),
+      lineStyle: { width: 2.5, color: BOARD_COLORS.series[0] },
+      itemStyle: { color: BOARD_COLORS.series[0], borderColor: '#fff', borderWidth: 2 },
+      areaStyle: {
+        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(42,120,214,.32)' }, { offset: 1, color: 'rgba(42,120,214,0)' }] },
       },
-      emphasis: { itemStyle: { color: '#1c5cab' } },
+      emphasis: { focus: 'series' },
+      markLine: nowIndex >= 0 ? {
+        silent: true, symbol: 'none',
+        lineStyle: { color: '#eb6834', type: 'solid', width: 1.5 },
+        label: { formatter: '现在', color: '#fff', backgroundColor: '#eb6834', padding: [2, 6], borderRadius: 4, fontSize: 10 },
+        data: [{ xAxis: nowIndex }],
+      } : undefined,
+      markPoint: peak ? {
+        symbol: 'pin', symbolSize: 34, itemStyle: { color: BOARD_COLORS.series[0] },
+        label: { color: '#fff', fontSize: 10 },
+        data: [{ type: 'max', name: '到期高峰' }],
+      } : undefined,
     }],
   };
 }

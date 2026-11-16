@@ -1,18 +1,17 @@
-/* 园区级数字孪生场景（白昼写实风）：加工中心页（TwinView）与数据大屏（ScreenView）共用。
- * 场景构成：灰绿草地 + 环形道路/油罐车 + 行道树/路灯 + 办公楼/仓库/白色储罐 +
- * 剖切式主厂房（实体后墙 + 金属屋面 + 钢架，进入加工区时隐藏建筑外壳）。
- * 数据悬浮卡片与设备名牌在 TwinStage.vue（CSS2D）。 */
+/* 工业车间：支持剖切生产现场与园区外景，由调用页选择初始视角。
+ * 设备坐标与状态来自调用页，动画只表现已经收到的运行状态。 */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createPanelTexture } from './twinTextures.js';
+import { advanceDeviceMotion, isDeviceRunning, syncDeviceMotion } from './twinMotion.js';
 import concreteUrl from '../assets/screen/concrete-diffuse.jpg';
 import grassUrl from '../assets/screen/grass-diffuse.jpg';
 
 const TONE = {
-  body: '#e8ecef',
-  bodyLight: '#f4f6f8',
-  edge: '#b7c1c9',
-  dark: '#39434d',
+  body: '#63716f',
+  bodyLight: '#a2aaa5',
+  edge: '#798682',
+  dark: '#1c2529',
   steel: '#a9bac6',
   cyan: '#00B8D9',
   blue: '#2D8CFF',
@@ -111,43 +110,43 @@ const FLOOR_H = 512;
 const fx = x => (x + 0.25) / 20.5 * FLOOR_W;
 const fy = y => y / 10.5 * FLOOR_H;
 
-/* 浅色环氧地坪：区域涂装 + 机位地标（白昼写实，无发光） */
+/* 石墨色环氧地坪，黄线只标识物流边界与机位。 */
 function createFloorTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = FLOOR_W;
   canvas.height = FLOOR_H;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#b8bfc6';
+  ctx.fillStyle = '#313b3d';
   ctx.fillRect(0, 0, FLOOR_W, FLOOR_H);
 
-  ctx.strokeStyle = 'rgba(90, 116, 130, 0.1)';
+  ctx.strokeStyle = 'rgba(180, 192, 188, 0.08)';
   ctx.lineWidth = 1;
   for (let x = 0; x <= FLOOR_W; x += 64) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, FLOOR_H); ctx.stroke(); }
   for (let y = 0; y <= FLOOR_H; y += 64) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(FLOOR_W, y); ctx.stroke(); }
 
-  ctx.fillStyle = 'rgba(80, 140, 190, 0.08)';
+  ctx.fillStyle = 'rgba(132, 152, 141, 0.09)';
   ctx.fillRect(fx(0.5), fy(0.8), fx(15) - fx(0.5), fy(4.2) - fy(0.8));
   ctx.fillRect(fx(0.5), fy(5.8), fx(15) - fx(0.5), fy(9.2) - fy(5.8));
   ctx.fillStyle = 'rgba(216, 169, 40, 0.12)';
   ctx.fillRect(fx(15.4), fy(0.8), fx(19.9) - fx(15.4), fy(9.2) - fy(0.8));
 
-  ctx.strokeStyle = 'rgba(70, 120, 160, 0.55)';
+  ctx.strokeStyle = 'rgba(224, 183, 72, 0.65)';
   ctx.lineWidth = 3;
-  ctx.setLineDash([16, 12]);
+  ctx.setLineDash([]);
   ctx.strokeRect(fx(0.5), fy(0.8), fx(15) - fx(0.5), fy(4.2) - fy(0.8));
   ctx.strokeRect(fx(0.5), fy(5.8), fx(15) - fx(0.5), fy(9.2) - fy(5.8));
   ctx.setLineDash([]);
   ctx.strokeStyle = 'rgba(200, 160, 60, 0.5)';
   ctx.strokeRect(fx(15.4), fy(0.8), fx(19.9) - fx(15.4), fy(9.2) - fy(0.8));
 
-  ctx.fillStyle = '#45606f';
+  ctx.fillStyle = '#b8c7c4';
   ctx.font = '600 26px sans-serif';
   ctx.fillText('加工区 A', fx(1), fy(1.6));
   ctx.fillText('加工区 B', fx(1), fy(6.6));
-  ctx.fillStyle = '#8a6d2f';
+  ctx.fillStyle = '#d9b85c';
   ctx.fillText('缓 存 区', fx(16.2), fy(1.6));
-  ctx.fillStyle = '#3f6f8f';
+  ctx.fillStyle = '#a9b9b5';
   ctx.font = '600 22px sans-serif';
   ctx.fillText('物 流 通 道', fx(6.4), fy(5.32));
 
@@ -167,11 +166,11 @@ function createFloorTexture() {
   for (const y of ys) {
     for (const x of xs) {
       n += 1;
-      ctx.strokeStyle = 'rgba(70, 120, 160, 0.5)';
+      ctx.strokeStyle = 'rgba(222, 184, 76, 0.55)';
       ctx.lineWidth = 2;
       ctx.strokeRect(fx(x - 1.7), fy(y - 1.35), fx(x + 1.7) - fx(x - 1.7), fy(y + 1.35) - fy(y - 1.35));
-      ctx.fillStyle = '#3f6f8f';
-      ctx.font = '600 18px monospace';
+      ctx.fillStyle = '#becbc8';
+      ctx.font = '600 18px sans-serif';
       ctx.fillText('M-0' + n, fx(x - 1.55), fy(y - 1.05));
     }
   }
@@ -194,7 +193,7 @@ function createFloorTexture() {
 function createGrassTexture() {
   const map = new THREE.TextureLoader().load(grassUrl);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  map.repeat.set(12, 8);
+  map.repeat.set(54, 54);
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 8;
   return map;
@@ -202,13 +201,13 @@ function createGrassTexture() {
 
 function addInteriorFloor(root, effects) {
   const base = box(root, [20.5, 0.12, 10.5], [10, -0.02, -5],
-    new THREE.MeshStandardMaterial({ color: '#aeb6bd', metalness: 0.05, roughness: 0.8 }));
+    new THREE.MeshStandardMaterial({ color: '#252d30', metalness: 0.2, roughness: 0.6 }));
   base.receiveShadow = true;
 
   const map = createFloorTexture();
   const overlay = new THREE.Mesh(
     new THREE.PlaneGeometry(20.5, 10.5),
-    new THREE.MeshStandardMaterial({ map, transparent: true, roughness: 0.7, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({ map, roughness: 0.42, metalness: 0.24 }),
   );
   overlay.rotation.x = -Math.PI / 2;
   overlay.position.set(10, 0.045, -5);
@@ -220,7 +219,7 @@ function addInteriorFloor(root, effects) {
   laneCanvas.width = 256;
   laneCanvas.height = 16;
   const lctx = laneCanvas.getContext('2d');
-  lctx.fillStyle = 'rgba(45, 140, 255, 0.85)';
+  lctx.fillStyle = 'rgba(222, 188, 89, 0.8)';
   for (let x = 0; x < 256; x += 32) lctx.fillRect(x, 5, 18, 6);
   const laneMap = new THREE.CanvasTexture(laneCanvas);
   laneMap.wrapS = THREE.RepeatWrapping;
@@ -235,56 +234,69 @@ function addInteriorFloor(root, effects) {
   effects.flowLane = laneMap;
 }
 
-/* 总览保留厂房结构，加工区采用完整剖切。 */
+/* 连续地面承接车间剖切边缘，远处由场景雾自然收束。 */
+function addWorkshopGround(parent) {
+  const ground = new THREE.Group();
+  ground.name = 'workshop-ground';
+  parent.add(ground);
+  const field = new THREE.Mesh(
+    new THREE.PlaneGeometry(320, 320),
+    new THREE.MeshStandardMaterial({ color: '#465f70', map: surfaceTexture('concrete', 100, 100), roughness: 0.95, metalness: 0 }),
+  );
+  field.rotation.x = -Math.PI / 2;
+  field.position.set(10, -0.16, -5);
+  field.receiveShadow = true;
+  ground.add(field);
+
+  const paving = new THREE.MeshStandardMaterial({ color: '#7c8d95', map: surfaceTexture('concrete', 8, 5), roughness: 0.9, metalness: 0.05 });
+  box(ground, [26.5, 0.1, 16.5], [10, -0.105, -5], paving);
+}
+
+/* 开放前立面，让总览和设备近景都能看清生产现场。 */
 function addHall(parent) {
   const root = new THREE.Group();
   root.name = 'hall-shell';
   parent.add(root);
-  const skirt = new THREE.MeshStandardMaterial({ map: surfaceTexture('wall', 4, 1), roughness: 0.82, metalness: 0.08 });
-  const column = paint('#aeb9c2', 0.6, 0.4);
-  const glass = new THREE.MeshPhysicalMaterial({
-    color: '#cfe3ee', metalness: 0.2, roughness: 0.12, transparent: true, opacity: 0.16,
-    clearcoat: 1, depthWrite: false, side: THREE.DoubleSide,
-  });
-  const H = 3.5;
-  // 墙裙（四周 1.1m 高）
-  box(root, [20.6, 1.1, 0.2], [10, 0.55, 0.1], skirt);
-  box(root, [20.6, 1.1, 0.2], [10, 0.55, -10.1], skirt);
-  box(root, [0.2, 1.1, 10.4], [-0.1, 0.55, -5], skirt);
-  box(root, [0.2, 1.1, 10.4], [20.1, 0.55, -5], skirt);
-  // 北侧实体夹芯板墙；南侧保留剖切开口，读得到内部设备。
-  box(root, [20.6, 2.4, 0.16], [10, 2.3, -10.06], skirt);
-  // 屋面单独成组，切换到加工区时隐藏。
+  const wall = new THREE.MeshStandardMaterial({ color: '#414d4d', map: surfaceTexture('wall', 4, 1), roughness: 0.78 });
+  const column = paint('#283235', 0.7, 0.4);
+  const window = new THREE.MeshStandardMaterial({ color: '#608d9d', emissive: '#355a6c', emissiveIntensity: 0.35, metalness: 0.4, roughness: 0.24 });
+  const yellow = paint('#d5ae46', 0.35, 0.4);
+  const H = 4.8;
+  box(root, [20.6, H, 0.18], [10, H / 2, -10.2], wall);
+  box(root, [0.18, H, 10.4], [-0.2, H / 2, -5], wall);
+  box(root, [20.6, 0.5, 0.12], [10, 0.25, -10.04], column);
+  for (const x of [2.5, 7.5, 12.5, 17.5]) {
+    box(root, [3.6, 1.05, 0.04], [x, 3.45, -10.08], window);
+    for (const dx of [-1.8, -0.6, 0.6, 1.8]) box(root, [0.045, 1.1, 0.07], [x + dx, 3.45, -10.02], column);
+    for (const y of [2.9, 3.45, 4]) box(root, [3.65, 0.045, 0.07], [x, y, -10.02], column);
+    box(root, [0.36, 0.24, 0.16], [x, 2.55, -9.98], column);
+    box(root, [0.28, 0.07, 0.12], [x, 2.44, -9.87], glow('#ffdaa2', 2.4));
+  }
   const roof = new THREE.Group();
   roof.name = 'hall-roof';
-  const roofing = new THREE.MeshStandardMaterial({ map: surfaceTexture('roof', 5, 2), metalness: 0.42, roughness: 0.58 });
-  box(roof, [20.8, 0.12, 4.3], [10, 3.65, -8.1], roofing).rotation.x = -0.07;
-  for (const x of [2.5, 7.5, 12.5, 17.5]) {
-    box(roof, [1.1, 0.08, 2.2], [x, 3.82, -8.2], glass2());
-    box(roof, [0.6, 0.32, 0.6], [x, 3.97, -6.7], paint('#8b9595', 0.6, 0.5));
-  }
-  root.add(roof);
-  // 侧面窗带
-  box(root, [20.6, H - 1.1, 0.08], [10, (H + 1.1) / 2, 0.06], glass);
-  box(root, [20.6, H - 1.1, 0.08], [10, (H + 1.1) / 2, -10.06], glass);
-  box(root, [0.08, H - 1.1, 10.4], [-0.06, (H + 1.1) / 2, -5], glass);
-  box(root, [0.08, H - 1.1, 10.4], [20.06, (H + 1.1) / 2, -5], glass);
-  // 立柱
   for (const x of [0, 5, 10, 15, 20]) {
-    box(root, [0.24, H, 0.24], [x, H / 2, 0], column);
-    box(root, [0.24, H, 0.24], [x, H / 2, -10], column);
+    box(root, [0.22, H, 0.28], [x, H / 2, -10], column);
+    box(root, [0.26, 0.65, 0.3], [x, 0.33, -9.98], yellow);
+    for (const y of [H, H - 0.42]) box(roof, [0.12, 0.1, 10.2], [x, y, -5], column);
+    for (let z = -9.1; z < 0; z += 1.8) {
+      const brace = box(roof, [0.07, 0.07, 1.86], [x, H - 0.21, z], column);
+      brace.rotation.x = Math.sin(z) > 0 ? 0.23 : -0.23;
+    }
   }
-  for (const z of [-2.5, -5, -7.5]) {
-    box(root, [0.24, H, 0.24], [0, H / 2, z], column);
-    box(root, [0.24, H, 0.24], [20, H / 2, z], column);
+  box(roof, [20.5, 0.15, 0.17], [10, H, -10], column);
+  root.add(roof);
+  // 开口护栏与货架保持在物流主通道之外。
+  for (const z of [-0.35, -9.6]) {
+    for (const x of [1, 4, 7, 10, 13, 15]) cylinder(root, 0.035, 0.85, [x, 0.45, z], yellow);
+    for (const y of [0.48, 0.87]) cylinder(root, 0.025, 14, [8, y, z], yellow, [0, 0, Math.PI / 2]);
   }
-  // 顶部钢梁（框架式，无屋面板）
-  const beam = paint('#8b99a5', 0.55, 0.45);
-  box(root, [20.6, 0.18, 0.24], [10, H + 0.1, 0], beam);
-  box(root, [20.6, 0.18, 0.24], [10, H + 0.1, -10], beam);
-  box(root, [0.24, 0.18, 10.4], [0, H + 0.1, -5], beam);
-  box(root, [0.24, 0.18, 10.4], [20, H + 0.1, -5], beam);
-  for (const z of [-2.5, -5, -7.5]) box(root, [20.4, 0.14, 0.18], [10, H + 0.06, z], beam);
+  for (const x of [3.4, 9.8, 16.4]) {
+    box(roof, [2.5, 0.09, 0.3], [x, H - 0.2, -5], column);
+    box(roof, [2.35, 0.025, 0.22], [x, H - 0.26, -5], glow('#ffe4b8', 3));
+    const light = new THREE.PointLight('#ffe0ad', 20, 10, 2);
+    light.position.set(x, H - 0.4, -5);
+    parent.add(light);
+  }
 }
 
 /* ── 园区配套：草地、环形道路、油罐车、行道树、路灯 ── */
@@ -309,7 +321,7 @@ function glass2() {
 
 function addCampus(root) {
   const grass = new THREE.Mesh(
-    new THREE.PlaneGeometry(72, 48),
+    new THREE.PlaneGeometry(320, 320),
     new THREE.MeshStandardMaterial({ color: '#809773', map: createGrassTexture(), roughness: 0.95, metalness: 0 }),
   );
   grass.rotation.x = -Math.PI / 2;
@@ -576,7 +588,7 @@ function addMoreBuildings(root) {
   flag.castShadow = true;
 }
 
-/* 浅色机身机床（沿用加工中心页的白机造型思路，蓝色腰线点缀） */
+/* CNC 加工中心：独立主轴、夹具与工件，供运行态动画驱动。 */
 function createMachine(group) {
   const body = paint(TONE.body, 0.3, 0.45);
   const bodyLight = paint(TONE.bodyLight, 0.35, 0.4);
@@ -584,8 +596,8 @@ function createMachine(group) {
   const dark = paint(TONE.dark, 0.45, 0.45);
   const steel = paint(TONE.steel, 0.8, 0.28);
   const rubber = paint('#161d23', 0.05, 0.85);
-  const accent = paint(TONE.blue, 0.3, 0.4);
-  const glass = glass2();
+  const accent = paint('#d8ae46', 0.4, 0.38);
+  const glass = new THREE.MeshPhysicalMaterial({ color: '#93b6b4', transparent: true, opacity: 0.15, metalness: 0.15, roughness: 0.15, depthWrite: false });
   const panelMap = createPanelTexture();
   const screen = new THREE.MeshStandardMaterial({ map: panelMap, emissiveMap: panelMap, emissive: '#ffffff', emissiveIntensity: 0.5, roughness: 0.25 });
 
@@ -605,11 +617,20 @@ function createMachine(group) {
   group.add(guideRails);
   for (const x of [-0.45, 0.45]) cylinder(guideRails, 0.045, 0.72, [x, 1.15, 0.34], steel, [Math.PI / 2, 0, 0]);
   for (let x = -0.55; x <= 0.56; x += 0.22) box(guideRails, [0.09, 0.025, 0.64], [x, 1.12, 0.29], dark);
-  cylinder(group, 0.17, 0.55, [0, 1.85, 0.12], steel);
-  cylinder(group, 0.065, 0.28, [0, 1.46, 0.12], dark);
-  box(group, [1.22, 0.9, 0.035], [-0.12, 1.66, 0.665], dark, true);
+  const toolHead = new THREE.Group();
+  group.add(toolHead);
+  cylinder(toolHead, 0.17, 0.55, [0, 1.85, 0.12], steel);
+  const spindle = cylinder(toolHead, 0.065, 0.28, [0, 1.46, 0.12], dark);
+  box(spindle, [0.03, 0.18, 0.07], [0.045, 0, 0], steel);
+  const workpiece = new THREE.Group();
+  group.add(workpiece);
+  box(workpiece, [0.7, 0.08, 0.55], [0, 1.17, 0.12], dark);
+  cylinder(workpiece, 0.2, 0.12, [0, 1.27, 0.12], steel);
+  for (const x of [-0.3, 0.3]) box(workpiece, [0.09, 0.13, 0.43], [x, 1.25, 0.12], steel);
+  for (const x of [-0.72, 0.49]) box(group, [0.07, 0.96, 0.05], [x, 1.66, 0.69], dark);
+  for (const y of [1.18, 2.14]) box(group, [1.28, 0.065, 0.05], [-0.12, y, 0.69], dark);
   box(group, [1.06, 0.73, 0.025], [-0.12, 1.66, 0.692], glass, true);
-  for (let n = -2; n <= 2; n++) box(group, [0.025, 0.7, 0.015], [-0.12 + n * 0.19, 1.66, 0.71], dark);
+  const workLight = box(group, [1.1, 0.035, 0.1], [0, 2.12, 0.22], glow('#c9ebef', 1.5));
   tube(group, [[0.47, 1.35, 0.75], [0.52, 1.4, 0.78], [0.52, 1.72, 0.78], [0.47, 1.77, 0.75]], 0.022, steel);
   const panelGroup = new THREE.Group();
   panelGroup.position.set(1.1, 1.55, 0.72);
@@ -625,7 +646,8 @@ function createMachine(group) {
   box(vent, [0.025, 0.72, 0.63], [1.028, 1.32, -0.25], dark);
   for (let n = 0; n < 9; n++) box(vent, [0.035, 0.025, 0.54], [1.049, 1.04 + n * 0.07, -0.25], edge);
   tube(group, [[1.02, 0.92, -0.45], [1.26, 0.62, -0.5], [1.25, 0.15, -0.4], [0.7, 0.1, -0.6]], 0.035, rubber);
-  // 三色灯塔（状态信号保留，但不再是大光源）
+  for (const x of [-0.86, 0.86]) for (const y of [0.4, 0.78, 2.3, 2.46]) cylinder(group, 0.018, 0.018, [x, y, 0.776], steel, [Math.PI / 2, 0, 0]);
+  // 独立警示灯塔，沿用设备状态语义。
   cylinder(group, 0.04, 0.3, [0.68, 2.68, -0.15], dark);
   const beacon = new THREE.Mesh(
     new THREE.CylinderGeometry(0.075, 0.075, 0.34, 16),
@@ -639,12 +661,12 @@ function createMachine(group) {
   );
   halo.position.copy(beacon.position);
   group.add(halo);
-  return { beacon, halo };
+  return { beacon, halo, spindle, toolHead, workpiece, workLight };
 }
 
 function createAgv(group) {
   const dark = paint(TONE.dark, 0.5, 0.45);
-  const blue = paint('#2D8CFF', 0.3, 0.45);
+  const blue = paint('#d9b248', 0.3, 0.45);
   const steel = paint(TONE.steel, 0.75, 0.3);
   box(group, [1.05, 0.24, 0.72], [0, 0.23, 0], dark, true);
   box(group, [1.08, 0.1, 0.74], [0, 0.39, 0], blue, true);
@@ -652,7 +674,7 @@ function createAgv(group) {
   for (const x of [-0.37, 0.37]) for (const z of [-0.34, 0.34]) cylinder(group, 0.13, 0.09, [x, 0.15, z], paint('#161d23', 0.1, 0.8), [Math.PI / 2, 0, 0]);
   cylinder(group, 0.13, 0.12, [0.28, 0.56, 0], dark);
   cylinder(group, 0.1, 0.03, [0.28, 0.64, 0], paint(TONE.cyan, 0.3, 0.4));
-  const lamp = paint('#f4f8fa', 0.2, 0.4);
+  const lamp = glow('#e0f4ef', 1.5);
   for (const z of [-0.22, 0.22]) box(group, [0.03, 0.07, 0.13], [0.54, 0.3, z], lamp, true);
   box(group, [0.52, 0.28, 0.42], [-0.12, 0.67, 0], '#9fb0bc', true);
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.09, 14, 10), glow(TONE.cyan, 0.9));
@@ -668,9 +690,10 @@ function createAgv(group) {
 }
 
 function statusColor(device) {
-  if (!device.online || device.status === 'down') return TONE.red;
+  if (device.online === false) return TONE.muted;
+  if (device.status === 'down' || device.health?.level === 'bad') return TONE.red;
+  if (device.status === 'maintain' || device.health?.level === 'attention') return TONE.amber;
   if (device.status === 'idle') return TONE.blue;
-  if (device.status === 'maintain') return TONE.amber;
   return TONE.green;
 }
 
@@ -691,9 +714,9 @@ function createDevice(workshop, device) {
   group.add(ring);
   // 自然光阴影：实体网格投影，光环/光晕/Additive 材质不参与
   group.traverse((node) => {
-    if (node.isMesh && node !== ring && node.material?.blending !== THREE.AdditiveBlending) node.castShadow = true;
+    if (node.isMesh && node !== ring && !node.material?.transparent && node.material?.blending !== THREE.AdditiveBlending) node.castShadow = true;
   });
-  group.userData = { deviceId: device.id, ring, ...parts, phase: Math.random() * Math.PI * 2 };
+  group.userData = { deviceId: device.id, kind: device.kind, ring, ...parts, phase: Math.random() * Math.PI * 2, machiningTime: 0 };
   workshop.root.add(group);
   return group;
 }
@@ -701,19 +724,21 @@ function createDevice(workshop, device) {
 export function createDarkWorkshop() {
   const root = new THREE.Group();
   const effects = {};
-  addCampus(root);
+  addWorkshopGround(root);
   addInteriorFloor(root, effects);
   addHall(root);
   addBufferZone(root);
   const surroundings = new THREE.Group();
   surroundings.name = 'campus-context';
+  surroundings.visible = false;
   root.add(surroundings);
+  addCampus(surroundings);
   addOutbuildings(surroundings);
   addMoreBuildings(surroundings);
   return { root, devices: new Map(), effects };
 }
 
-export function updateDarkDevices(workshop, devices, selectedId = null) {
+export function updateDarkDevices(workshop, devices, selectedId = null, now = performance.now()) {
   const active = new Set();
   for (const device of devices) {
     if (!['machine', 'agv'].includes(device.kind) || !Number.isFinite(device.position?.x) || !Number.isFinite(device.position?.y)) continue;
@@ -740,8 +765,9 @@ export function updateDarkDevices(workshop, devices, selectedId = null) {
         model.userData.trail.geometry = new THREE.BufferGeometry().setFromPoints(points);
       }
     }
-    model.position.set(device.position.x, 0, -device.position.y);
-    model.rotation.y = (device.position.yaw || 0) * Math.PI / 180;
+    syncDeviceMotion(model, device, now);
+    model.userData.running = isDeviceRunning(device);
+    model.userData.alarm = device.online !== false && (device.status === 'down' || device.health?.level === 'bad');
     const color = statusColor(device);
     const selected = device.id === selectedId;
     model.userData.beacon.material.color.set(color);
@@ -750,6 +776,8 @@ export function updateDarkDevices(workshop, devices, selectedId = null) {
     // 选中设备：光环换青色并放大一圈（呼吸动画每帧重写 opacity，选中态只靠颜色与尺寸表达）
     model.userData.ring.material.color.set(selected ? TONE.cyan : color);
     model.userData.ring.scale.setScalar((device.kind === 'agv' ? 0.62 : 1) * (selected ? 1.25 : 1));
+    model.userData.ring.visible = selected || model.userData.alarm;
+    if (model.userData.workLight) model.userData.workLight.material.emissiveIntensity = model.userData.running ? 1.8 : 0.12;
   }
   for (const [id, model] of workshop.devices) {
     if (!active.has(id)) {
@@ -764,17 +792,27 @@ export function updateDarkDevices(workshop, devices, selectedId = null) {
   }
 }
 
-/* 每帧驱动：引导线流动、光环呼吸、灯塔闪烁 */
-export function animateDarkWorkshop(workshop, time) {
+/* 时间差驱动：主轴/工作台随运行态启停，AGV 只在已收到的坐标之间平滑移动。 */
+export function animateDarkWorkshop(workshop, time, reducedMotion = false) {
   const t = time / 1000;
-  if (workshop.effects.flowLane) workshop.effects.flowLane.offset.x = -t * 0.35;
+  const dt = Math.min(0.1, Math.max(0, (time - (workshop.lastFrame ?? time)) / 1000));
+  workshop.lastFrame = time;
+  if (workshop.effects.flowLane && !reducedMotion) workshop.effects.flowLane.offset.x = -t * 0.18;
   for (const model of workshop.devices.values()) {
-    const { ring, halo, phase } = model.userData;
-    if (ring) ring.material.opacity = 0.3 + 0.2 * (Math.sin(t * 2.2 + phase) * 0.5 + 0.5);
+    advanceDeviceMotion(model, time, reducedMotion);
+    const { ring, halo, phase, spindle, toolHead, workpiece, running, alarm } = model.userData;
+    if (running && !reducedMotion && spindle) {
+      model.userData.machiningTime += dt;
+      spindle.rotation.y += dt * 12;
+      toolHead.position.x = Math.sin(model.userData.machiningTime * 0.8 + phase) * 0.13;
+      workpiece.position.z = Math.sin(model.userData.machiningTime * 0.6 + phase) * 0.08;
+    }
+    if (ring) ring.material.opacity = reducedMotion ? 0.3 : 0.2 + 0.12 * (Math.sin(t * 2.2 + phase) * 0.5 + 0.5);
+    model.userData.beacon.material.emissiveIntensity = alarm && !reducedMotion ? 0.7 + 1.2 * (Math.sin(t * 5) * 0.5 + 0.5) : 0.65;
     if (halo) {
-      const s = 1 + 0.18 * Math.sin(t * 3 + phase);
+      const s = reducedMotion ? 1 : 1 + 0.12 * Math.sin(t * 3 + phase);
       halo.scale.setScalar(s);
-      halo.material.opacity = 0.15 + 0.12 * (Math.sin(t * 3 + phase) * 0.5 + 0.5);
+      halo.material.opacity = alarm ? 0.2 : 0.06;
     }
   }
 }
